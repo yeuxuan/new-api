@@ -519,9 +519,17 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 			if geminiReq, ok := relayInfo.Request.(*dto.GeminiChatRequest); ok {
 				messagesJson, marshalErr = common.Marshal(geminiReq.Contents)
 			}
+		case relayconstant.RelayModeCompletions:
+			if textReq, ok := relayInfo.Request.(*dto.GeneralOpenAIRequest); ok && textReq.Prompt != nil {
+				messagesJson, marshalErr = common.Marshal(textReq.Prompt)
+			}
 		case relayconstant.RelayModeResponses:
 			if responsesReq, ok := relayInfo.Request.(*dto.OpenAIResponsesRequest); ok && responsesReq.Input != nil {
 				messagesJson = responsesReq.Input
+			}
+		case relayconstant.RelayModeResponsesCompact:
+			if compactReq, ok := relayInfo.Request.(*dto.OpenAIResponsesCompactionRequest); ok && compactReq.Input != nil {
+				messagesJson = compactReq.Input
 			}
 		}
 		if marshalErr == nil && len(messagesJson) > 0 {

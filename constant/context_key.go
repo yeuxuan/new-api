@@ -65,4 +65,7 @@ const (
 
 	// ContextKeyLanguage stores the user's language preference for i18n
 	ContextKeyLanguage ContextKey = "language"
+
+	// ContextKeyResponseContent stores the assistant response text for conversation logging
+	ContextKeyResponseContent ContextKey = "response_content"
 )

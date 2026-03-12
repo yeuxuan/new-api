@@ -505,4 +505,35 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
 	})
+
+	if common.ConversationLogEnabled {
+		responseContent := common.GetContextKeyString(ctx, constant.ContextKeyResponseContent)
+		var messagesJson []byte
+		var marshalErr error
+		switch relayInfo.RelayMode {
+		case relayconstant.RelayModeChatCompletions:
+			if textReq, ok := relayInfo.Request.(*dto.GeneralOpenAIRequest); ok {
+				messagesJson, marshalErr = common.Marshal(textReq.Messages)
+			}
+		case relayconstant.RelayModeGemini:
+			if geminiReq, ok := relayInfo.Request.(*dto.GeminiChatRequest); ok {
+				messagesJson, marshalErr = common.Marshal(geminiReq.Contents)
+			}
+		}
+		if marshalErr == nil && len(messagesJson) > 0 {
+			model.EnqueueConversationLog(&model.ConversationLog{
+				RequestId: relayInfo.RequestId,
+				UserId:    relayInfo.UserId,
+				Username:  ctx.GetString("username"),
+				TokenId:   relayInfo.TokenId,
+				TokenName: tokenName,
+				ModelName: modelName,
+				ChannelId: relayInfo.ChannelId,
+				CreatedAt: common.GetTimestamp(),
+				Messages:  string(messagesJson),
+				Response:  responseContent,
+				Ip:        ctx.ClientIP(),
+			})
+		}
+	}
 }

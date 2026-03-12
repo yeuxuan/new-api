@@ -285,6 +285,11 @@ func InitResources() error {
 		return err
 	}
 
+	// Start conversation log async worker (after DB is ready)
+	if common.ConversationLogEnabled {
+		model.StartConversationLogWorker()
+	}
+
 	// Initialize Redis
 	err = common.InitRedisClient()
 	if err != nil {

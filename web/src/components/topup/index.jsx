@@ -579,8 +579,9 @@ const TopUp = () => {
       if (res !== undefined) {
         const { message, data } = res.data;
         if (message === 'success') {
-          setAmount(parseFloat(data));
-          setTopupGroupRatio(res.data.group_ratio || 1.0);
+          const groupRatio = res.data.group_ratio || 1.0;
+          setTopupGroupRatio(groupRatio);
+          setAmount(parseFloat(data) / groupRatio);
         } else {
           setAmount(0);
           Toast.error({ content: '错误：' + data, id: 'getAmount' });
@@ -606,8 +607,9 @@ const TopUp = () => {
       if (res !== undefined) {
         const { message, data } = res.data;
         if (message === 'success') {
-          setAmount(parseFloat(data));
-          setTopupGroupRatio(res.data.group_ratio || 1.0);
+          const groupRatio = res.data.group_ratio || 1.0;
+          setTopupGroupRatio(groupRatio);
+          setAmount(parseFloat(data) / groupRatio);
         } else {
           setAmount(0);
           Toast.error({ content: '错误：' + data, id: 'getAmount' });

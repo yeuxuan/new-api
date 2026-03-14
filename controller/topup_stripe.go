@@ -334,6 +334,10 @@ func getStripePayMoney(amount float64, group string) float64 {
 		amount = amount / common.QuotaPerUnit
 	}
 	// Using float64 for monetary calculations is acceptable here due to the small amounts involved
+	topupGroupRatio := common.GetTopupGroupRatio(group)
+	if topupGroupRatio == 0 {
+		topupGroupRatio = 1
+	}
 	// apply optional preset discount by the original request amount (if configured), default 1.0
 	discount := 1.0
 	if ds, ok := operation_setting.GetPaymentSetting().AmountDiscount[int(originalAmount)]; ok {
@@ -341,7 +345,7 @@ func getStripePayMoney(amount float64, group string) float64 {
 			discount = ds
 		}
 	}
-	payMoney := amount * setting.StripeUnitPrice * discount
+	payMoney := amount * setting.StripeUnitPrice * topupGroupRatio * discount
 	return payMoney
 }
 

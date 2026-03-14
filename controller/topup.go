@@ -330,12 +330,27 @@ func RequestAmount(c *gin.Context) {
 		c.JSON(200, gin.H{"message": "error", "data": "获取用户分组失败"})
 		return
 	}
-	payMoney := getPayMoney(req.Amount, group)
+	// 预览金额不含分组充值倍率，仅用于前端显示
+	dAmount := decimal.NewFromInt(req.Amount)
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+		dAmount = dAmount.Div(decimal.NewFromFloat(common.QuotaPerUnit))
+	}
+	discount := 1.0
+	if ds, ok := operation_setting.GetPaymentSetting().AmountDiscount[int(req.Amount)]; ok {
+		if ds > 0 {
+			discount = ds
+		}
+	}
+	payMoney := dAmount.Mul(decimal.NewFromFloat(operation_setting.Price)).Mul(decimal.NewFromFloat(discount)).InexactFloat64()
 	if payMoney <= 0.01 {
 		c.JSON(200, gin.H{"message": "error", "data": "充值金额过低"})
 		return
 	}
-	c.JSON(200, gin.H{"message": "success", "data": strconv.FormatFloat(payMoney, 'f', 2, 64)})
+	topupGroupRatio := common.GetTopupGroupRatio(group)
+	if topupGroupRatio == 0 {
+		topupGroupRatio = 1
+	}
+	c.JSON(200, gin.H{"message": "success", "data": strconv.FormatFloat(payMoney, 'f', 2, 64), "group_ratio": topupGroupRatio})
 }
 
 func GetUserTopUps(c *gin.Context) {

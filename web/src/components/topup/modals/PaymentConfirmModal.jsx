@@ -39,6 +39,7 @@ const PaymentConfirmModal = ({
   // 新增：用于显示折扣明细
   amountNumber,
   discountRate,
+  topupGroupRatio,
 }) => {
   const hasDiscount =
     discountRate && discountRate > 0 && discountRate < 1 && amountNumber > 0;
@@ -71,6 +72,16 @@ const PaymentConfirmModal = ({
                 {renderQuotaWithAmount(topUpCount)}
               </Text>
             </div>
+            {topupGroupRatio && topupGroupRatio !== 1 && (
+              <div className='flex justify-between items-center'>
+                <Text strong className='text-slate-700 dark:text-slate-200'>
+                  {t('实际到账')}：
+                </Text>
+                <Text strong className='text-emerald-600 dark:text-emerald-400'>
+                  {renderQuotaWithAmount(topUpCount * topupGroupRatio)}
+                </Text>
+              </div>
+            )}
             <div className='flex justify-between items-center'>
               <Text strong className='text-slate-700 dark:text-slate-200'>
                 {t('实付金额')}：

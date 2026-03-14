@@ -46,6 +46,7 @@ const TopUp = () => {
 
   const [redemptionCode, setRedemptionCode] = useState('');
   const [amount, setAmount] = useState(0.0);
+  const [topupGroupRatio, setTopupGroupRatio] = useState(1.0);
   const [minTopUp, setMinTopUp] = useState(statusState?.status?.min_topup || 1);
   const [topUpCount, setTopUpCount] = useState(
     statusState?.status?.min_topup || 1,
@@ -579,6 +580,7 @@ const TopUp = () => {
         const { message, data } = res.data;
         if (message === 'success') {
           setAmount(parseFloat(data));
+          setTopupGroupRatio(res.data.group_ratio || 1.0);
         } else {
           setAmount(0);
           Toast.error({ content: '错误：' + data, id: 'getAmount' });
@@ -605,6 +607,7 @@ const TopUp = () => {
         const { message, data } = res.data;
         if (message === 'success') {
           setAmount(parseFloat(data));
+          setTopupGroupRatio(res.data.group_ratio || 1.0);
         } else {
           setAmount(0);
           Toast.error({ content: '错误：' + data, id: 'getAmount' });
@@ -694,6 +697,7 @@ const TopUp = () => {
         payMethods={payMethods}
         amountNumber={amount}
         discountRate={topupInfo?.discount?.[topUpCount] || 1.0}
+        topupGroupRatio={topupGroupRatio}
       />
 
       {/* 充值账单模态框 */}

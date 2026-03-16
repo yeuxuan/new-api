@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Avatar,
   Typography,
   Tag,
   Card,
@@ -44,6 +43,10 @@ import {
   TrendingUp,
   Receipt,
   Sparkles,
+  Flame,
+  ArrowDown,
+  Gift,
+  Zap,
 } from 'lucide-react';
 import { IconGift } from '@douyinfe/semi-icons';
 import { useMinimumLoadingTime } from '../../hooks/common/useMinimumLoadingTime';
@@ -86,6 +89,7 @@ const RechargeCard = ({
   renderQuota,
   statusLoading,
   topupInfo,
+  topupGroupRatio = 1,
   onOpenHistory,
   subscriptionLoading = false,
   subscriptionPlans = [],
@@ -116,110 +120,135 @@ const RechargeCard = ({
     }
   }, [shouldShowSubscription, activeTab]);
   const topupContent = (
-    <Space vertical style={{ width: '100%' }}>
-      {/* 统计数据 */}
-      <Card
-        className='!rounded-xl w-full'
-        cover={
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%' }}>
+      {/* 统计数据 Banner */}
+      <div
+        style={{
+          borderRadius: 16,
+          overflow: 'hidden',
+          background: 'linear-gradient(135deg, #1a56db 0%, #0e3fa8 60%, #092a80 100%)',
+          position: 'relative',
+        }}
+      >
+        {/* 装饰纹理 */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            backgroundImage: `url('/cover-4.webp')`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            opacity: 0.12,
+          }}
+        />
+        {/* 右侧大圆装饰 */}
+        <div
+          style={{
+            position: 'absolute',
+            right: -40,
+            top: -40,
+            width: 160,
+            height: 160,
+            borderRadius: '50%',
+            background: 'rgba(255,255,255,0.06)',
+            pointerEvents: 'none',
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            right: 40,
+            bottom: -30,
+            width: 100,
+            height: 100,
+            borderRadius: '50%',
+            background: 'rgba(255,255,255,0.04)',
+            pointerEvents: 'none',
+          }}
+        />
+
+        <div style={{ position: 'relative', padding: '20px 24px 20px' }}>
           <div
-            className='relative h-30'
             style={{
-              '--palette-primary-darkerChannel': '37 99 235',
-              backgroundImage: `linear-gradient(0deg, rgba(var(--palette-primary-darkerChannel) / 80%), rgba(var(--palette-primary-darkerChannel) / 80%)), url('/cover-4.webp')`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-              backgroundRepeat: 'no-repeat',
+              fontSize: 11,
+              fontWeight: 700,
+              color: 'rgba(255,255,255,0.55)',
+              letterSpacing: 1.5,
+              textTransform: 'uppercase',
+              marginBottom: 16,
             }}
           >
-            <div className='relative z-10 h-full flex flex-col justify-between p-4'>
-              <div className='flex justify-between items-center'>
-                <Text strong style={{ color: 'white', fontSize: '16px' }}>
-                  {t('账户统计')}
-                </Text>
-              </div>
-
-              {/* 统计数据 */}
-              <div className='grid grid-cols-3 gap-6 mt-4'>
-                {/* 当前余额 */}
-                <div className='text-center'>
-                  <div
-                    className='text-base sm:text-2xl font-bold mb-2'
-                    style={{ color: 'white' }}
-                  >
-                    {renderQuota(userState?.user?.quota)}
-                  </div>
-                  <div className='flex items-center justify-center text-sm'>
-                    <Wallet
-                      size={14}
-                      className='mr-1'
-                      style={{ color: 'rgba(255,255,255,0.8)' }}
-                    />
-                    <Text
-                      style={{
-                        color: 'rgba(255,255,255,0.8)',
-                        fontSize: '12px',
-                      }}
-                    >
-                      {t('当前余额')}
-                    </Text>
-                  </div>
-                </div>
-
-                {/* 历史消耗 */}
-                <div className='text-center'>
-                  <div
-                    className='text-base sm:text-2xl font-bold mb-2'
-                    style={{ color: 'white' }}
-                  >
-                    {renderQuota(userState?.user?.used_quota)}
-                  </div>
-                  <div className='flex items-center justify-center text-sm'>
-                    <TrendingUp
-                      size={14}
-                      className='mr-1'
-                      style={{ color: 'rgba(255,255,255,0.8)' }}
-                    />
-                    <Text
-                      style={{
-                        color: 'rgba(255,255,255,0.8)',
-                        fontSize: '12px',
-                      }}
-                    >
-                      {t('历史消耗')}
-                    </Text>
-                  </div>
-                </div>
-
-                {/* 请求次数 */}
-                <div className='text-center'>
-                  <div
-                    className='text-base sm:text-2xl font-bold mb-2'
-                    style={{ color: 'white' }}
-                  >
-                    {userState?.user?.request_count || 0}
-                  </div>
-                  <div className='flex items-center justify-center text-sm'>
-                    <BarChart2
-                      size={14}
-                      className='mr-1'
-                      style={{ color: 'rgba(255,255,255,0.8)' }}
-                    />
-                    <Text
-                      style={{
-                        color: 'rgba(255,255,255,0.8)',
-                        fontSize: '12px',
-                      }}
-                    >
-                      {t('请求次数')}
-                    </Text>
-                  </div>
-                </div>
-              </div>
-            </div>
+            {t('账户统计')}
           </div>
-        }
-      >
-        {/* 在线充值表单 */}
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: 8,
+            }}
+          >
+            {[
+              {
+                icon: <Wallet size={13} />,
+                label: t('当前余额'),
+                value: renderQuota(userState?.user?.quota),
+              },
+              {
+                icon: <TrendingUp size={13} />,
+                label: t('历史消耗'),
+                value: renderQuota(userState?.user?.used_quota),
+              },
+              {
+                icon: <BarChart2 size={13} />,
+                label: t('请求次数'),
+                value: userState?.user?.request_count || 0,
+              },
+            ].map((item, i) => (
+              <div
+                key={i}
+                style={{
+                  background: 'rgba(255,255,255,0.1)',
+                  borderRadius: 10,
+                  padding: '10px 8px',
+                  backdropFilter: 'blur(4px)',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  textAlign: 'center',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 'clamp(14px, 3vw, 20px)',
+                    fontWeight: 800,
+                    color: '#fff',
+                    lineHeight: 1.2,
+                    marginBottom: 6,
+                    letterSpacing: -0.5,
+                  }}
+                >
+                  {item.value}
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 3,
+                    color: 'rgba(255,255,255,0.65)',
+                    fontSize: 11,
+                  }}
+                >
+                  {item.icon}
+                  {item.label}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* 在线充值表单 */}
+      <Card className='!rounded-xl w-full' bodyStyle={{ padding: '16px 20px' }}>
         {statusLoading ? (
           <div className='py-8 flex justify-center'>
             <Spin size='large' />
@@ -386,7 +415,24 @@ const RechargeCard = ({
                     </div>
                   }
                 >
-                  <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2'>
+                  {(() => {
+                    const { symbol, rate, type } = getCurrencyConfig();
+                    let usdRate = 7;
+                    try {
+                      const s = JSON.parse(localStorage.getItem('status') || '{}');
+                      usdRate = s?.usd_exchange_rate || 7;
+                    } catch (e) {}
+                    const snapToInt = (val) => {
+                      const rounded = Math.round(val);
+                      return rounded > 0 &&
+                        Math.abs(val - rounded) / rounded <= 0.03
+                        ? rounded
+                        : parseFloat(val.toFixed(2));
+                    };
+                    const hotIndex =
+                      presetAmounts.length >= 3 ? 2 : -1;
+                    return (
+                  <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3'>
                     {presetAmounts.map((preset, index) => {
                       const discount =
                         preset.discount || topupInfo?.discount?.[preset.value] || 1.0;
@@ -396,48 +442,40 @@ const RechargeCard = ({
                       const actualPay = discountedPrice;
                       const save = originalPrice - discountedPrice;
 
-                      // 根据当前货币类型换算显示金额和数量
-                      const { symbol, rate, type } = getCurrencyConfig();
-                      const statusStr = localStorage.getItem('status');
-                      let usdRate = 7; // 默认CNY汇率
-                      try {
-                        if (statusStr) {
-                          const s = JSON.parse(statusStr);
-                          usdRate = s?.usd_exchange_rate || 7;
-                        }
-                      } catch (e) { }
-
-                      let displayValue = preset.value; // 显示的数量
+                      let displayValue = preset.value;
                       let displayActualPay = actualPay;
                       let displaySave = save;
 
                       if (type === 'USD') {
-                        // 数量保持USD，价格从CNY转USD
                         displayActualPay = actualPay / usdRate;
                         displaySave = save / usdRate;
                       } else if (type === 'CNY') {
-                        // 数量转CNY，价格已是CNY
                         displayValue = preset.value * usdRate;
                       } else if (type === 'CUSTOM') {
-                        // 数量和价格都转自定义货币
                         displayValue = preset.value * rate;
                         displayActualPay = (actualPay / usdRate) * rate;
                         displaySave = (save / usdRate) * rate;
                       }
 
+                      displayActualPay = snapToInt(displayActualPay);
+                      displaySave = snapToInt(displaySave);
+                      displayValue = snapToInt(
+                        displayValue * (topupGroupRatio || 1),
+                      );
+
+                      const snappedMultiplier = snapToInt(
+                        displayActualPay > 0 ? displayValue / displayActualPay : 0,
+                      );
+                      const multiplierText = Number.isInteger(snappedMultiplier)
+                        ? snappedMultiplier
+                        : snappedMultiplier.toFixed(1);
+                      const showMultiplier = snappedMultiplier >= 1.05;
+                      const isSelected = selectedPreset === preset.value;
+                      const isHot = index === hotIndex;
+
                       return (
-                        <Card
+                        <div
                           key={index}
-                          style={{
-                            cursor: 'pointer',
-                            border:
-                              selectedPreset === preset.value
-                                ? '2px solid var(--semi-color-primary)'
-                                : '1px solid var(--semi-color-border)',
-                            height: '100%',
-                            width: '100%',
-                          }}
-                          bodyStyle={{ padding: '12px' }}
                           onClick={() => {
                             selectPresetAmount(preset);
                             onlineFormApiRef.current?.setValue(
@@ -445,41 +483,231 @@ const RechargeCard = ({
                               preset.value,
                             );
                           }}
+                          style={{
+                            position: 'relative',
+                            cursor: 'pointer',
+                            borderRadius: 16,
+                            overflow: 'visible',
+                            transition: 'transform 0.18s ease',
+                          }}
+                          onMouseEnter={(e) =>
+                            (e.currentTarget.style.transform = 'translateY(-2px)')
+                          }
+                          onMouseLeave={(e) =>
+                            (e.currentTarget.style.transform = 'translateY(0)')
+                          }
                         >
-                          <div style={{ textAlign: 'center' }}>
-                            <Typography.Title
-                              heading={6}
-                              style={{ margin: '0 0 8px 0' }}
-                            >
-                              <Coins size={18} />
-                              {formatLargeNumber(displayValue)} {symbol}
-                              {hasDiscount && (
-                                <Tag style={{ marginLeft: 4 }} color='green'>
-                                  {t('折').includes('off')
-                                    ? ((1 - parseFloat(discount)) * 100).toFixed(1)
-                                    : (discount * 10).toFixed(1)}
-                                  {t('折')}
-                                </Tag>
-                              )}
-                            </Typography.Title>
+                          {/* 热销角标 */}
+                          {isHot && (
                             <div
                               style={{
-                                color: 'var(--semi-color-text-2)',
-                                fontSize: '12px',
-                                margin: '4px 0',
+                                position: 'absolute',
+                                top: -10,
+                                right: -6,
+                                zIndex: 10,
+                                background:
+                                  'linear-gradient(135deg, #ff6b35, #f7931e)',
+                                color: '#fff',
+                                fontSize: 10,
+                                fontWeight: 800,
+                                padding: '2px 7px 2px 5px',
+                                borderRadius: '10px 10px 10px 2px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 2,
+                                boxShadow: '0 2px 8px rgba(255,107,53,0.45)',
+                                letterSpacing: 0.3,
                               }}
                             >
-                              {t('实付')} {symbol}
-                              {displayActualPay.toFixed(2)}，
-                              {hasDiscount
-                                ? `${t('节省')} ${symbol}${displaySave.toFixed(2)}`
-                                : `${t('节省')} ${symbol}0.00`}
+                              <Flame size={9} />
+                              {t('热门')}
                             </div>
+                          )}
+
+                          {/* 卡片主体 */}
+                          <div
+                            style={{
+                              borderRadius: 16,
+                              border: isSelected
+                                ? '2px solid var(--semi-color-primary)'
+                                : '1.5px solid var(--semi-color-border)',
+                              background: isSelected
+                                ? 'var(--semi-color-primary-light-default)'
+                                : 'var(--semi-color-bg-2)',
+                              padding: '14px 10px 12px',
+                              textAlign: 'center',
+                              transition:
+                                'border-color 0.18s, background 0.18s, box-shadow 0.18s',
+                              boxShadow: isSelected
+                                ? '0 0 0 3px var(--semi-color-primary-light-hover), 0 4px 16px rgba(0,0,0,0.08)'
+                                : '0 1px 4px rgba(0,0,0,0.06)',
+                            }}
+                          >
+                            {/* 倍率徽章 */}
+                            {showMultiplier && (
+                              <div
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 3,
+                                  background: isSelected
+                                    ? 'var(--semi-color-primary)'
+                                    : 'var(--semi-color-primary-light-hover)',
+                                  color: isSelected
+                                    ? '#fff'
+                                    : 'var(--semi-color-primary)',
+                                  padding: '2px 9px',
+                                  borderRadius: 20,
+                                  fontSize: 11,
+                                  fontWeight: 800,
+                                  marginBottom: 10,
+                                  letterSpacing: 0.2,
+                                  transition: 'background 0.18s, color 0.18s',
+                                }}
+                              >
+                                <Zap size={10} />
+                                {multiplierText}x&nbsp;{t('充值倍率')}
+                              </div>
+                            )}
+
+                            {/* 实付金额行 */}
+                            <div
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 600,
+                                color: 'var(--semi-color-text-2)',
+                                textTransform: 'uppercase',
+                                letterSpacing: 0.8,
+                                marginBottom: 2,
+                              }}
+                            >
+                              {t('实付金额')}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 20,
+                                fontWeight: 800,
+                                color: isSelected
+                                  ? 'var(--semi-color-primary)'
+                                  : 'var(--semi-color-text-0)',
+                                lineHeight: 1.2,
+                                letterSpacing: -0.5,
+                                transition: 'color 0.18s',
+                              }}
+                            >
+                              {symbol}
+                              {Number.isInteger(displayActualPay)
+                                ? displayActualPay
+                                : displayActualPay.toFixed(2)}
+                            </div>
+
+                            {/* 箭头分隔 */}
+                            <div
+                              style={{
+                                margin: '7px 0 5px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 4,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  flex: 1,
+                                  height: 1,
+                                  background:
+                                    'var(--semi-color-border)',
+                                  borderRadius: 1,
+                                }}
+                              />
+                              <ArrowDown
+                                size={12}
+                                style={{
+                                  color: isSelected
+                                    ? 'var(--semi-color-primary)'
+                                    : 'var(--semi-color-text-3)',
+                                  flexShrink: 0,
+                                  transition: 'color 0.18s',
+                                }}
+                              />
+                              <div
+                                style={{
+                                  flex: 1,
+                                  height: 1,
+                                  background: 'var(--semi-color-border)',
+                                  borderRadius: 1,
+                                }}
+                              />
+                            </div>
+
+                            {/* 平台到账行 */}
+                            <div
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 600,
+                                color: 'var(--semi-color-text-2)',
+                                textTransform: 'uppercase',
+                                letterSpacing: 0.8,
+                                marginBottom: 3,
+                              }}
+                            >
+                              {t('平台到账')}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 24,
+                                fontWeight: 900,
+                                color: 'var(--semi-color-primary)',
+                                lineHeight: 1.1,
+                                letterSpacing: -1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 3,
+                              }}
+                            >
+                              <Coins size={15} style={{ flexShrink: 0 }} />
+                              {formatLargeNumber(displayValue)}&nbsp;{symbol}
+                            </div>
+
+                            {/* 折扣标签 */}
+                            {hasDiscount && (
+                              <div
+                                style={{
+                                  marginTop: 8,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: 5,
+                                  flexWrap: 'wrap',
+                                }}
+                              >
+                                <Tag color='green' size='small' style={{ fontWeight: 700 }}>
+                                  {t('折').includes('off')
+                                    ? `${((1 - parseFloat(discount)) * 100).toFixed(0)}% off`
+                                    : `${(discount * 10).toFixed(1)}${t('折')}`}
+                                </Tag>
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    color: 'var(--semi-color-success)',
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  -{symbol}
+                                  {Number.isInteger(displaySave)
+                                    ? displaySave
+                                    : displaySave.toFixed(2)}
+                                </span>
+                              </div>
+                            )}
                           </div>
-                        </Card>
+                        </div>
                       );
                     })}
                   </div>
+                    );
+                  })()}
                 </Form.Slot>
               )}
 
@@ -524,14 +752,28 @@ const RechargeCard = ({
       </Card>
 
       {/* 兑换码充值 */}
-      <Card
-        className='!rounded-xl w-full'
-        title={
-          <Text type='tertiary' strong>
-            {t('兑换码充值')}
-          </Text>
-        }
+      <div
+        style={{
+          borderRadius: 14,
+          border: '1.5px dashed var(--semi-color-border)',
+          background: 'var(--semi-color-bg-1)',
+          padding: '16px 20px',
+        }}
       >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            marginBottom: 12,
+            fontSize: 13,
+            fontWeight: 700,
+            color: 'var(--semi-color-text-1)',
+          }}
+        >
+          <Gift size={14} style={{ color: 'var(--semi-color-primary)' }} />
+          {t('兑换码充值')}
+        </div>
         <Form
           getFormApi={(api) => (redeemFormApiRef.current = api)}
           initValues={{ redemptionCode: redemptionCode }}
@@ -574,29 +816,44 @@ const RechargeCard = ({
             }
           />
         </Form>
-      </Card>
-    </Space>
+      </div>
+    </div>
   );
 
   return (
     <Card className='!rounded-2xl shadow-sm border-0'>
       {/* 卡片头部 */}
       <div className='flex items-center justify-between mb-4'>
-        <div className='flex items-center'>
-          <Avatar size='small' color='blue' className='mr-3 shadow-md'>
-            <CreditCard size={16} />
-          </Avatar>
+        <div className='flex items-center gap-3'>
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              background: 'linear-gradient(135deg, #1a56db, #0e3fa8)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 2px 8px rgba(26,86,219,0.35)',
+            }}
+          >
+            <CreditCard size={16} color='#fff' />
+          </div>
           <div>
-            <Typography.Text className='text-lg font-medium'>
+            <Typography.Text strong style={{ fontSize: 15 }}>
               {t('账户充值')}
             </Typography.Text>
-            <div className='text-xs'>{t('多种充值方式，安全便捷')}</div>
+            <div style={{ fontSize: 11, color: 'var(--semi-color-text-2)', marginTop: 1 }}>
+              {t('多种充值方式，安全便捷')}
+            </div>
           </div>
         </div>
         <Button
-          icon={<Receipt size={16} />}
-          theme='solid'
+          icon={<Receipt size={15} />}
+          theme='light'
+          type='tertiary'
           onClick={onOpenHistory}
+          style={{ borderRadius: 8 }}
         >
           {t('账单')}
         </Button>

@@ -790,6 +790,7 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 	}
 
 	HandleStreamFinalResponse(c, info, claudeInfo)
+	common.SetContextKey(c, constant.ContextKeyResponseContent, claudeInfo.ResponseText.String())
 	return claudeInfo.Usage, nil
 }
 
@@ -856,6 +857,17 @@ func ClaudeHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 	handleErr := HandleClaudeResponseData(c, info, claudeInfo, resp, responseBody)
 	if handleErr != nil {
 		return nil, handleErr
+	}
+	var claudeResp dto.ClaudeResponse
+	if jsonErr := common.Unmarshal(responseBody, &claudeResp); jsonErr == nil {
+		var responseText string
+		for _, content := range claudeResp.Content {
+			if content.Type == "text" {
+				responseText = content.GetText()
+				break
+			}
+		}
+		common.SetContextKey(c, constant.ContextKeyResponseContent, responseText)
 	}
 	return claudeInfo.Usage, nil
 }

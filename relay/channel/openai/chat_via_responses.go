@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -87,6 +88,11 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)
+
+	if len(chatResp.Choices) > 0 {
+		common.SetContextKey(c, constant.ContextKeyResponseContent, chatResp.Choices[0].Message.StringContent())
+	}
+
 	return usage, nil
 }
 
@@ -535,5 +541,8 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	if info.RelayFormat == types.RelayFormatOpenAI {
 		helper.Done(c)
 	}
+
+	common.SetContextKey(c, constant.ContextKeyResponseContent, outputText.String())
+
 	return usage, nil
 }

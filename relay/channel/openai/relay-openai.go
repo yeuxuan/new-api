@@ -12,7 +12,6 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 
@@ -191,10 +190,6 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
-	if info.RelayMode == relayconstant.RelayModeChatCompletions {
-		common.SetContextKey(c, constant.ContextKeyResponseContent, responseTextBuilder.String())
-	}
-
 	return usage, nil
 }
 
@@ -301,10 +296,6 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)
-
-	if info.RelayMode == relayconstant.RelayModeChatCompletions && len(simpleResponse.Choices) > 0 {
-		common.SetContextKey(c, constant.ContextKeyResponseContent, simpleResponse.Choices[0].Message.StringContent())
-	}
 
 	return &simpleResponse.Usage, nil
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/claude"
@@ -249,6 +250,7 @@ func awsHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (*types
 	if handlerErr != nil {
 		return handlerErr, nil
 	}
+	common.SetContextKey(c, constant.ContextKeyResponseContent, claudeInfo.ResponseText.String())
 	return nil, claudeInfo.Usage
 }
 
@@ -290,6 +292,7 @@ func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (
 	}
 
 	claude.HandleStreamFinalResponse(c, info, claudeInfo)
+	common.SetContextKey(c, constant.ContextKeyResponseContent, claudeInfo.ResponseText.String())
 	return nil, claudeInfo.Usage
 }
 

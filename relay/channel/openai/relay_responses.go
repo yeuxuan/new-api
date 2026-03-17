@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -42,6 +43,17 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 
 	// 写入新的 response body
 	service.IOCopyBytesGracefully(c, resp, responseBody)
+
+	// capture response text for conversation logging
+	var responseText strings.Builder
+	for _, output := range responsesResponse.Output {
+		for _, content := range output.Content {
+			if content.Text != "" {
+				responseText.WriteString(content.Text)
+			}
+		}
+	}
+	common.SetContextKey(c, constant.ContextKeyResponseContent, responseText.String())
 
 	// compute usage
 	usage := dto.Usage{}
@@ -145,6 +157,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+
+	common.SetContextKey(c, constant.ContextKeyResponseContent, responseTextBuilder.String())
 
 	return usage, nil
 }

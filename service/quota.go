@@ -335,27 +335,6 @@ func PostClaudeConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, 
 		Other:            other,
 	})
 
-	if common.ConversationLogEnabled {
-		if claudeReq, ok := relayInfo.Request.(*dto.ClaudeRequest); ok {
-			responseContent := common.GetContextKeyString(ctx, constant.ContextKeyResponseContent)
-			if messagesJson, err := common.Marshal(claudeReq.Messages); err == nil {
-				model.EnqueueConversationLog(&model.ConversationLog{
-					RequestId: relayInfo.RequestId,
-					UserId:    relayInfo.UserId,
-					Username:  ctx.GetString("username"),
-					TokenId:   relayInfo.TokenId,
-					TokenName: tokenName,
-					ModelName: modelName,
-					ChannelId: relayInfo.ChannelId,
-					CreatedAt: common.GetTimestamp(),
-					Messages:  string(messagesJson),
-					Response:  responseContent,
-					Ip:        ctx.ClientIP(),
-				})
-			}
-		}
-	}
-
 }
 
 func CalcOpenRouterCacheCreateTokens(usage dto.Usage, priceData types.PriceData) int {

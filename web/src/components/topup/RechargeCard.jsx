@@ -443,25 +443,22 @@ const RechargeCard = ({
                       const save = originalPrice - discountedPrice;
 
                       let displayValue = preset.value;
-                      let displayActualPay = actualPay;
-                      let displaySave = save;
+                      let displayActualPay = preset.value * discount; // 实付 = 面值（整数）
+                      let displaySave = preset.value - displayActualPay;
 
-                      if (type === 'USD') {
-                        displayActualPay = actualPay / usdRate;
-                        displaySave = save / usdRate;
-                      } else if (type === 'CNY') {
+                      if (type === 'CNY') {
                         displayValue = preset.value * usdRate;
+                        displaySave = displaySave * usdRate;
+                        displayActualPay = preset.value * discount * usdRate;
                       } else if (type === 'CUSTOM') {
                         displayValue = preset.value * rate;
-                        displayActualPay = (actualPay / usdRate) * rate;
-                        displaySave = (save / usdRate) * rate;
+                        displayActualPay = preset.value * discount * rate;
+                        displaySave = displaySave * rate;
                       }
 
                       displayActualPay = snapToInt(displayActualPay);
                       displaySave = snapToInt(displaySave);
-                      displayValue = snapToInt(
-                        displayValue * (topupGroupRatio || 1),
-                      );
+                      displayValue = snapToInt(displayValue * (topupGroupRatio || 1));
 
                       const snappedMultiplier = snapToInt(
                         displayActualPay > 0 ? displayValue / displayActualPay : 0,

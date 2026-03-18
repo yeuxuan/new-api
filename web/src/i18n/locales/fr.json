@@ -1162,6 +1162,7 @@
     "已启用 Passkey，无需密码即可登录": "Passkey activé. Connexion sans mot de passe disponible.",
     "已启用所有密钥": "Toutes les clés ont été activées",
     "已在自定义模式中忽略": "Ignoré en mode personnalisé",
+    "该分组为 Claude Code 专用分组，在操练场中使用将无法正常返回！": "Ce groupe est dédié à Claude Code. L'utiliser dans le Playground ne fonctionnera pas correctement !",
     "已填充提示模板": "",
     "已填充模版": "",
     "已填充策略模板": "",

@@ -1150,6 +1150,7 @@
     "已启用 Passkey，无需密码即可登录": "Đã bật Passkey, đăng nhập không cần mật khẩu",
     "已启用所有密钥": "Tất cả các khóa đã được bật",
     "已在自定义模式中忽略": "Bị bỏ qua trong chế độ tùy chỉnh",
+    "该分组为 Claude Code 专用分组，在操练场中使用将无法正常返回！": "Nhóm này dành riêng cho Claude Code. Sử dụng trong Playground sẽ không hoạt động bình thường!",
     "已填充提示模板": "",
     "已填充模版": "",
     "已填充策略模板": "",

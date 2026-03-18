@@ -150,7 +150,14 @@ const SettingsPanel = ({
             className='!rounded-lg'
             disabled={customRequestMode}
           />
-          {inputs.group && /claude\s*code/i.test(inputs.group) && (
+          {inputs.group &&
+            (() => {
+              const selectedGroup = groups.find(
+                (g) => g.value === inputs.group,
+              );
+              const labelToCheck = selectedGroup?.fullLabel || selectedGroup?.label || '';
+              return /claude\s*code/i.test(inputs.group) || /claude\s*code/i.test(labelToCheck);
+            })() && (
             <Banner
               type='warning'
               description={t(

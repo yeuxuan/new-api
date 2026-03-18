@@ -1186,6 +1186,7 @@
     "已启用 Passkey，无需密码即可登录": "Passkey enabled, login without password",
     "已启用所有密钥": "All keys have been enabled",
     "已在自定义模式中忽略": "Ignored in custom mode",
+    "该分组为 Claude Code 专用分组，在操练场中使用将无法正常返回！": "This group is dedicated to Claude Code. Using it in the Playground will not work properly!",
     "已填充提示模板": "",
     "已填充模版": "",
     "已填充策略模板": "",

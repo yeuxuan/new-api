@@ -18,7 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
-import { Card, Select, Typography, Button, Switch } from '@douyinfe/semi-ui';
+import {
+  Banner,
+  Button,
+  Card,
+  Select,
+  Switch,
+  Typography,
+} from '@douyinfe/semi-ui';
 import { Sparkles, Users, ToggleLeft, X, Settings } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { renderGroupOption, selectFilter } from '../../helpers';
@@ -143,6 +150,15 @@ const SettingsPanel = ({
             className='!rounded-lg'
             disabled={customRequestMode}
           />
+          {inputs.group && /claude\s*code/i.test(inputs.group) && (
+            <Banner
+              type='warning'
+              description={t(
+                '该分组为 Claude Code 专用分组，在操练场中使用将无法正常返回！',
+              )}
+              className='mt-2 !rounded-lg'
+            />
+          )}
         </div>
 
         {/* 模型选择 */}

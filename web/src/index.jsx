@@ -56,22 +56,20 @@ function SemiLocaleWrapper({ children }) {
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
-  <React.StrictMode>
-    <StatusProvider>
-      <UserProvider>
-        <BrowserRouter
-          future={{
-            v7_startTransition: true,
-            v7_relativeSplatPath: true,
-          }}
-        >
-          <ThemeProvider>
-            <SemiLocaleWrapper>
-              <PageLayout />
-            </SemiLocaleWrapper>
-          </ThemeProvider>
-        </BrowserRouter>
-      </UserProvider>
-    </StatusProvider>
-  </React.StrictMode>,
+  <StatusProvider>
+    <UserProvider>
+      <BrowserRouter
+        future={{
+          v7_startTransition: true,
+          v7_relativeSplatPath: true,
+        }}
+      >
+        <ThemeProvider>
+          <SemiLocaleWrapper>
+            <PageLayout />
+          </SemiLocaleWrapper>
+        </ThemeProvider>
+      </BrowserRouter>
+    </UserProvider>
+  </StatusProvider>,
 );

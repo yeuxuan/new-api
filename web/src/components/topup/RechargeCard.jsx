@@ -259,7 +259,7 @@ const RechargeCard = ({
             initValues={{ topUpCount: topUpCount }}
           >
             <div className='space-y-6'>
-              {(enableOnlineTopUp || enableStripeTopUp) && (
+              {(enableOnlineTopUp || enableStripeTopUp) && !enableCreemTopUp && (
                 <Row gutter={12}>
                   <Col xs={24} sm={24} md={24} lg={10} xl={10}>
                     <Form.InputNumber
@@ -391,7 +391,7 @@ const RechargeCard = ({
                 </Row>
               )}
 
-              {(enableOnlineTopUp || enableStripeTopUp) && (
+              {(enableOnlineTopUp || enableStripeTopUp) && !enableCreemTopUp && (
                 <Form.Slot
                   label={
                     <div className='flex items-center gap-2'>
@@ -710,28 +710,146 @@ const RechargeCard = ({
 
               {/* Creem 充值区域 */}
               {enableCreemTopUp && creemProducts.length > 0 && (
-                <Form.Slot label={t('Creem 充值')}>
-                  <div className='grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3'>
-                    {creemProducts.map((product, index) => (
-                      <Card
-                        key={index}
-                        onClick={() => creemPreTopUp(product)}
-                        className='cursor-pointer !rounded-2xl transition-all hover:shadow-md border-gray-200 hover:border-gray-300'
-                        bodyStyle={{ textAlign: 'center', padding: '16px' }}
-                      >
-                        <div className='font-medium text-lg mb-2'>
-                          {product.name}
-                        </div>
-                        <div className='text-sm text-gray-600 mb-2'>
-                          {t('充值额度')}: {product.quota}
-                        </div>
-                        <div className='text-lg font-semibold text-blue-600'>
-                          {product.currency === 'EUR' ? '€' : '$'}
-                          {product.price}
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
+                <Form.Slot label={t('选择充值额度')}>
+                  {(() => {
+                    const hotIndex = creemProducts.length >= 3 ? 2 : -1;
+                    return (
+                      <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3'>
+                        {creemProducts.map((product, index) => {
+                          const isHot = index === hotIndex;
+                          const symbol = product.currency === 'EUR' ? '€' : '$';
+                          return (
+                            <div
+                              key={index}
+                              onClick={() => creemPreTopUp(product)}
+                              style={{
+                                position: 'relative',
+                                cursor: 'pointer',
+                                borderRadius: 16,
+                                overflow: 'visible',
+                                transition: 'transform 0.18s ease',
+                              }}
+                              onMouseEnter={(e) =>
+                                (e.currentTarget.style.transform = 'translateY(-2px)')
+                              }
+                              onMouseLeave={(e) =>
+                                (e.currentTarget.style.transform = 'translateY(0)')
+                              }
+                            >
+                              {/* 热销角标 */}
+                              {isHot && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    top: -10,
+                                    right: -6,
+                                    zIndex: 10,
+                                    background: 'linear-gradient(135deg, #ff6b35, #f7931e)',
+                                    color: '#fff',
+                                    fontSize: 10,
+                                    fontWeight: 800,
+                                    padding: '2px 7px 2px 5px',
+                                    borderRadius: '10px 10px 10px 2px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 2,
+                                    boxShadow: '0 2px 8px rgba(255,107,53,0.45)',
+                                    letterSpacing: 0.3,
+                                  }}
+                                >
+                                  <Flame size={9} />
+                                  {t('热门')}
+                                </div>
+                              )}
+
+                              {/* 卡片主体 */}
+                              <div
+                                style={{
+                                  borderRadius: 16,
+                                  border: '1.5px solid var(--semi-color-border)',
+                                  background: 'var(--semi-color-bg-2)',
+                                  padding: '14px 10px 12px',
+                                  textAlign: 'center',
+                                  transition: 'border-color 0.18s, background 0.18s, box-shadow 0.18s',
+                                  boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                                }}
+                              >
+                                {/* 实付金额行 */}
+                                <div
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    color: 'var(--semi-color-text-2)',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: 0.8,
+                                    marginBottom: 2,
+                                  }}
+                                >
+                                  {t('实付金额')}
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: 20,
+                                    fontWeight: 800,
+                                    color: 'var(--semi-color-text-0)',
+                                    lineHeight: 1.2,
+                                    letterSpacing: -0.5,
+                                  }}
+                                >
+                                  {symbol}{product.price}
+                                </div>
+
+                                {/* 箭头分隔 */}
+                                <div
+                                  style={{
+                                    margin: '7px 0 5px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 4,
+                                  }}
+                                >
+                                  <div style={{ flex: 1, height: 1, background: 'var(--semi-color-border)', borderRadius: 1 }} />
+                                  <ArrowDown size={12} style={{ color: 'var(--semi-color-text-3)', flexShrink: 0 }} />
+                                  <div style={{ flex: 1, height: 1, background: 'var(--semi-color-border)', borderRadius: 1 }} />
+                                </div>
+
+                                {/* 平台到账行 */}
+                                <div
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    color: 'var(--semi-color-text-2)',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: 0.8,
+                                    marginBottom: 3,
+                                  }}
+                                >
+                                  {t('平台到账')}
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: 24,
+                                    fontWeight: 900,
+                                    color: 'var(--semi-color-primary)',
+                                    lineHeight: 1.1,
+                                    letterSpacing: -1,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 3,
+                                  }}
+                                >
+                                  <Coins size={15} style={{ flexShrink: 0 }} />
+                                  {product.quota}&nbsp;{symbol}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </Form.Slot>
               )}
             </div>

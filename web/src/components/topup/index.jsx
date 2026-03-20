@@ -38,6 +38,7 @@ import InvitationCard from './InvitationCard';
 import TransferModal from './modals/TransferModal';
 import PaymentConfirmModal from './modals/PaymentConfirmModal';
 import TopupHistoryModal from './modals/TopupHistoryModal';
+import CreemConfirmModal from './modals/CreemConfirmModal';
 
 const TopUp = () => {
   const { t } = useTranslation();
@@ -710,32 +711,14 @@ const TopUp = () => {
       />
 
       {/* Creem 充值确认模态框 */}
-      <Modal
-        title={t('确定要充值 $')}
+      <CreemConfirmModal
+        t={t}
         visible={creemOpen}
         onOk={onlineCreemTopUp}
         onCancel={handleCreemCancel}
-        maskClosable={false}
-        size='small'
-        centered
         confirmLoading={confirmLoading}
-      >
-        {selectedCreemProduct && (
-          <>
-            <p>
-              {t('产品名称')}：{selectedCreemProduct.name}
-            </p>
-            <p>
-              {t('价格')}：{selectedCreemProduct.currency === 'EUR' ? '€' : '$'}
-              {selectedCreemProduct.price}
-            </p>
-            <p>
-              {t('充值额度')}：{selectedCreemProduct.quota}
-            </p>
-            <p>{t('是否确认充值？')}</p>
-          </>
-        )}
-      </Modal>
+        product={selectedCreemProduct}
+      />
 
       {/* 主布局区域 */}
       <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>

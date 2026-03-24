@@ -227,6 +227,7 @@ export default function SettingsPaymentGatewayCreem(props) {
       title: t('充值额度'),
       dataIndex: 'quota',
       key: 'quota',
+      render: (quota) => `$${quota}`,
     },
     {
       title: t('操作'),
@@ -408,7 +409,7 @@ export default function SettingsPaymentGatewayCreem(props) {
               onChange={(value) =>
                 setProductForm({ ...productForm, quota: value })
               }
-              placeholder={t('例如：100000')}
+              placeholder={t('例如：1')}
               min={1}
               precision={0}
               size='large'

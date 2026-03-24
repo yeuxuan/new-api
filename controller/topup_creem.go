@@ -366,7 +366,7 @@ func handleCheckoutCompleted(c *gin.Context, event *CreemWebhookEvent) {
 		return
 	}
 
-	log.Printf("Creem充值成功 - 订单号: %s, 充值额度: %d, 支付金额: %.2f",
+	log.Printf("Creem充值成功 - 订单号: %s, 内部额度: %d, 支付金额: %.2f",
 		referenceId, topUp.Amount, topUp.Money)
 	c.Status(http.StatusOK)
 }

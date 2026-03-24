@@ -268,10 +268,13 @@ func ManualCompleteTopUp(tradeNo string) error {
 
 		// 计算应充值额度：
 		// - Stripe 订单：Money 代表经分组倍率换算后的美元数量，直接 * QuotaPerUnit
+		// - Creem 订单：Amount 直接存储内部额度值，无需换算
 		// - 其他订单（如易支付）：Amount 为美元数量，* QuotaPerUnit
 		if topUp.PaymentMethod == "stripe" {
 			dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
 			quotaToAdd = int(decimal.NewFromFloat(topUp.Money).Mul(dQuotaPerUnit).IntPart())
+		} else if topUp.PaymentMethod == "creem" {
+			quotaToAdd = int(topUp.Amount)
 		} else {
 			dAmount := decimal.NewFromInt(topUp.Amount)
 			dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
@@ -336,10 +339,8 @@ func RechargeCreem(referenceId string, customerEmail string, customerName string
 			return err
 		}
 
-		// Creem Amount 含义与易支付相同：USD 数量，需乘以 QuotaPerUnit 换算为内部额度
-		dAmount := decimal.NewFromInt(topUp.Amount)
-		dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
-		quota = dAmount.Mul(dQuotaPerUnit).IntPart()
+		// Creem Amount 直接存储管理员配置的内部额度值，无需乘以 QuotaPerUnit
+		quota = topUp.Amount
 
 		// 构建更新字段，优先使用邮箱，如果邮箱为空则使用用户名
 		updateFields := map[string]interface{}{

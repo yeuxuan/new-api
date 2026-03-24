@@ -312,9 +312,12 @@ func handleCheckoutCompleted(c *gin.Context, event *CreemWebhookEvent) {
 		return
 	}
 
-	// 验证订单类型，目前只处理一次性付款（充值）
-	if event.Object.Order.Type != "one-time" {
-		log.Printf("暂不支持的订单类型: %s, 跳过处理", event.Object.Order.Type)
+	// 订阅订单已在上方通过 CompleteSubscriptionOrder（按 tradeNo 查表）提前处理；
+	// 能走到这里说明一定是充值订单，无需再依赖 order.type 区分。
+	// 仅当明确收到 "recurring" 时作为兜底跳过（正常不应出现）。
+	log.Printf("Creem Webhook order.type: %q, 继续处理充值", event.Object.Order.Type)
+	if event.Object.Order.Type == "recurring" {
+		log.Printf("收到 recurring 类型订单但未命中订阅表，跳过处理，订单号: %s", referenceId)
 		c.Status(http.StatusOK)
 		return
 	}

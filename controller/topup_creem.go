@@ -58,7 +58,7 @@ type CreemProduct struct {
 	Name      string  `json:"name"`
 	Price     float64 `json:"price"`
 	Currency  string  `json:"currency"`
-	Quota     int64   `json:"quota"`
+	Quota     float64 `json:"quota"` // USD 等值，如 0.14 表示 $0.14，创建订单时乘以 QuotaPerUnit 得到内部额度
 }
 
 type CreemAdaptor struct {
@@ -109,11 +109,11 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 	reference := fmt.Sprintf("creem-api-ref-%d-%d-%s", user.Id, time.Now().UnixMilli(), randstr.String(4))
 	referenceId := "ref_" + common.Sha1([]byte(reference))
 
-	// 先创建订单记录，使用产品配置的金额和充值额度
+	// 先创建订单记录，在创建时预计算内部额度（Quota 为 USD 等值，乘以 QuotaPerUnit）
 	topUp := &model.TopUp{
 		UserId:        id,
-		Amount:        selectedProduct.Quota, // 充值额度
-		Money:         selectedProduct.Price, // 支付金额
+		Amount:        int64(selectedProduct.Quota * common.QuotaPerUnit), // 预计算内部额度
+		Money:         selectedProduct.Price,                              // 支付金额
 		TradeNo:       referenceId,
 		PaymentMethod: PaymentMethodCreem,
 		CreateTime:    time.Now().Unix(),
@@ -134,8 +134,8 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 		return
 	}
 
-	log.Printf("Creem订单创建成功 - 用户ID: %d, 订单号: %s, 产品: %s, 充值额度: %d, 支付金额: %.2f",
-		id, referenceId, selectedProduct.Name, selectedProduct.Quota, selectedProduct.Price)
+	log.Printf("Creem订单创建成功 - 用户ID: %d, 订单号: %s, 产品: %s, USD额度: %.4f, 内部额度: %d, 支付金额: %.2f",
+		id, referenceId, selectedProduct.Name, selectedProduct.Quota, topUp.Amount, selectedProduct.Price)
 
 	c.JSON(200, gin.H{
 		"message": "success",

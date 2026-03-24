@@ -407,7 +407,7 @@ func genCreemLink(referenceId string, product *CreemProduct, email string, usern
 			"username":     username,
 			"reference_id": referenceId,
 			"product_name": product.Name,
-			"quota":        fmt.Sprintf("%d", product.Quota),
+			"quota":        fmt.Sprintf("%.4f", product.Quota),
 		},
 	}
 	// 有邮箱才传 customer，避免空字符串导致 Creem 400 校验失败

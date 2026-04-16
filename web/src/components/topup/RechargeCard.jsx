@@ -247,6 +247,14 @@ const RechargeCard = ({
         </div>
       </div>
 
+      {/* 充值提示 */}
+      <Banner
+        type='info'
+        description={t('如需其他充值方式，请联系客服')}
+        className='!rounded-xl'
+        closeIcon={null}
+      />
+
       {/* 在线充值表单 */}
       <Card className='!rounded-xl w-full' bodyStyle={{ padding: '16px 20px' }}>
         {statusLoading ? (
@@ -932,6 +940,7 @@ const RechargeCard = ({
           />
         </Form>
       </div>
+
     </div>
   );
 

@@ -48,16 +48,37 @@ func GetTopUpInfo(c *gin.Context) {
 		}
 	}
 
+	// 如果启用了 iPayNow 聚合动态码支付，追加到支付方法列表
+	if IsIPayNowEnabled() {
+		hasIPayNow := false
+		for _, method := range payMethods {
+			if method["type"] == PaymentMethodIPayNow {
+				hasIPayNow = true
+				break
+			}
+		}
+		if !hasIPayNow {
+			payMethods = append(payMethods, map[string]string{
+				"name":      "微信/支付宝",
+				"type":      PaymentMethodIPayNow,
+				"color":     "rgba(var(--semi-green-5), 1)",
+				"min_topup": strconv.Itoa(operation_setting.IPayNowMinTopUp),
+			})
+		}
+	}
+
 	data := gin.H{
-		"enable_online_topup": operation_setting.PayAddress != "" && operation_setting.EpayId != "" && operation_setting.EpayKey != "",
-		"enable_stripe_topup": setting.StripeApiSecret != "" && setting.StripeWebhookSecret != "" && setting.StripePriceId != "",
-		"enable_creem_topup":  setting.CreemApiKey != "" && setting.CreemProducts != "[]",
-		"creem_products":      setting.CreemProducts,
-		"pay_methods":         payMethods,
-		"min_topup":           operation_setting.MinTopUp,
-		"stripe_min_topup":    setting.StripeMinTopUp,
-		"amount_options":      operation_setting.GetPaymentSetting().AmountOptions,
-		"discount":            operation_setting.GetPaymentSetting().AmountDiscount,
+		"enable_online_topup":  operation_setting.PayAddress != "" && operation_setting.EpayId != "" && operation_setting.EpayKey != "",
+		"enable_stripe_topup":  setting.StripeApiSecret != "" && setting.StripeWebhookSecret != "" && setting.StripePriceId != "",
+		"enable_creem_topup":   setting.CreemApiKey != "" && setting.CreemProducts != "[]",
+		"enable_ipaynow_topup": IsIPayNowEnabled(),
+		"creem_products":       setting.CreemProducts,
+		"pay_methods":          payMethods,
+		"min_topup":            operation_setting.MinTopUp,
+		"stripe_min_topup":     setting.StripeMinTopUp,
+		"ipaynow_min_topup":    operation_setting.IPayNowMinTopUp,
+		"amount_options":       operation_setting.GetPaymentSetting().AmountOptions,
+		"discount":             operation_setting.GetPaymentSetting().AmountDiscount,
 	}
 	common.ApiSuccess(c, data)
 }

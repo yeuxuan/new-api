@@ -89,6 +89,9 @@ func InitOptionMap() {
 	common.OptionMap["CreemProducts"] = setting.CreemProducts
 	common.OptionMap["CreemTestMode"] = strconv.FormatBool(setting.CreemTestMode)
 	common.OptionMap["CreemWebhookSecret"] = setting.CreemWebhookSecret
+	common.OptionMap["IPayNowAppId"] = operation_setting.IPayNowAppId
+	common.OptionMap["IPayNowAppKey"] = operation_setting.IPayNowAppKey
+	common.OptionMap["IPayNowMinTopUp"] = strconv.Itoa(operation_setting.IPayNowMinTopUp)
 	common.OptionMap["TopupGroupRatio"] = common.TopupGroupRatio2JSONString()
 	common.OptionMap["Chats"] = setting.Chats2JsonString()
 	common.OptionMap["AutoGroups"] = setting.AutoGroups2JsonString()
@@ -358,6 +361,12 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.CreemTestMode = value == "true"
 	case "CreemWebhookSecret":
 		setting.CreemWebhookSecret = value
+	case "IPayNowAppId":
+		operation_setting.IPayNowAppId = value
+	case "IPayNowAppKey":
+		operation_setting.IPayNowAppKey = value
+	case "IPayNowMinTopUp":
+		operation_setting.IPayNowMinTopUp, _ = strconv.Atoi(value)
 	case "TopupGroupRatio":
 		err = common.UpdateTopupGroupRatioByJSONString(value)
 	case "GitHubClientId":

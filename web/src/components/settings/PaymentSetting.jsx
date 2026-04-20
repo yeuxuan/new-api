@@ -23,6 +23,7 @@ import SettingsGeneralPayment from '../../pages/Setting/Payment/SettingsGeneralP
 import SettingsPaymentGateway from '../../pages/Setting/Payment/SettingsPaymentGateway';
 import SettingsPaymentGatewayStripe from '../../pages/Setting/Payment/SettingsPaymentGatewayStripe';
 import SettingsPaymentGatewayCreem from '../../pages/Setting/Payment/SettingsPaymentGatewayCreem';
+import SettingsPaymentGatewayIPayNow from '../../pages/Setting/Payment/SettingsPaymentGatewayIPayNow';
 import { API, showError, toBoolean } from '../../helpers';
 import { useTranslation } from 'react-i18next';
 
@@ -47,6 +48,10 @@ const PaymentSetting = () => {
     StripeUnitPrice: 8.0,
     StripeMinTopUp: 1,
     StripePromotionCodesEnabled: false,
+
+    IPayNowAppId: '',
+    IPayNowAppKey: '',
+    IPayNowMinTopUp: 1,
   });
 
   let [loading, setLoading] = useState(false);
@@ -98,6 +103,7 @@ const PaymentSetting = () => {
           case 'MinTopUp':
           case 'StripeUnitPrice':
           case 'StripeMinTopUp':
+          case 'IPayNowMinTopUp':
             newInputs[item.key] = parseFloat(item.value);
             break;
           default:
@@ -145,6 +151,9 @@ const PaymentSetting = () => {
         </Card>
         <Card style={{ marginTop: '10px' }}>
           <SettingsPaymentGatewayCreem options={inputs} refresh={onRefresh} />
+        </Card>
+        <Card style={{ marginTop: '10px' }}>
+          <SettingsPaymentGatewayIPayNow options={inputs} refresh={onRefresh} />
         </Card>
       </Spin>
     </>

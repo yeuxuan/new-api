@@ -39,6 +39,7 @@ import TransferModal from './modals/TransferModal';
 import PaymentConfirmModal from './modals/PaymentConfirmModal';
 import TopupHistoryModal from './modals/TopupHistoryModal';
 import CreemConfirmModal from './modals/CreemConfirmModal';
+import IPayNowQRModal from './modals/IPayNowQRModal';
 
 const TopUp = () => {
   const { t } = useTranslation();
@@ -70,6 +71,12 @@ const TopUp = () => {
   const [enableCreemTopUp, setEnableCreemTopUp] = useState(false);
   const [creemOpen, setCreemOpen] = useState(false);
   const [selectedCreemProduct, setSelectedCreemProduct] = useState(null);
+
+  // iPayNow 聚合动态码相关状态
+  const [enableIPayNowTopUp, setEnableIPayNowTopUp] = useState(false);
+  const [ipaynowOpen, setIpaynowOpen] = useState(false);
+  const [ipaynowTradeNo, setIpaynowTradeNo] = useState('');
+  const [ipaynowQrUrl, setIpaynowQrUrl] = useState('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [open, setOpen] = useState(false);
@@ -157,6 +164,11 @@ const TopUp = () => {
         showError(t('管理员未开启Stripe充值！'));
         return;
       }
+    } else if (payment === 'ipaynow') {
+      if (!enableIPayNowTopUp) {
+        showError(t('管理员未开启聚合动态码支付！'));
+        return;
+      }
     } else {
       if (!enableOnlineTopUp) {
         showError(t('管理员未开启在线充值！'));
@@ -211,6 +223,12 @@ const TopUp = () => {
           amount: parseInt(topUpCount),
           payment_method: 'stripe',
         });
+      } else if (payWay === 'ipaynow') {
+        // iPayNow 聚合动态码
+        res = await API.post('/api/user/ipaynow/pay', {
+          amount: parseInt(topUpCount),
+          payment_method: 'ipaynow',
+        });
       } else {
         // 普通支付请求
         res = await API.post('/api/user/pay', {
@@ -225,6 +243,11 @@ const TopUp = () => {
           if (payWay === 'stripe') {
             // Stripe 支付回调处理
             window.open(data.pay_link, '_blank');
+          } else if (payWay === 'ipaynow') {
+            // iPayNow：展示二维码并开始轮询
+            setIpaynowTradeNo(data?.trade_no || '');
+            setIpaynowQrUrl(data?.qr_url || '');
+            setIpaynowOpen(true);
           } else {
             // 普通支付表单提交
             let params = data;
@@ -264,6 +287,16 @@ const TopUp = () => {
       setOpen(false);
       setConfirmLoading(false);
     }
+  };
+
+  const handleIPayNowClose = () => {
+    setIpaynowOpen(false);
+    setIpaynowTradeNo('');
+    setIpaynowQrUrl('');
+  };
+
+  const handleIPayNowPaid = () => {
+    getUserQuota().then();
   };
 
   const creemPreTopUp = async (product) => {
@@ -447,14 +480,18 @@ const TopUp = () => {
           const enableStripeTopUp = data.enable_stripe_topup || false;
           const enableOnlineTopUp = data.enable_online_topup || false;
           const enableCreemTopUp = data.enable_creem_topup || false;
+          const enableIPayNowTopUp = data.enable_ipaynow_topup || false;
           const minTopUpValue = enableOnlineTopUp
             ? data.min_topup
-            : enableStripeTopUp
-              ? data.stripe_min_topup
-              : 1;
+            : enableIPayNowTopUp
+              ? data.ipaynow_min_topup
+              : enableStripeTopUp
+                ? data.stripe_min_topup
+                : 1;
           setEnableOnlineTopUp(enableOnlineTopUp);
           setEnableStripeTopUp(enableStripeTopUp);
           setEnableCreemTopUp(enableCreemTopUp);
+          setEnableIPayNowTopUp(enableIPayNowTopUp);
           setMinTopUp(minTopUpValue);
           setTopUpCount(minTopUpValue);
 
@@ -720,6 +757,17 @@ const TopUp = () => {
         product={selectedCreemProduct}
       />
 
+      {/* iPayNow 聚合动态码二维码弹窗 */}
+      <IPayNowQRModal
+        t={t}
+        visible={ipaynowOpen}
+        tradeNo={ipaynowTradeNo}
+        qrUrl={ipaynowQrUrl}
+        amount={amount}
+        onClose={handleIPayNowClose}
+        onPaid={handleIPayNowPaid}
+      />
+
       {/* 主布局区域 */}
       <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
         <RechargeCard
@@ -727,6 +775,7 @@ const TopUp = () => {
           enableOnlineTopUp={enableOnlineTopUp}
           enableStripeTopUp={enableStripeTopUp}
           enableCreemTopUp={enableCreemTopUp}
+          enableIPayNowTopUp={enableIPayNowTopUp}
           creemProducts={creemProducts}
           creemPreTopUp={creemPreTopUp}
           presetAmounts={presetAmounts}

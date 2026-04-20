@@ -2,10 +2,17 @@ package common
 
 import (
 	"crypto/hmac"
+	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
 )
+
+func Md5(data []byte) string {
+	h := md5.New()
+	h.Write(data)
+	return hex.EncodeToString(h.Sum(nil))
+}
 
 func Sha256Raw(data []byte) []byte {
 	h := sha256.New()

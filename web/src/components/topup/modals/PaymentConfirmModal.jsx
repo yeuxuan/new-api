@@ -20,7 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React from 'react';
 import { Modal, Typography, Card, Skeleton } from '@douyinfe/semi-ui';
 import { SiAlipay, SiWechat, SiStripe } from 'react-icons/si';
-import { CreditCard } from 'lucide-react';
+import { CreditCard, ScanLine } from 'lucide-react';
 
 const { Text } = Typography;
 
@@ -150,6 +150,12 @@ const PaymentConfirmModal = ({
                             className='mr-2'
                             size={16}
                             color='#635BFF'
+                          />
+                        ) : payMethod.type === 'ipaynow' ? (
+                          <ScanLine
+                            className='mr-2'
+                            size={16}
+                            color='#07C160'
                           />
                         ) : (
                           <CreditCard

@@ -47,6 +47,7 @@ import {
   ArrowDown,
   Gift,
   Zap,
+  ScanLine,
 } from 'lucide-react';
 import { IconGift } from '@douyinfe/semi-icons';
 import { useMinimumLoadingTime } from '../../hooks/common/useMinimumLoadingTime';
@@ -60,6 +61,7 @@ const RechargeCard = ({
   enableOnlineTopUp,
   enableStripeTopUp,
   enableCreemTopUp,
+  enableIPayNowTopUp,
   creemProducts,
   creemPreTopUp,
   presetAmounts,
@@ -261,19 +263,27 @@ const RechargeCard = ({
           <div className='py-8 flex justify-center'>
             <Spin size='large' />
           </div>
-        ) : enableOnlineTopUp || enableStripeTopUp || enableCreemTopUp ? (
+        ) : enableOnlineTopUp ||
+          enableStripeTopUp ||
+          enableCreemTopUp ||
+          enableIPayNowTopUp ? (
           <Form
             getFormApi={(api) => (onlineFormApiRef.current = api)}
             initValues={{ topUpCount: topUpCount }}
           >
             <div className='space-y-6'>
-              {(enableOnlineTopUp || enableStripeTopUp) && !enableCreemTopUp && (
+              {(enableOnlineTopUp || enableStripeTopUp || enableIPayNowTopUp) &&
+                !enableCreemTopUp && (
                 <Row gutter={12}>
                   <Col xs={24} sm={24} md={24} lg={10} xl={10}>
                     <Form.InputNumber
                       field='topUpCount'
                       label={t('充值数量')}
-                      disabled={!enableOnlineTopUp && !enableStripeTopUp}
+                      disabled={
+                        !enableOnlineTopUp &&
+                        !enableStripeTopUp &&
+                        !enableIPayNowTopUp
+                      }
                       placeholder={
                         t('充值数量，最低 ') + renderQuotaWithAmount(minTopUp)
                       }
@@ -332,9 +342,14 @@ const RechargeCard = ({
                           {payMethods.map((payMethod) => {
                             const minTopupVal = Number(payMethod.min_topup) || 0;
                             const isStripe = payMethod.type === 'stripe';
+                            const isIPayNow = payMethod.type === 'ipaynow';
+                            const channelEnabled = isStripe
+                              ? enableStripeTopUp
+                              : isIPayNow
+                                ? enableIPayNowTopUp
+                                : enableOnlineTopUp;
                             const disabled =
-                              (!enableOnlineTopUp && !isStripe) ||
-                              (!enableStripeTopUp && isStripe) ||
+                              !channelEnabled ||
                               minTopupVal > Number(topUpCount || 0);
 
                             const buttonEl = (
@@ -354,6 +369,8 @@ const RechargeCard = ({
                                     <SiWechat size={18} color='#07C160' />
                                   ) : payMethod.type === 'stripe' ? (
                                     <SiStripe size={18} color='#635BFF' />
+                                  ) : payMethod.type === 'ipaynow' ? (
+                                    <ScanLine size={18} color='#07C160' />
                                   ) : (
                                     <CreditCard
                                       size={18}
@@ -399,7 +416,8 @@ const RechargeCard = ({
                 </Row>
               )}
 
-              {(enableOnlineTopUp || enableStripeTopUp) && !enableCreemTopUp && (
+              {(enableOnlineTopUp || enableStripeTopUp || enableIPayNowTopUp) &&
+                !enableCreemTopUp && (
                 <Form.Slot
                   label={
                     <div className='flex items-center gap-2'>

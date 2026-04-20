@@ -126,6 +126,7 @@ func (c *Client) QueryOrder(req *QueryOrderRequest) (*QueryOrderResponse, error)
 		"appId":       c.AppID,
 		"mhtOrderNo":  req.MhtOrderNo,
 		"mhtCharset":  Charset,
+		"deviceType":  DeviceTypeAggregateQR,
 		"mhtSignType": SignTypeMD5,
 	}
 	params["mhtSignature"] = Sign(params, c.AppKey)

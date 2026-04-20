@@ -292,11 +292,12 @@ func completeIPayNowTopUp(topUp *model.TopUp) error {
 // ipaynowQueryCooldown 限制对 iPayNow MQ002 的调用频率，tradeNo -> 最近一次查询 unix 秒
 var ipaynowQueryCooldown sync.Map
 
-// ipaynowActiveQueryMinDelaySec notify 缺失时开始主动查单的最小延迟（秒）
-const ipaynowActiveQueryMinDelaySec int64 = 8
+// ipaynowActiveQueryMinDelaySec 下单后首次 MQ002 最小延迟（秒）；给 iPayNow 通道到账留一点时间
+const ipaynowActiveQueryMinDelaySec int64 = 2
 
-// ipaynowActiveQueryCooldownSec 每个 tradeNo 的 MQ002 调用冷却间隔（秒）
-const ipaynowActiveQueryCooldownSec int64 = 15
+// ipaynowActiveQueryCooldownSec 每个 tradeNo 的 MQ002 调用冷却间隔（秒）；
+// 与前端 3s 轮询对齐，意味着几乎每次轮询都会调 MQ002，延迟≈通道到账耗时
+const ipaynowActiveQueryCooldownSec int64 = 3
 
 // QueryIPayNowOrder 前端 QR 弹窗轮询订单状态；
 // 若本地仍为 pending，异步补偿查询 iPayNow（MQ002），防止 notify 丢失导致订单卡住。

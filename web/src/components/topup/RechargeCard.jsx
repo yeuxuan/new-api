@@ -34,7 +34,7 @@ import {
   Tabs,
   TabPane,
 } from '@douyinfe/semi-ui';
-import { SiAlipay, SiWechat, SiStripe } from 'react-icons/si';
+import { SiAlipay, SiWechat } from 'react-icons/si';
 import {
   CreditCard,
   Coins,
@@ -263,25 +263,65 @@ const RechargeCard = ({
           <div className='py-8 flex justify-center'>
             <Spin size='large' />
           </div>
-        ) : enableOnlineTopUp ||
-          enableStripeTopUp ||
-          enableCreemTopUp ||
-          enableIPayNowTopUp ? (
+        ) : enableOnlineTopUp || enableCreemTopUp || enableIPayNowTopUp ? (
           <Form
             getFormApi={(api) => (onlineFormApiRef.current = api)}
             initValues={{ topUpCount: topUpCount }}
           >
             <div className='space-y-6'>
-              {(enableOnlineTopUp || enableStripeTopUp || enableIPayNowTopUp) && (
-                <Row gutter={12}>
+              {(enableOnlineTopUp || enableIPayNowTopUp) && (
+                <div>
+                  {/* 区块标题：人民币扫码支付 */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '2px 0 16px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 11,
+                        background:
+                          'linear-gradient(135deg, #07C160 0%, #0d9468 100%)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0 4px 12px rgba(7,193,96,0.32)',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <ScanLine size={19} color='#fff' strokeWidth={2.2} />
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <Text
+                        strong
+                        style={{ fontSize: 14, letterSpacing: -0.2 }}
+                      >
+                        {t('人民币扫码支付')}
+                      </Text>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: 'var(--semi-color-text-2)',
+                          marginTop: 2,
+                          lineHeight: 1.4,
+                        }}
+                      >
+                        {t('微信 / 支付宝 · 人民币结算 · 实时到账')}
+                      </div>
+                    </div>
+                  </div>
+                  <Row gutter={12}>
                   <Col xs={24} sm={24} md={24} lg={10} xl={10}>
                     <Form.InputNumber
                       field='topUpCount'
                       label={t('充值数量')}
                       disabled={
-                        !enableOnlineTopUp &&
-                        !enableStripeTopUp &&
-                        !enableIPayNowTopUp
+                        !enableOnlineTopUp && !enableIPayNowTopUp
                       }
                       placeholder={
                         t('充值数量，最低 ') + renderQuotaWithAmount(minTopUp)
@@ -340,13 +380,10 @@ const RechargeCard = ({
                         <Space wrap>
                           {payMethods.map((payMethod) => {
                             const minTopupVal = Number(payMethod.min_topup) || 0;
-                            const isStripe = payMethod.type === 'stripe';
                             const isIPayNow = payMethod.type === 'ipaynow';
-                            const channelEnabled = isStripe
-                              ? enableStripeTopUp
-                              : isIPayNow
-                                ? enableIPayNowTopUp
-                                : enableOnlineTopUp;
+                            const channelEnabled = isIPayNow
+                              ? enableIPayNowTopUp
+                              : enableOnlineTopUp;
                             const disabled =
                               !channelEnabled ||
                               minTopupVal > Number(topUpCount || 0);
@@ -366,8 +403,6 @@ const RechargeCard = ({
                                     <SiAlipay size={18} color='#1677FF' />
                                   ) : payMethod.type === 'wxpay' ? (
                                     <SiWechat size={18} color='#07C160' />
-                                  ) : payMethod.type === 'stripe' ? (
-                                    <SiStripe size={18} color='#635BFF' />
                                   ) : payMethod.type === 'ipaynow' ? (
                                     <ScanLine size={18} color='#07C160' />
                                   ) : (
@@ -413,9 +448,8 @@ const RechargeCard = ({
                     </Form.Slot>
                   </Col>
                 </Row>
-              )}
 
-              {(enableOnlineTopUp || enableStripeTopUp || enableIPayNowTopUp) && (
+                <div style={{ marginTop: 20 }}>
                 <Form.Slot
                   label={
                     <div className='flex items-center gap-2'>
@@ -730,11 +764,72 @@ const RechargeCard = ({
                     );
                   })()}
                 </Form.Slot>
+                </div>
+                </div>
               )}
 
-              {/* Creem 充值区域 */}
+              {/* 两区块之间的渐隐分隔线 */}
+              {(enableOnlineTopUp || enableIPayNowTopUp) &&
+                enableCreemTopUp &&
+                creemProducts.length > 0 && (
+                  <div
+                    style={{
+                      height: 1,
+                      background:
+                        'linear-gradient(90deg, transparent 0%, var(--semi-color-border) 50%, transparent 100%)',
+                      margin: '4px 0',
+                    }}
+                  />
+                )}
+
+              {/* Creem 充值区域：国际信用卡支付 */}
               {enableCreemTopUp && creemProducts.length > 0 && (
-                <Form.Slot label={t('选择充值额度')}>
+                <div>
+                  {/* 区块标题：国际信用卡支付 */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '2px 0 16px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 11,
+                        background:
+                          'linear-gradient(135deg, #635BFF 0%, #4B45E0 100%)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0 4px 12px rgba(99,91,255,0.32)',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <CreditCard size={19} color='#fff' strokeWidth={2.2} />
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <Text
+                        strong
+                        style={{ fontSize: 14, letterSpacing: -0.2 }}
+                      >
+                        {t('国际信用卡支付')}
+                      </Text>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: 'var(--semi-color-text-2)',
+                          marginTop: 2,
+                          lineHeight: 1.4,
+                        }}
+                      >
+                        {t('Creem · Visa / Mastercard · USD 或 EUR 结算')}
+                      </div>
+                    </div>
+                  </div>
+                  <Form.Slot label={t('选择套餐')}>
                   {(() => {
                     const hotIndex = creemProducts.length >= 3 ? 2 : -1;
                     return (
@@ -875,6 +970,7 @@ const RechargeCard = ({
                     );
                   })()}
                 </Form.Slot>
+                </div>
               )}
             </div>
           </Form>

@@ -272,8 +272,7 @@ const RechargeCard = ({
             initValues={{ topUpCount: topUpCount }}
           >
             <div className='space-y-6'>
-              {(enableOnlineTopUp || enableStripeTopUp || enableIPayNowTopUp) &&
-                !enableCreemTopUp && (
+              {(enableOnlineTopUp || enableStripeTopUp || enableIPayNowTopUp) && (
                 <Row gutter={12}>
                   <Col xs={24} sm={24} md={24} lg={10} xl={10}>
                     <Form.InputNumber
@@ -416,8 +415,7 @@ const RechargeCard = ({
                 </Row>
               )}
 
-              {(enableOnlineTopUp || enableStripeTopUp || enableIPayNowTopUp) &&
-                !enableCreemTopUp && (
+              {(enableOnlineTopUp || enableStripeTopUp || enableIPayNowTopUp) && (
                 <Form.Slot
                   label={
                     <div className='flex items-center gap-2'>

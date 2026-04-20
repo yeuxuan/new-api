@@ -48,7 +48,7 @@ func GetTopUpInfo(c *gin.Context) {
 		}
 	}
 
-	// 如果启用了 iPayNow 聚合动态码支付，追加到支付方法列表
+	// 如果启用了 iPayNow 聚合动态码支付，置于支付方法列表最前
 	if IsIPayNowEnabled() {
 		hasIPayNow := false
 		for _, method := range payMethods {
@@ -58,12 +58,13 @@ func GetTopUpInfo(c *gin.Context) {
 			}
 		}
 		if !hasIPayNow {
-			payMethods = append(payMethods, map[string]string{
+			ipaynowMethod := map[string]string{
 				"name":      "微信/支付宝",
 				"type":      PaymentMethodIPayNow,
 				"color":     "rgba(var(--semi-green-5), 1)",
 				"min_topup": strconv.Itoa(operation_setting.IPayNowMinTopUp),
-			})
+			}
+			payMethods = append([]map[string]string{ipaynowMethod}, payMethods...)
 		}
 	}
 

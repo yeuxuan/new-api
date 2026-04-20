@@ -8,9 +8,11 @@ const (
 	FuncQueryOrder   = "MQ002"
 	FuncNotify       = "N001"
 
-	Version = "1.0.4"
+	Version       = "1.0.4"
+	QueryVersion  = "1.0.0" // MQ002 订单查询所用版本（对齐官方 Go SDK）
 
 	DeviceTypeAggregateQR = "20"
+	DeviceTypeScan        = "05" // 被扫：商户展示 QR，顾客扫付（聚合动态码查询所用）
 	OrderTypeConsume      = "05"
 	CurrencyRMB           = "156"
 	Charset               = "UTF-8"
@@ -81,6 +83,7 @@ type QueryOrderResponse struct {
 	TransStatus  string
 	MhtOrderAmt  string
 	Signature    string
+	RawBody      string // iPayNow 原始响应，便于排查字段/签名/状态差异
 }
 
 // Success 判断响应是否受理成功

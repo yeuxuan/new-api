@@ -122,11 +122,11 @@ func (c *Client) QueryOrder(req *QueryOrderRequest) (*QueryOrderResponse, error)
 
 	params := map[string]string{
 		"funcode":     FuncQueryOrder,
-		"version":     Version,
+		"version":     QueryVersion, // 官方 SDK MQ002 使用 1.0.0
 		"appId":       c.AppID,
 		"mhtOrderNo":  req.MhtOrderNo,
 		"mhtCharset":  Charset,
-		"deviceType":  DeviceTypeAggregateQR,
+		"deviceType":  DeviceTypeScan, // 聚合动态码（被扫）查单用 05
 		"mhtSignType": SignTypeMD5,
 	}
 	params["mhtSignature"] = Sign(params, c.AppKey)
@@ -167,10 +167,11 @@ func (c *Client) QueryOrder(req *QueryOrderRequest) (*QueryOrderResponse, error)
 		TransStatus:  values.Get("transStatus"),
 		MhtOrderAmt:  values.Get("mhtOrderAmt"),
 		Signature:    values.Get("signature"),
+		RawBody:      string(body),
 	}
 
 	if !out.Success() {
-		return out, fmt.Errorf("ipaynow: 查询失败 code=%s msg=%s", out.ResponseCode, out.ResponseMsg)
+		return out, fmt.Errorf("ipaynow: 查询失败 code=%s msg=%s body=%s", out.ResponseCode, out.ResponseMsg, string(body))
 	}
 	return out, nil
 }

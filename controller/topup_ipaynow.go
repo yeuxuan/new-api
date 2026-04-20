@@ -359,7 +359,13 @@ func tryActiveQueryIPayNow(tradeNo string) bool {
 		common.SysError("iPayNow MQ002 查询失败: " + err.Error())
 		return false
 	}
-	if resp == nil || resp.TransStatus != ipaynow.TransStatusSuccess {
+	if resp == nil {
+		common.SysError("iPayNow MQ002 空响应: " + tradeNo)
+		return false
+	}
+	common.SysLog(fmt.Sprintf("iPayNow MQ002 响应: tradeNo=%s, responseCode=%s, transStatus=%s, body=%s",
+		tradeNo, resp.ResponseCode, resp.TransStatus, resp.RawBody))
+	if resp.TransStatus != ipaynow.TransStatusSuccess {
 		return false
 	}
 

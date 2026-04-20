@@ -120,13 +120,14 @@ func (c *Client) QueryOrder(req *QueryOrderRequest) (*QueryOrderResponse, error)
 		return nil, fmt.Errorf("ipaynow: 缺少 mhtOrderNo")
 	}
 
+	// 聚合动态码 MQ002：version=1.0.4, deviceType=20（官方文档 §5.2）
 	params := map[string]string{
 		"funcode":     FuncQueryOrder,
-		"version":     QueryVersion, // 官方 SDK MQ002 使用 1.0.0
+		"version":     Version,
 		"appId":       c.AppID,
 		"mhtOrderNo":  req.MhtOrderNo,
 		"mhtCharset":  Charset,
-		"deviceType":  DeviceTypeScan, // 聚合动态码（被扫）查单用 05
+		"deviceType":  DeviceTypeAggregateQR,
 		"mhtSignType": SignTypeMD5,
 	}
 	params["mhtSignature"] = Sign(params, c.AppKey)

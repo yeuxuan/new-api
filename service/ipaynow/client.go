@@ -111,6 +111,69 @@ func (c *Client) UnifiedOrder(req *UnifiedOrderRequest) (*UnifiedOrderResponse, 
 	return out, nil
 }
 
+// QueryOrder 调用 MQ002 订单查询接口，用于 notify 补偿。
+func (c *Client) QueryOrder(req *QueryOrderRequest) (*QueryOrderResponse, error) {
+	if c.AppID == "" || c.AppKey == "" {
+		return nil, fmt.Errorf("ipaynow: appId 或 appKey 未配置")
+	}
+	if req == nil || req.MhtOrderNo == "" {
+		return nil, fmt.Errorf("ipaynow: 缺少 mhtOrderNo")
+	}
+
+	params := map[string]string{
+		"funcode":     FuncQueryOrder,
+		"version":     Version,
+		"appId":       c.AppID,
+		"mhtOrderNo":  req.MhtOrderNo,
+		"mhtCharset":  Charset,
+		"mhtSignType": SignTypeMD5,
+	}
+	params["mhtSignature"] = Sign(params, c.AppKey)
+
+	form := url.Values{}
+	for k, v := range params {
+		form.Set(k, v)
+	}
+
+	httpReq, err := http.NewRequest(http.MethodPost, Endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("ipaynow: 构造请求失败: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("ipaynow: 发送请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("ipaynow: 读取响应失败: %w", err)
+	}
+
+	values, err := url.ParseQuery(string(body))
+	if err != nil {
+		return nil, fmt.Errorf("ipaynow: 解析响应失败: %w, body=%s", err, string(body))
+	}
+
+	out := &QueryOrderResponse{
+		FuncCode:     values.Get("funcode"),
+		AppID:        values.Get("appId"),
+		ResponseCode: values.Get("responseCode"),
+		ResponseMsg:  values.Get("responseMsg"),
+		MhtOrderNo:   values.Get("mhtOrderNo"),
+		TransStatus:  values.Get("transStatus"),
+		MhtOrderAmt:  values.Get("mhtOrderAmt"),
+		Signature:    values.Get("signature"),
+	}
+
+	if !out.Success() {
+		return out, fmt.Errorf("ipaynow: 查询失败 code=%s msg=%s", out.ResponseCode, out.ResponseMsg)
+	}
+	return out, nil
+}
+
 // DecodeTN 将同步返回的 tn（URL 编码）还原为可用于生成二维码的原始字符串。
 func DecodeTN(tn string) string {
 	if tn == "" {

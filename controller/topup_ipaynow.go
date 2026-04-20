@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -288,7 +289,17 @@ func completeIPayNowTopUp(topUp *model.TopUp) error {
 	return nil
 }
 
-// QueryIPayNowOrder 前端 QR 弹窗轮询订单状态。
+// ipaynowQueryCooldown 限制对 iPayNow MQ002 的调用频率，tradeNo -> 最近一次查询 unix 秒
+var ipaynowQueryCooldown sync.Map
+
+// ipaynowActiveQueryMinDelaySec notify 缺失时开始主动查单的最小延迟（秒）
+const ipaynowActiveQueryMinDelaySec int64 = 8
+
+// ipaynowActiveQueryCooldownSec 每个 tradeNo 的 MQ002 调用冷却间隔（秒）
+const ipaynowActiveQueryCooldownSec int64 = 15
+
+// QueryIPayNowOrder 前端 QR 弹窗轮询订单状态；
+// 若本地仍为 pending，异步补偿查询 iPayNow（MQ002），防止 notify 丢失导致订单卡住。
 func QueryIPayNowOrder(c *gin.Context) {
 	tradeNo := c.Param("trade_no")
 	if tradeNo == "" {
@@ -306,9 +317,82 @@ func QueryIPayNowOrder(c *gin.Context) {
 		return
 	}
 
+	// notify 补偿：本地仍 pending 且 iPayNow 已配置时，主动调 MQ002
+	if topUp.Status == common.TopUpStatusPending && IsIPayNowEnabled() {
+		if tryActiveQueryIPayNow(tradeNo) {
+			if refreshed := model.GetTopUpByTradeNo(tradeNo); refreshed != nil {
+				topUp = refreshed
+			}
+		}
+	}
+
 	common.ApiSuccess(c, gin.H{
 		"status":   topUp.Status,
 		"money":    topUp.Money,
 		"trade_no": topUp.TradeNo,
 	})
+}
+
+// tryActiveQueryIPayNow 带冷却地调 MQ002 查询上游订单状态，若成功则落库补偿。
+// 返回 true 表示本次调用触发了订单状态变更（或订单已在成功态）。
+func tryActiveQueryIPayNow(tradeNo string) bool {
+	now := time.Now().Unix()
+	if last, ok := ipaynowQueryCooldown.Load(tradeNo); ok {
+		if last.(int64)+ipaynowActiveQueryCooldownSec > now {
+			return false
+		}
+	}
+
+	topUp := model.GetTopUpByTradeNo(tradeNo)
+	if topUp == nil {
+		return false
+	}
+	// 订单创建后先给 notify 机会，避免刚下单就打 iPayNow
+	if now-topUp.CreateTime < ipaynowActiveQueryMinDelaySec {
+		return false
+	}
+	ipaynowQueryCooldown.Store(tradeNo, now)
+
+	client := ipaynow.NewClient(operation_setting.IPayNowAppId, operation_setting.IPayNowAppKey)
+	resp, err := client.QueryOrder(&ipaynow.QueryOrderRequest{MhtOrderNo: tradeNo})
+	if err != nil {
+		common.SysError("iPayNow MQ002 查询失败: " + err.Error())
+		return false
+	}
+	if resp == nil || resp.TransStatus != ipaynow.TransStatusSuccess {
+		return false
+	}
+
+	LockOrder(tradeNo)
+	defer UnlockOrder(tradeNo)
+
+	topUp = model.GetTopUpByTradeNo(tradeNo)
+	if topUp == nil {
+		return false
+	}
+	if topUp.Status == common.TopUpStatusSuccess {
+		return true
+	}
+	if topUp.Status != common.TopUpStatusPending {
+		return false
+	}
+
+	// 金额校验（上游可能不返回 mhtOrderAmt，留空时跳过严格校验）
+	if resp.MhtOrderAmt != "" {
+		remoteAmt, parseErr := strconv.ParseInt(resp.MhtOrderAmt, 10, 64)
+		if parseErr == nil {
+			localAmt := decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromInt(100)).Round(0).IntPart()
+			if remoteAmt != localAmt {
+				common.SysError(fmt.Sprintf("iPayNow MQ002 金额不一致: tradeNo=%s, remote=%d, local=%d", tradeNo, remoteAmt, localAmt))
+				return false
+			}
+		}
+	}
+
+	if err := completeIPayNowTopUp(topUp); err != nil {
+		common.SysError("iPayNow MQ002 补偿落库失败: " + err.Error())
+		return false
+	}
+	common.SysLog("iPayNow MQ002 补偿成功: " + tradeNo)
+	return true
 }

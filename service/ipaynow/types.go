@@ -65,3 +65,25 @@ type UnifiedOrderResponse struct {
 func (r *UnifiedOrderResponse) Success() bool {
 	return r.ResponseCode == ResponseCodeSuccess
 }
+
+// QueryOrderRequest 订单查询请求（MQ002）
+type QueryOrderRequest struct {
+	MhtOrderNo string
+}
+
+// QueryOrderResponse 订单查询响应（MQ002 同步返回）
+type QueryOrderResponse struct {
+	FuncCode     string
+	AppID        string
+	ResponseCode string
+	ResponseMsg  string
+	MhtOrderNo   string
+	TransStatus  string
+	MhtOrderAmt  string
+	Signature    string
+}
+
+// Success 判断响应是否受理成功
+func (r *QueryOrderResponse) Success() bool {
+	return r.ResponseCode == ResponseCodeSuccess
+}

@@ -283,9 +283,9 @@ func completeIPayNowTopUp(topUp *model.TopUp) error {
 		return fmt.Errorf("增加用户额度失败: %w", err)
 	}
 
-	model.RecordLog(topUp.UserId, model.LogTypeTopup,
+	model.RecordLogWithQuota(topUp.UserId, model.LogTypeTopup,
 		fmt.Sprintf("使用聚合动态码充值成功，充值金额: %v，支付金额：%.2f",
-			logger.LogQuota(quotaToAdd), topUp.Money))
+			logger.LogQuota(quotaToAdd), topUp.Money), quotaToAdd)
 	return nil
 }
 

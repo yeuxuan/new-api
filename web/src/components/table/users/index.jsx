@@ -83,6 +83,7 @@ const UsersPage = () => {
           <UsersDescription
             compactMode={compactMode}
             setCompactMode={setCompactMode}
+            quotaSummary={usersData.quotaSummary}
             t={t}
           />
         }

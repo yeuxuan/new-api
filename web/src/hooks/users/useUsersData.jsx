@@ -35,6 +35,7 @@ export const useUsersData = () => {
   const [searching, setSearching] = useState(false);
   const [groupOptions, setGroupOptions] = useState([]);
   const [userCount, setUserCount] = useState(0);
+  const [quotaSummary, setQuotaSummary] = useState(null);
 
   // Modal states
   const [showAddUser, setShowAddUser] = useState(false);
@@ -232,6 +233,19 @@ export const useUsersData = () => {
     } else {
       await searchUsers(page, pageSize, searchKeyword, searchGroup);
     }
+    fetchQuotaSummary().then();
+  };
+
+  const fetchQuotaSummary = async () => {
+    try {
+      const res = await API.get('/api/user/quota_summary');
+      const { success, data } = res.data;
+      if (success) {
+        setQuotaSummary(data);
+      }
+    } catch (error) {
+      // ignore
+    }
   };
 
   // Fetch groups data
@@ -272,6 +286,7 @@ export const useUsersData = () => {
         showError(reason);
       });
     fetchGroups().then();
+    fetchQuotaSummary().then();
   }, []);
 
   return {
@@ -283,6 +298,7 @@ export const useUsersData = () => {
     userCount,
     searching,
     groupOptions,
+    quotaSummary,
 
     // Modal state
     showAddUser,

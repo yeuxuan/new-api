@@ -18,18 +18,34 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
-import { Typography } from '@douyinfe/semi-ui';
+import { Typography, Tag, Space } from '@douyinfe/semi-ui';
 import { IconUserAdd } from '@douyinfe/semi-icons';
 import CompactModeToggle from '../../common/ui/CompactModeToggle';
+import { renderQuota } from '../../../helpers';
 
 const { Text } = Typography;
 
-const UsersDescription = ({ compactMode, setCompactMode, t }) => {
+const UsersDescription = ({ compactMode, setCompactMode, quotaSummary, t }) => {
   return (
     <div className='flex flex-col md:flex-row justify-between items-start md:items-center gap-2 w-full'>
-      <div className='flex items-center text-blue-500'>
-        <IconUserAdd className='mr-2' />
-        <Text>{t('用户管理')}</Text>
+      <div className='flex items-center gap-3 flex-wrap'>
+        <div className='flex items-center text-blue-500'>
+          <IconUserAdd className='mr-2' />
+          <Text>{t('用户管理')}</Text>
+        </div>
+        {quotaSummary && (
+          <Space spacing={4}>
+            <Tag color='blue' shape='circle' size='small'>
+              {t('用户总数')}: {quotaSummary.total_user_count}
+            </Tag>
+            <Tag color='green' shape='circle' size='small'>
+              {t('剩余总额度')}: {renderQuota(quotaSummary.total_quota)}
+            </Tag>
+            <Tag color='orange' shape='circle' size='small'>
+              {t('已用总额度')}: {renderQuota(quotaSummary.total_used_quota)}
+            </Tag>
+          </Space>
+        )}
       </div>
       <CompactModeToggle
         compactMode={compactMode}

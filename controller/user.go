@@ -226,6 +226,15 @@ func Register(c *gin.Context) {
 	return
 }
 
+func GetUserQuotaSummary(c *gin.Context) {
+	summary, err := model.GetUserQuotaSummary()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, summary)
+}
+
 func GetAllUsers(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	users, total, err := model.GetAllUsers(pageInfo)

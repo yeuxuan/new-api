@@ -182,6 +182,22 @@ func CheckUserExistOrDeleted(username string, email string) (bool, error) {
 	return true, nil
 }
 
+type UserQuotaSummary struct {
+	TotalQuota     int64 `json:"total_quota"`
+	TotalUsedQuota int64 `json:"total_used_quota"`
+	TotalUserCount int64 `json:"total_user_count"`
+}
+
+func GetUserQuotaSummary() (*UserQuotaSummary, error) {
+	var summary UserQuotaSummary
+	err := DB.Unscoped().Model(&User{}).Select(
+		"COALESCE(SUM(quota), 0) as total_quota, "+
+			"COALESCE(SUM(used_quota), 0) as total_used_quota, "+
+			"COUNT(*) as total_user_count",
+	).Scan(&summary).Error
+	return &summary, err
+}
+
 func GetMaxUserId() int {
 	var user User
 	DB.Unscoped().Last(&user)

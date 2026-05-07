@@ -7,8 +7,9 @@ import (
 )
 
 type PageInfo struct {
-	Page     int `json:"page"`      // page num 页码
-	PageSize int `json:"page_size"` // page size 页大小
+	Page     int    `json:"page"`      // page num 页码
+	PageSize int    `json:"page_size"` // page size 页大小
+	Order    string `json:"-"`
 
 	Total int `json:"total"` // 总条数，后设置
 	Items any `json:"items"` // 数据，后设置
@@ -26,6 +27,16 @@ func (p *PageInfo) GetPageSize() int {
 	return p.PageSize
 }
 
+func (p *PageInfo) GetOrder() string {
+	if p.Order == "" {
+		return "id desc"
+	}
+	if safe, ok := allowedOrders[p.Order]; ok {
+		return safe
+	}
+	return "id desc"
+}
+
 func (p *PageInfo) GetPage() int {
 	return p.Page
 }
@@ -38,8 +49,22 @@ func (p *PageInfo) SetItems(items any) {
 	p.Items = items
 }
 
+var allowedOrders = map[string]string{
+	"id-desc":    "id desc",
+	"id-asc":     "id asc",
+	"quota-desc": "quota desc",
+	"quota-asc":  "quota asc",
+}
+
 func GetPageQuery(c *gin.Context) *PageInfo {
 	pageInfo := &PageInfo{}
+
+	if order := c.Query("order"); order != "" {
+		if _, ok := allowedOrders[order]; ok {
+			pageInfo.Order = order
+		}
+	}
+
 	// 手动获取并处理每个参数
 	if page, err := strconv.Atoi(c.Query("p")); err == nil {
 		pageInfo.Page = page

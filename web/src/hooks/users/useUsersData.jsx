@@ -44,6 +44,9 @@ export const useUsersData = () => {
     id: undefined,
   });
 
+  // Order state
+  const [orderBy, setOrderBy] = useState('');
+
   // Form initial values
   const formInitValues = {
     searchKeyword: '',
@@ -71,9 +74,10 @@ export const useUsersData = () => {
   };
 
   // Load users data
-  const loadUsers = async (startIdx, pageSize) => {
+  const loadUsers = async (startIdx, pageSize, order = orderBy) => {
     setLoading(true);
-    const res = await API.get(`/api/user/?p=${startIdx}&page_size=${pageSize}`);
+    const orderParam = order ? `&order=${order}` : '';
+    const res = await API.get(`/api/user/?p=${startIdx}&page_size=${pageSize}${orderParam}`);
     const { success, message, data } = res.data;
     if (success) {
       const newPageData = data.items;
@@ -92,6 +96,7 @@ export const useUsersData = () => {
     pageSize,
     searchKeyword = null,
     searchGroup = null,
+    order = orderBy,
   ) => {
     // If no parameters passed, get values from form
     if (searchKeyword === null || searchGroup === null) {
@@ -102,12 +107,13 @@ export const useUsersData = () => {
 
     if (searchKeyword === '' && searchGroup === '') {
       // If keyword is blank, load files instead
-      await loadUsers(startIdx, pageSize);
+      await loadUsers(startIdx, pageSize, order);
       return;
     }
     setSearching(true);
+    const orderParam = order ? `&order=${order}` : '';
     const res = await API.get(
-      `/api/user/search?keyword=${searchKeyword}&group=${searchGroup}&p=${startIdx}&page_size=${pageSize}`,
+      `/api/user/search?keyword=${searchKeyword}&group=${searchGroup}&p=${startIdx}&page_size=${pageSize}${orderParam}`,
     );
     const { success, message, data } = res.data;
     if (success) {
@@ -194,9 +200,9 @@ export const useUsersData = () => {
     setActivePage(page);
     const { searchKeyword, searchGroup } = getFormValues();
     if (searchKeyword === '' && searchGroup === '') {
-      loadUsers(page, pageSize).then();
+      loadUsers(page, pageSize, orderBy).then();
     } else {
-      searchUsers(page, pageSize, searchKeyword, searchGroup).then();
+      searchUsers(page, pageSize, searchKeyword, searchGroup, orderBy).then();
     }
   };
 
@@ -205,7 +211,7 @@ export const useUsersData = () => {
     localStorage.setItem('page-size', size + '');
     setPageSize(size);
     setActivePage(1);
-    loadUsers(activePage, size)
+    loadUsers(1, size, orderBy)
       .then()
       .catch((reason) => {
         showError(reason);
@@ -229,9 +235,9 @@ export const useUsersData = () => {
   const refresh = async (page = activePage) => {
     const { searchKeyword, searchGroup } = getFormValues();
     if (searchKeyword === '' && searchGroup === '') {
-      await loadUsers(page, pageSize);
+      await loadUsers(page, pageSize, orderBy);
     } else {
-      await searchUsers(page, pageSize, searchKeyword, searchGroup);
+      await searchUsers(page, pageSize, searchKeyword, searchGroup, orderBy);
     }
     fetchQuotaSummary().then();
   };
@@ -316,6 +322,10 @@ export const useUsersData = () => {
     // UI state
     compactMode,
     setCompactMode,
+
+    // Order state
+    orderBy,
+    setOrderBy,
 
     // Actions
     loadUsers,

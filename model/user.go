@@ -224,7 +224,7 @@ func GetAllUsers(pageInfo *common.PageInfo) (users []*User, total int64, err err
 	}
 
 	// Get paginated users within same transaction
-	err = tx.Unscoped().Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Omit("password").Find(&users).Error
+	err = tx.Unscoped().Order(pageInfo.GetOrder()).Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Omit("password").Find(&users).Error
 	if err != nil {
 		tx.Rollback()
 		return nil, 0, err
@@ -238,7 +238,9 @@ func GetAllUsers(pageInfo *common.PageInfo) (users []*User, total int64, err err
 	return users, total, nil
 }
 
-func SearchUsers(keyword string, group string, startIdx int, num int) ([]*User, int64, error) {
+func SearchUsers(keyword string, group string, pageInfo *common.PageInfo) ([]*User, int64, error) {
+	startIdx := pageInfo.GetStartIdx()
+	num := pageInfo.GetPageSize()
 	var users []*User
 	var total int64
 	var err error
@@ -291,7 +293,7 @@ func SearchUsers(keyword string, group string, startIdx int, num int) ([]*User, 
 	}
 
 	// 获取分页数据
-	err = query.Omit("password").Order("id desc").Limit(num).Offset(startIdx).Find(&users).Error
+	err = query.Omit("password").Order(pageInfo.GetOrder()).Limit(num).Offset(startIdx).Find(&users).Error
 	if err != nil {
 		tx.Rollback()
 		return nil, 0, err

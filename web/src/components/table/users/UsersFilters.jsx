@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useRef } from 'react';
-import { Form, Button } from '@douyinfe/semi-ui';
+import { Form, Button, Select } from '@douyinfe/semi-ui';
 import { IconSearch } from '@douyinfe/semi-icons';
 
 const UsersFilters = ({
@@ -31,16 +31,31 @@ const UsersFilters = ({
   groupOptions,
   loading,
   searching,
+  orderBy,
+  setOrderBy,
   t,
 }) => {
   const formApiRef = useRef(null);
 
+  const orderOptions = [
+    { value: '', label: t('默认排序') },
+    { value: 'quota-desc', label: t('总额度从高到低') },
+    { value: 'quota-asc', label: t('总额度从低到高') },
+    { value: 'id-desc', label: t('ID 从大到小') },
+    { value: 'id-asc', label: t('ID 从小到大') },
+  ];
+
+  const handleOrderChange = (value) => {
+    const newOrder = value || '';
+    setOrderBy(newOrder);
+    searchUsers(1, pageSize, null, null, newOrder);
+  };
+
   const handleReset = () => {
     if (!formApiRef.current) return;
     formApiRef.current.reset();
-    setTimeout(() => {
-      loadUsers(1, pageSize);
-    }, 100);
+    setOrderBy('');
+    loadUsers(1, pageSize, '');
   };
 
   return (
@@ -85,6 +100,15 @@ const UsersFilters = ({
             className='w-full'
             showClear
             pure
+            size='small'
+          />
+        </div>
+        <div className='w-full md:w-44'>
+          <Select
+            value={orderBy}
+            optionList={orderOptions}
+            onChange={handleOrderChange}
+            className='w-full'
             size='small'
           />
         </div>

@@ -54,6 +54,10 @@ const UsersPage = () => {
     loading,
     searching,
 
+    // Order state
+    orderBy,
+    setOrderBy,
+
     // Description state
     compactMode,
     setCompactMode,
@@ -101,6 +105,8 @@ const UsersPage = () => {
               groupOptions={groupOptions}
               loading={loading}
               searching={searching}
+              orderBy={orderBy}
+              setOrderBy={setOrderBy}
               t={t}
             />
           </div>

@@ -83,6 +83,9 @@ export const useLogsData = () => {
     ? 'logs-billing-display-mode-admin'
     : 'logs-billing-display-mode-user';
 
+  // Export state
+  const [exporting, setExporting] = useState(false);
+
   // Statistics state
   const [stat, setStat] = useState({
     quota: 0,
@@ -771,6 +774,41 @@ export const useLogsData = () => {
     }
   };
 
+  // Export logs function
+  const exportLogs = async () => {
+    setExporting(true);
+    try {
+      const {
+        username, token_name, model_name, start_timestamp, end_timestamp,
+        channel, group, request_id, logType: formLogType,
+      } = getFormValues();
+      const currentLogType = formLogType !== undefined ? formLogType : logType;
+      let localStartTimestamp = Date.parse(start_timestamp) / 1000;
+      let localEndTimestamp = Date.parse(end_timestamp) / 1000;
+
+      let url = '';
+      if (isAdminUser) {
+        url = `/api/log/export?type=${currentLogType}&username=${username}&token_name=${token_name}&model_name=${model_name}&start_timestamp=${localStartTimestamp}&end_timestamp=${localEndTimestamp}&channel=${channel}&group=${group}&request_id=${request_id}`;
+      } else {
+        url = `/api/log/self/export?type=${currentLogType}&token_name=${token_name}&model_name=${model_name}&start_timestamp=${localStartTimestamp}&end_timestamp=${localEndTimestamp}&group=${group}&request_id=${request_id}`;
+      }
+      url = encodeURI(url);
+      const res = await API.get(url, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8' });
+      const downloadUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = `logs_export_${Date.now()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      showError(t('导出失败'));
+    }
+    setExporting(false);
+  };
+
   // Initialize data
   useEffect(() => {
     const localPageSize =
@@ -846,6 +884,10 @@ export const useLogsData = () => {
     showParamOverrideModal,
     setShowParamOverrideModal,
     paramOverrideTarget,
+
+    // Export
+    exporting,
+    exportLogs,
 
     // Functions
     loadLogs,

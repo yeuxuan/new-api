@@ -1203,6 +1203,7 @@
         "导入配置": "Import configuration",
         "导入配置失败: ": "Failed to import configuration: ",
         "导出": "Export",
+        "导出失败": "Export failed",
         "导出日志失败": "Failed to export logs",
         "导出配置": "Export configuration",
         "导出配置失败: ": "Failed to export configuration: ",

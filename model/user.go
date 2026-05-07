@@ -1055,3 +1055,46 @@ func RootUserExists() bool {
 	}
 	return true
 }
+
+func GetAllUsersForExport(order string, limit int) ([]*User, error) {
+	orderClause := "id desc"
+	if safe, ok := common.GetAllowedOrder(order); ok {
+		orderClause = safe
+	}
+	var users []*User
+	err := DB.Unscoped().Order(orderClause).Limit(limit).Omit("password").Find(&users).Error
+	return users, err
+}
+
+func SearchUsersForExport(keyword string, group string, order string, limit int) ([]*User, error) {
+	orderClause := "id desc"
+	if safe, ok := common.GetAllowedOrder(order); ok {
+		orderClause = safe
+	}
+	query := DB.Unscoped().Model(&User{})
+
+	likeCondition := "username LIKE ? OR email LIKE ? OR display_name LIKE ?"
+	keywordInt, err := strconv.Atoi(keyword)
+	if err == nil {
+		likeCondition = "id = ? OR " + likeCondition
+		if group != "" {
+			query = query.Where("("+likeCondition+") AND "+commonGroupCol+" = ?",
+				keywordInt, "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", group)
+		} else {
+			query = query.Where(likeCondition,
+				keywordInt, "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
+		}
+	} else {
+		if group != "" {
+			query = query.Where("("+likeCondition+") AND "+commonGroupCol+" = ?",
+				"%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", group)
+		} else {
+			query = query.Where(likeCondition,
+				"%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
+		}
+	}
+
+	var users []*User
+	err = query.Omit("password").Order(orderClause).Limit(limit).Find(&users).Error
+	return users, err
+}

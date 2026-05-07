@@ -115,6 +115,7 @@ func SetApiRouter(router *gin.Engine) {
 			adminRoute.Use(middleware.AdminAuth())
 			{
 				adminRoute.GET("/quota_summary", controller.GetUserQuotaSummary)
+				adminRoute.GET("/export", middleware.DownloadRateLimit(), controller.ExportAllUsers)
 				adminRoute.GET("/", controller.GetAllUsers)
 				adminRoute.GET("/topup", controller.GetAllTopUps)
 				adminRoute.POST("/topup/complete", controller.AdminCompleteTopUp)
@@ -289,6 +290,8 @@ func SetApiRouter(router *gin.Engine) {
 		logRoute.GET("/search", middleware.AdminAuth(), controller.SearchAllLogs)
 		logRoute.GET("/self", middleware.UserAuth(), controller.GetUserLogs)
 		logRoute.GET("/self/search", middleware.UserAuth(), middleware.SearchRateLimit(), controller.SearchUserLogs)
+		logRoute.GET("/export", middleware.AdminAuth(), middleware.DownloadRateLimit(), controller.ExportAllLogs)
+		logRoute.GET("/self/export", middleware.UserAuth(), middleware.DownloadRateLimit(), controller.ExportUserLogs)
 
 		dataRoute := apiRouter.Group("/data")
 		dataRoute.GET("/", middleware.AdminAuth(), controller.GetAllQuotaDates)

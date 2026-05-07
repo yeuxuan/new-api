@@ -37,6 +37,9 @@ export const useUsersData = () => {
   const [userCount, setUserCount] = useState(0);
   const [quotaSummary, setQuotaSummary] = useState(null);
 
+  // Export state
+  const [exporting, setExporting] = useState(false);
+
   // Modal states
   const [showAddUser, setShowAddUser] = useState(false);
   const [showEditUser, setShowEditUser] = useState(false);
@@ -284,6 +287,30 @@ export const useUsersData = () => {
     });
   };
 
+  // Export users function
+  const exportUsers = async () => {
+    setExporting(true);
+    try {
+      const { searchKeyword, searchGroup } = getFormValues();
+      const orderParam = orderBy ? `&order=${orderBy}` : '';
+      let url = `/api/user/export?keyword=${searchKeyword}&group=${searchGroup}${orderParam}`;
+      url = encodeURI(url);
+      const res = await API.get(url, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8' });
+      const downloadUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = `users_export_${Date.now()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      showError(t('导出失败'));
+    }
+    setExporting(false);
+  };
+
   // Initialize data on component mount
   useEffect(() => {
     loadUsers(0, pageSize)
@@ -326,6 +353,10 @@ export const useUsersData = () => {
     // Order state
     orderBy,
     setOrderBy,
+
+    // Export
+    exporting,
+    exportUsers,
 
     // Actions
     loadUsers,

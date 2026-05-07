@@ -56,6 +56,11 @@ var allowedOrders = map[string]string{
 	"quota-asc":  "quota asc",
 }
 
+func GetAllowedOrder(order string) (string, bool) {
+	safe, ok := allowedOrders[order]
+	return safe, ok
+}
+
 func GetPageQuery(c *gin.Context) *PageInfo {
 	pageInfo := &PageInfo{}
 

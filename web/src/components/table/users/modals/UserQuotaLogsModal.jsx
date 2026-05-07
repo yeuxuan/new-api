@@ -23,6 +23,8 @@ const LOG_TYPE_OPTIONS = (t) => [
   { label: t('充值'), value: 1 },
   { label: t('消费'), value: 2 },
   { label: t('管理'), value: 3 },
+  { label: t('系统'), value: 4 },
+  { label: t('错误'), value: 5 },
   { label: t('退款'), value: 6 },
 ];
 

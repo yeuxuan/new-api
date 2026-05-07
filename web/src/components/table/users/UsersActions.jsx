@@ -19,8 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React from 'react';
 import { Button } from '@douyinfe/semi-ui';
+import { IconDownload } from '@douyinfe/semi-icons';
 
-const UsersActions = ({ setShowAddUser, t }) => {
+const UsersActions = ({ setShowAddUser, exportUsers, exporting, t }) => {
   // Add new user
   const handleAddUser = () => {
     setShowAddUser(true);
@@ -30,6 +31,15 @@ const UsersActions = ({ setShowAddUser, t }) => {
     <div className='flex gap-2 w-full md:w-auto order-2 md:order-1'>
       <Button className='w-full md:w-auto' onClick={handleAddUser} size='small'>
         {t('添加用户')}
+      </Button>
+      <Button
+        className='w-full md:w-auto'
+        icon={<IconDownload />}
+        size='small'
+        loading={exporting}
+        onClick={exportUsers}
+      >
+        {t('导出')}
       </Button>
     </div>
   );

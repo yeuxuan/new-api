@@ -65,6 +65,8 @@ const UsersPage = () => {
     // Export state
     exportUsers,
     exporting,
+    exportQuotaLogs,
+    exportingQuotaLogs,
 
     // Translation
     t,
@@ -97,7 +99,7 @@ const UsersPage = () => {
         }
         actionsArea={
           <div className='flex flex-col md:flex-row justify-between items-center gap-2 w-full'>
-            <UsersActions setShowAddUser={setShowAddUser} exportUsers={exportUsers} exporting={exporting} t={t} />
+            <UsersActions setShowAddUser={setShowAddUser} exportUsers={exportUsers} exporting={exporting} exportQuotaLogs={exportQuotaLogs} exportingQuotaLogs={exportingQuotaLogs} t={t} />
 
             <UsersFilters
               formInitValues={formInitValues}

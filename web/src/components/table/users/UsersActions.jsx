@@ -21,7 +21,7 @@ import React from 'react';
 import { Button } from '@douyinfe/semi-ui';
 import { IconDownload } from '@douyinfe/semi-icons';
 
-const UsersActions = ({ setShowAddUser, exportUsers, exporting, t }) => {
+const UsersActions = ({ setShowAddUser, exportUsers, exporting, exportQuotaLogs, exportingQuotaLogs, t }) => {
   // Add new user
   const handleAddUser = () => {
     setShowAddUser(true);
@@ -40,6 +40,15 @@ const UsersActions = ({ setShowAddUser, exportUsers, exporting, t }) => {
         onClick={exportUsers}
       >
         {t('导出')}
+      </Button>
+      <Button
+        className='w-full md:w-auto'
+        icon={<IconDownload />}
+        size='small'
+        loading={exportingQuotaLogs}
+        onClick={exportQuotaLogs}
+      >
+        {t('导出额度明细')}
       </Button>
     </div>
   );

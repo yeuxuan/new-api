@@ -141,6 +141,63 @@ func ExportUserLogs(c *gin.Context) {
 	flushCSVWriter(writer)
 }
 
+func ExportQuotaLogs(c *gin.Context) {
+	logType, _ := strconv.Atoi(c.Query("type"))
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	username := c.Query("username")
+
+	logs, _, err := model.GetAllLogs(logType, startTimestamp, endTimestamp, "", username, "", 0, exportMaxRows, 0, "", "")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	setCSVHeaders(c, fmt.Sprintf("quota_logs_export_%d.csv", time.Now().Unix()))
+	writer := newCSVWriter(c)
+
+	_ = writer.Write([]string{
+		"Time", "Username", "Type", "QuotaChange", "QuotaChangeUSD",
+		"ModelName", "TokenName", "Details",
+	})
+
+	for _, log := range logs {
+		quotaChange := log.Quota
+		prefix := "+"
+		if log.Type == model.LogTypeConsume {
+			prefix = "-"
+		}
+		quotaChangeStr := fmt.Sprintf("%s%d", prefix, abs(quotaChange))
+
+		var quotaUSD string
+		if quotaChange != 0 {
+			quotaUSD = fmt.Sprintf("%s$%.6f", prefix, float64(abs(quotaChange))/common.QuotaPerUnit)
+		} else {
+			quotaUSD = ""
+		}
+
+		_ = writer.Write([]string{
+			time.Unix(log.CreatedAt, 0).Format("2006-01-02 15:04:05"),
+			log.Username,
+			getLogTypeName(log.Type),
+			quotaChangeStr,
+			quotaUSD,
+			log.ModelName,
+			log.TokenName,
+			log.Content,
+		})
+	}
+
+	flushCSVWriter(writer)
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
 func ExportAllUsers(c *gin.Context) {
 	keyword := c.Query("keyword")
 	group := c.Query("group")

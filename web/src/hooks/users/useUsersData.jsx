@@ -39,6 +39,7 @@ export const useUsersData = () => {
 
   // Export state
   const [exporting, setExporting] = useState(false);
+  const [exportingQuotaLogs, setExportingQuotaLogs] = useState(false);
 
   // Modal states
   const [showAddUser, setShowAddUser] = useState(false);
@@ -311,6 +312,26 @@ export const useUsersData = () => {
     setExporting(false);
   };
 
+  const exportQuotaLogs = async () => {
+    setExportingQuotaLogs(true);
+    try {
+      const url = `/api/log/quota/export`;
+      const res = await API.get(url, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8' });
+      const downloadUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = `quota_logs_export_${Date.now()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      showError(t('导出失败'));
+    }
+    setExportingQuotaLogs(false);
+  };
+
   // Initialize data on component mount
   useEffect(() => {
     loadUsers(0, pageSize)
@@ -357,6 +378,8 @@ export const useUsersData = () => {
     // Export
     exporting,
     exportUsers,
+    exportingQuotaLogs,
+    exportQuotaLogs,
 
     // Actions
     loadUsers,

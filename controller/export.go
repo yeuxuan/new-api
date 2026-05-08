@@ -3,6 +3,7 @@ package controller
 import (
 	"encoding/csv"
 	"fmt"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+var quotaFromContentRe = regexp.MustCompile(`[\$＄¥¤]\s*([\d.]+)`)
 
 const exportMaxRows = 10000
 
@@ -156,7 +159,8 @@ func ExportQuotaLogs(c *gin.Context) {
 	writer := newCSVWriter(c)
 
 	_ = writer.Write([]string{
-		"Time", "Username", "Type", "QuotaChange", "QuotaChangeUSD",
+		"Date", "Time", "UserID", "Username", "Group", "Type",
+		"QuotaChange", "QuotaChangeUSD",
 		"ModelName", "TokenName", "Details",
 	})
 
@@ -177,22 +181,32 @@ func ExportQuotaLogs(c *gin.Context) {
 
 		for _, log := range logs {
 			quotaChange := log.Quota
-			prefix := "+"
+			sign := 1
 			if log.Type == model.LogTypeConsume {
-				prefix = "-"
+				sign = -1
 			}
-			quotaChangeStr := fmt.Sprintf("%s%d", prefix, abs(quotaChange))
 
-			var quotaUSD string
+			var quotaChangeStr, quotaUSD string
 			if quotaChange != 0 {
-				quotaUSD = fmt.Sprintf("%s$%.6f", prefix, float64(abs(quotaChange))/common.QuotaPerUnit)
-			} else {
+				val := sign * abs(quotaChange)
+				quotaChangeStr = strconv.Itoa(val)
+				quotaUSD = fmt.Sprintf("%.6f", float64(val)/common.QuotaPerUnit)
+			} else if m := quotaFromContentRe.FindStringSubmatch(log.Content); m != nil {
+				prefix := "+"
+				if sign < 0 {
+					prefix = "-"
+				}
+				quotaChangeStr = prefix + m[0]
 				quotaUSD = ""
 			}
 
+			ts := time.Unix(log.CreatedAt, 0)
 			_ = writer.Write([]string{
-				time.Unix(log.CreatedAt, 0).Format("2006-01-02 15:04:05"),
+				ts.Format("2006-01-02"),
+				ts.Format("2006-01-02 15:04:05"),
+				strconv.Itoa(log.UserId),
 				log.Username,
+				log.Group,
 				getLogTypeName(log.Type),
 				quotaChangeStr,
 				quotaUSD,

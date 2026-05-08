@@ -13,7 +13,11 @@ import (
 	"gorm.io/gorm"
 )
 
-var quotaFromContentRe = regexp.MustCompile(`[\$＄¥¤]\s*([\d.]+)`)
+// 匹配 content 中的额度金额，覆盖以下格式：
+// "充值额度: ＄0.123456，..." / "充值金额: ¥0.123，..." / "充值额度: 500000，..."（Tokens模式）
+// "获得额度 ＄0.001 额度" / "赠送 ＄0.001 额度"
+var quotaLabelRe = regexp.MustCompile(`(?:充值(?:额度|金额)|获得额度|赠送)\s*[：:\s]\s*(\S+?)(?:[，,\s]|$)`)
+var quotaCurrencyRe = regexp.MustCompile(`[\$＄¥¤]\s*([\d.]+)`)
 
 const exportMaxRows = 10000
 
@@ -191,13 +195,16 @@ func ExportQuotaLogs(c *gin.Context) {
 				val := sign * abs(quotaChange)
 				quotaChangeStr = strconv.Itoa(val)
 				quotaUSD = fmt.Sprintf("%.6f", float64(val)/common.QuotaPerUnit)
-			} else if m := quotaFromContentRe.FindStringSubmatch(log.Content); m != nil {
-				prefix := "+"
-				if sign < 0 {
-					prefix = "-"
+			} else {
+				parsed := parseQuotaFromContent(log.Content)
+				if parsed != "" {
+					prefix := "+"
+					if sign < 0 {
+						prefix = "-"
+					}
+					quotaChangeStr = prefix + parsed
+					quotaUSD = prefix + parsed
 				}
-				quotaChangeStr = prefix + m[0]
-				quotaUSD = ""
 			}
 
 			ts := time.Unix(log.CreatedAt, 0)
@@ -225,6 +232,16 @@ func ExportQuotaLogs(c *gin.Context) {
 	}
 
 	flushCSVWriter(writer)
+}
+
+func parseQuotaFromContent(content string) string {
+	if m := quotaLabelRe.FindStringSubmatch(content); m != nil {
+		return m[1]
+	}
+	if m := quotaCurrencyRe.FindStringSubmatch(content); m != nil {
+		return m[0]
+	}
+	return ""
 }
 
 func abs(x int) int {

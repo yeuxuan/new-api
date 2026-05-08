@@ -461,6 +461,23 @@ func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	return token
 }
 
+func BuildQuotaLogQuery(logType int, startTimestamp int64, endTimestamp int64, username string) *gorm.DB {
+	tx := LOG_DB.Model(&Log{})
+	if logType != LogTypeUnknown {
+		tx = tx.Where("type = ?", logType)
+	}
+	if username != "" {
+		tx = tx.Where("username = ?", username)
+	}
+	if startTimestamp != 0 {
+		tx = tx.Where("created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("created_at <= ?", endTimestamp)
+	}
+	return tx
+}
+
 func DeleteOldLog(ctx context.Context, targetTimestamp int64, limit int) (int64, error) {
 	var total int64 = 0
 

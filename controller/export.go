@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 const exportMaxRows = 10000
@@ -141,17 +142,15 @@ func ExportUserLogs(c *gin.Context) {
 	flushCSVWriter(writer)
 }
 
+const exportBatchSize = 2000
+
 func ExportQuotaLogs(c *gin.Context) {
 	logType, _ := strconv.Atoi(c.Query("type"))
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
 	username := c.Query("username")
 
-	logs, _, err := model.GetAllLogs(logType, startTimestamp, endTimestamp, "", username, "", 0, exportMaxRows, 0, "", "")
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
+	tx := model.BuildQuotaLogQuery(logType, startTimestamp, endTimestamp, username)
 
 	setCSVHeaders(c, fmt.Sprintf("quota_logs_export_%d.csv", time.Now().Unix()))
 	writer := newCSVWriter(c)
@@ -161,31 +160,54 @@ func ExportQuotaLogs(c *gin.Context) {
 		"ModelName", "TokenName", "Details",
 	})
 
-	for _, log := range logs {
-		quotaChange := log.Quota
-		prefix := "+"
-		if log.Type == model.LogTypeConsume {
-			prefix = "-"
+	lastId := 0
+	for {
+		var logs []*model.Log
+		query := tx.Session(&gorm.Session{})
+		if lastId > 0 {
+			query = query.Where("id < ?", lastId)
 		}
-		quotaChangeStr := fmt.Sprintf("%s%d", prefix, abs(quotaChange))
-
-		var quotaUSD string
-		if quotaChange != 0 {
-			quotaUSD = fmt.Sprintf("%s$%.6f", prefix, float64(abs(quotaChange))/common.QuotaPerUnit)
-		} else {
-			quotaUSD = ""
+		if err := query.Order("id desc").Limit(exportBatchSize).Find(&logs).Error; err != nil {
+			common.SysLog("export quota logs batch error: " + err.Error())
+			break
+		}
+		if len(logs) == 0 {
+			break
 		}
 
-		_ = writer.Write([]string{
-			time.Unix(log.CreatedAt, 0).Format("2006-01-02 15:04:05"),
-			log.Username,
-			getLogTypeName(log.Type),
-			quotaChangeStr,
-			quotaUSD,
-			log.ModelName,
-			log.TokenName,
-			log.Content,
-		})
+		for _, log := range logs {
+			quotaChange := log.Quota
+			prefix := "+"
+			if log.Type == model.LogTypeConsume {
+				prefix = "-"
+			}
+			quotaChangeStr := fmt.Sprintf("%s%d", prefix, abs(quotaChange))
+
+			var quotaUSD string
+			if quotaChange != 0 {
+				quotaUSD = fmt.Sprintf("%s$%.6f", prefix, float64(abs(quotaChange))/common.QuotaPerUnit)
+			} else {
+				quotaUSD = ""
+			}
+
+			_ = writer.Write([]string{
+				time.Unix(log.CreatedAt, 0).Format("2006-01-02 15:04:05"),
+				log.Username,
+				getLogTypeName(log.Type),
+				quotaChangeStr,
+				quotaUSD,
+				log.ModelName,
+				log.TokenName,
+				log.Content,
+			})
+		}
+
+		writer.Flush()
+		lastId = logs[len(logs)-1].Id
+
+		if len(logs) < exportBatchSize {
+			break
+		}
 	}
 
 	flushCSVWriter(writer)

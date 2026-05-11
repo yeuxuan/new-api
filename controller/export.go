@@ -185,21 +185,19 @@ func ExportQuotaLogs(c *gin.Context) {
 
 		for _, log := range logs {
 			quotaChange := log.Quota
-			sign := 1
 			if log.Type == model.LogTypeConsume {
-				sign = -1
+				quotaChange = -abs(quotaChange)
 			}
 
 			var quotaChangeStr, quotaUSD string
 			if quotaChange != 0 {
-				val := sign * abs(quotaChange)
-				quotaChangeStr = strconv.Itoa(val)
-				quotaUSD = fmt.Sprintf("%.6f", float64(val)/common.QuotaPerUnit)
+				quotaChangeStr = strconv.Itoa(quotaChange)
+				quotaUSD = fmt.Sprintf("%.6f", float64(quotaChange)/common.QuotaPerUnit)
 			} else {
 				parsed := parseQuotaFromContent(log.Content)
 				if parsed != "" {
 					prefix := "+"
-					if sign < 0 {
+					if log.Type == model.LogTypeConsume {
 						prefix = "-"
 					}
 					quotaChangeStr = prefix + parsed

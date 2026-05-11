@@ -136,10 +136,13 @@ const UserQuotaLogsModal = ({ visible, onCancel, user, t }) => {
         render: (text, record) => {
           const quota = parseInt(text) || 0;
           if (quota === 0) {
-            // 历史记录 quota 未入库，从 content 中提取金额
             const match = record.content?.match(/[\$＄]\s*([\d.]+)/);
             if (match) {
-              const isDeduction = record.type === 2;
+              const from = record.content?.match(/从\s*[\$＄]\s*([\d.]+)/);
+              const to = record.content?.match(/修改为\s*[\$＄]\s*([\d.]+)/);
+              const isDeduction = from && to
+                ? parseFloat(to[1]) < parseFloat(from[1])
+                : record.type === 2;
               return (
                 <Text type={isDeduction ? 'danger' : 'success'}>
                   {isDeduction ? '-' : '+'}${match[1]}
@@ -148,10 +151,10 @@ const UserQuotaLogsModal = ({ visible, onCancel, user, t }) => {
             }
             return <Text type='tertiary'>-</Text>;
           }
-          const isDeduction = record.type === 2;
+          const displayQuota = record.type === 2 ? -Math.abs(quota) : quota;
           return (
-            <Text type={isDeduction ? 'danger' : 'success'}>
-              {isDeduction ? '-' : '+'}
+            <Text type={displayQuota < 0 ? 'danger' : 'success'}>
+              {displayQuota < 0 ? '-' : '+'}
               {renderQuota(Math.abs(quota), 6)}
             </Text>
           );

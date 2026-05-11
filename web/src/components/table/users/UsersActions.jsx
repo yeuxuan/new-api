@@ -19,9 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React from 'react';
 import { Button } from '@douyinfe/semi-ui';
-import { IconDownload } from '@douyinfe/semi-icons';
+import { IconDownload, IconDelete } from '@douyinfe/semi-icons';
 
-const UsersActions = ({ setShowAddUser, exportUsers, exporting, exportQuotaLogs, exportingQuotaLogs, t }) => {
+const UsersActions = ({ setShowAddUser, exportUsers, exporting, exportQuotaLogs, exportingQuotaLogs, setShowClearCheckin, t }) => {
   // Add new user
   const handleAddUser = () => {
     setShowAddUser(true);
@@ -49,6 +49,15 @@ const UsersActions = ({ setShowAddUser, exportUsers, exporting, exportQuotaLogs,
         onClick={exportQuotaLogs}
       >
         {t('导出额度明细')}
+      </Button>
+      <Button
+        className='w-full md:w-auto'
+        icon={<IconDelete />}
+        size='small'
+        type='danger'
+        onClick={() => setShowClearCheckin(true)}
+      >
+        {t('清除签到额度')}
       </Button>
     </div>
   );

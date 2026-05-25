@@ -68,4 +68,6 @@ const (
 
 	// ContextKeyResponseContent stores the assistant response text for conversation logging
 	ContextKeyResponseContent ContextKey = "response_content"
+
+	ContextKeyIsStream ContextKey = "is_stream"
 )

@@ -364,7 +364,7 @@ func batchClearCheckinWithoutTransaction(sums []UserCheckinSum, startDate, endDa
 			continue
 		}
 
-		if err := DecreaseUserQuota(s.UserId, actualDeduction); err != nil {
+		if err := DecreaseUserQuota(s.UserId, actualDeduction, false); err != nil {
 			continue
 		}
 

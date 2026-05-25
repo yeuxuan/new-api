@@ -54,7 +54,6 @@ func oaiImage2AliImageRequest(info *relaycommon.RelayInfo, request dto.ImageRequ
 		}
 	}
 
-	// 检查n参数
 	if imageRequest.Parameters.N != 0 {
 		info.PriceData.AddOtherRatio("n", float64(imageRequest.Parameters.N))
 	}
@@ -181,6 +180,7 @@ func oaiFormEdit2AliImageEdit(c *gin.Context, info *relaycommon.RelayInfo, reque
 		},
 	}
 	imageRequest.Parameters = AliImageParameters{
+		N:         int(lo.FromPtrOr(request.N, uint(1))),
 		Watermark: request.Watermark,
 	}
 	return &imageRequest, nil
@@ -229,7 +229,7 @@ func asyncTaskWait(c *gin.Context, info *relaycommon.RelayInfo, taskID string) (
 	time.Sleep(time.Duration(5) * time.Second)
 
 	for {
-		logger.LogDebug(c, fmt.Sprintf("asyncTaskWait step %d/%d, wait %d seconds", step, maxStep, waitSeconds))
+		logger.LogDebug(c, "asyncTaskWait step %d/%d, wait %d seconds", step, maxStep, waitSeconds)
 		step++
 		rsp, err, body := updateTask(info, taskID)
 		responseBody = body
@@ -320,15 +320,13 @@ func aliImageHandler(a *Adaptor, c *gin.Context, resp *http.Response, info *rela
 		}
 	}
 
-	//logger.LogDebug(c, "ali_async_task_result: "+string(originRespBody))
 	if a.IsSyncImageModel {
-		logger.LogDebug(c, "ali_sync_image_result: "+string(originRespBody))
+		logger.LogDebug(c, "ali_sync_image_result: %s", originRespBody)
 	} else {
-		logger.LogDebug(c, "ali_async_image_result: "+string(originRespBody))
+		logger.LogDebug(c, "ali_async_image_result: %s", originRespBody)
 	}
 
 	imageResponses := responseAli2OpenAIImage(c, aliResponse, originRespBody, info, responseFormat)
-	// 可能生成多张图片，修正计费数量n
 	if aliResponse.Usage.ImageCount != 0 {
 		info.PriceData.AddOtherRatio("n", float64(aliResponse.Usage.ImageCount))
 	} else if len(imageResponses.Data) != 0 {

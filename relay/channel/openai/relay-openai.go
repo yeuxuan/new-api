@@ -120,18 +120,17 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var responseTextBuilder strings.Builder
 	var toolCount int
 	var usage = &dto.Usage{}
-	var streamItems []string // store stream items
 	var lastStreamData string
 	var secondLastStreamData string // 存储倒数第二个stream data，用于音频模型
 
 	// 检查是否为音频模型
 	isAudioModel := strings.Contains(strings.ToLower(model), "audio")
 
-	helper.StreamScannerHandler(c, resp, info, func(data string) bool {
+	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if lastStreamData != "" {
-			err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
-			if err != nil {
+			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				common.SysLog("error handling stream format: " + err.Error())
+				sr.Error(err)
 			}
 		}
 		if len(data) > 0 {
@@ -141,9 +140,11 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 
 			lastStreamData = data
-			streamItems = append(streamItems, data)
+			if err := processTokenData(info.RelayMode, data, &responseTextBuilder, &toolCount); err != nil {
+				logger.LogError(c, "error processing stream token data: "+err.Error())
+				sr.Error(err)
+			}
 		}
-		return true
 	})
 
 	// 对音频模型，从倒数第二个stream data中提取usage信息
@@ -157,9 +158,9 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			containStreamUsage = true
 
 			if common.DebugEnabled {
-				logger.LogDebug(c, fmt.Sprintf("Audio model usage extracted from second last SSE: PromptTokens=%d, CompletionTokens=%d, TotalTokens=%d, InputTokens=%d, OutputTokens=%d",
+				logger.LogDebug(c, "Audio model usage extracted from second last SSE: PromptTokens=%d, CompletionTokens=%d, TotalTokens=%d, InputTokens=%d, OutputTokens=%d",
 					usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens,
-					usage.InputTokens, usage.OutputTokens))
+					usage.InputTokens, usage.OutputTokens)
 			}
 		}
 	}
@@ -175,11 +176,6 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		if shouldSendLastResp {
 			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
 		}
-	}
-
-	// 处理token计算
-	if err := processTokens(info.RelayMode, streamItems, &responseTextBuilder, &toolCount); err != nil {
-		logger.LogError(c, "error processing tokens: "+err.Error())
 	}
 
 	if !containStreamUsage {
@@ -206,9 +202,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}
-	if common.DebugEnabled {
-		println("upstream response body:", string(responseBody))
-	}
+	logger.LogDebug(c, "upstream response body: %s", responseBody)
 	// Unmarshal to simpleResponse
 	if info.ChannelType == constant.ChannelTypeOpenRouter && info.ChannelOtherSettings.IsOpenRouterEnterprise() {
 		// 尝试解析为 openrouter enterprise
@@ -251,7 +245,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		completionTokens := simpleResponse.Usage.CompletionTokens
 		if completionTokens == 0 {
 			for _, choice := range simpleResponse.Choices {
-				ctkm := service.CountTextToken(choice.Message.StringContent()+choice.Message.ReasoningContent+choice.Message.Reasoning, info.UpstreamModelName)
+				ctkm := service.CountTextToken(choice.Message.StringContent()+choice.Message.GetReasoningContent(), info.UpstreamModelName)
 				completionTokens += ctkm
 			}
 		}
@@ -636,6 +630,12 @@ func applyUsagePostProcessing(info *relaycommon.RelayInfo, usage *dto.Usage, res
 				usage.PromptTokensDetails.CachedTokens = usage.PromptCacheHitTokens
 			}
 		}
+	case constant.ChannelTypeOpenAI:
+		if usage.PromptTokensDetails.CachedTokens == 0 {
+			if cachedTokens, ok := extractLlamaCachedTokensFromBody(responseBody); ok {
+				usage.PromptTokensDetails.CachedTokens = cachedTokens
+			}
+		}
 	}
 }
 
@@ -697,4 +697,26 @@ func extractMoonshotCachedTokensFromBody(body []byte) (int, bool) {
 	}
 
 	return 0, false
+}
+
+// extractLlamaCachedTokensFromBody 从llama.cpp的非标准位置提取cache_n
+func extractLlamaCachedTokensFromBody(body []byte) (int, bool) {
+	if len(body) == 0 {
+		return 0, false
+	}
+
+	var payload struct {
+		Timings struct {
+			CachedTokens *int `json:"cache_n"`
+		} `json:"timings"`
+	}
+
+	if err := common.Unmarshal(body, &payload); err != nil {
+		return 0, false
+	}
+
+	if payload.Timings.CachedTokens == nil {
+		return 0, false
+	}
+	return *payload.Timings.CachedTokens, true
 }

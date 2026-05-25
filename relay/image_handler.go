@@ -76,10 +76,15 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 				}
 			}
 
-			if common.DebugEnabled {
-				logger.LogDebug(c, fmt.Sprintf("image request body: %s", string(jsonData)))
+			logger.LogDebug(c, "image request body: %s", jsonData)
+			body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
+			if err != nil {
+				return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 			}
-			requestBody = bytes.NewBuffer(jsonData)
+			defer closer.Close()
+			jsonData = nil
+			info.UpstreamRequestBodySize = size
+			requestBody = body
 		}
 	}
 
@@ -117,11 +122,22 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	if request.N != nil {
 		imageN = *request.N
 	}
+
+	// n is handled via OtherRatio so it is applied exactly once in quota
+	// calculation (both price-based and ratio-based paths).
+	// Adaptors may have already set a more accurate count from the
+	// upstream response; only set the default when they haven't.
+	if info.PriceData.UsePrice { // only price model use N ratio
+		if _, hasN := info.PriceData.OtherRatios["n"]; !hasN {
+			info.PriceData.AddOtherRatio("n", float64(imageN))
+		}
+	}
+
 	if usage.(*dto.Usage).TotalTokens == 0 {
-		usage.(*dto.Usage).TotalTokens = int(imageN)
+		usage.(*dto.Usage).TotalTokens = 1
 	}
 	if usage.(*dto.Usage).PromptTokens == 0 {
-		usage.(*dto.Usage).PromptTokens = int(imageN)
+		usage.(*dto.Usage).PromptTokens = 1
 	}
 
 	quality := "standard"
@@ -141,6 +157,6 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		logContent = append(logContent, fmt.Sprintf("生成数量 %d", imageN))
 	}
 
-	postConsumeQuota(c, info, usage.(*dto.Usage), logContent...)
+	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), logContent)
 	return nil
 }

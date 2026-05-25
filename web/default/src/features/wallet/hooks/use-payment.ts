@@ -39,6 +39,7 @@ import {
 
 export function usePayment() {
   const [amount, setAmount] = useState<number>(0)
+  const [groupRatio, setGroupRatio] = useState<number>(1)
   const [calculating, setCalculating] = useState(false)
   const [processing, setProcessing] = useState(false)
 
@@ -59,14 +60,22 @@ export function usePayment() {
         if (isApiSuccess(response) && response.data) {
           const calculatedAmount = parseFloat(response.data)
           setAmount(calculatedAmount)
+          // group_ratio is the user's topup group rate (backend sibling field)
+          setGroupRatio(
+            typeof response.group_ratio === 'number' && response.group_ratio > 0
+              ? response.group_ratio
+              : 1
+          )
           return calculatedAmount
         }
 
         // Don't show error for calculation, just set to 0
         setAmount(0)
+        setGroupRatio(1)
         return 0
       } catch (_error) {
         setAmount(0)
+        setGroupRatio(1)
         return 0
       } finally {
         setCalculating(false)
@@ -129,6 +138,7 @@ export function usePayment() {
 
   return {
     amount,
+    groupRatio,
     calculating,
     processing,
     calculatePaymentAmount,

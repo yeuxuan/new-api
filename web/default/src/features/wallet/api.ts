@@ -38,6 +38,9 @@ import type {
   WaffoPaymentResponse,
   WaffoPancakePaymentRequest,
   WaffoPancakePaymentResponse,
+  IPayNowPaymentRequest,
+  IPayNowPaymentResponse,
+  IPayNowOrderResponse,
 } from './types'
 
 // ============================================================================
@@ -117,6 +120,33 @@ export async function requestStripePayment(
   const res = await api.post('/api/user/stripe/pay', request, {
     skipBusinessError: true,
   } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * Request iPayNow payment — returns a trade number and QR url to render
+ */
+export async function requestIPayNowPayment(
+  request: IPayNowPaymentRequest
+): Promise<IPayNowPaymentResponse> {
+  const res = await api.post('/api/user/ipaynow/pay', request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * Query an iPayNow order status (polled until success/expired)
+ */
+export async function queryIPayNowOrder(
+  tradeNo: string
+): Promise<IPayNowOrderResponse> {
+  const res = await api.get(
+    `/api/user/ipaynow/order/${encodeURIComponent(tradeNo)}`,
+    {
+      skipBusinessError: true,
+    } as Record<string, unknown>
+  )
   return res.data
 }
 

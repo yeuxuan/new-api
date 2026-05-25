@@ -142,6 +142,13 @@ export function getPaymentIcon(
           />
         </span>
       )
+    case PAYMENT_TYPES.IPAYNOW:
+      return (
+        <SiWechat
+          className={className}
+          style={{ color: PAYMENT_ICON_COLORS[PAYMENT_TYPES.IPAYNOW] }}
+        />
+      )
     default:
       return <CreditCard className={className} />
   }

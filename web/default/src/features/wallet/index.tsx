@@ -25,6 +25,7 @@ import { SectionPageLayout } from '@/components/layout'
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
 import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
+import { IPayNowQRDialog } from './components/dialogs/ipaynow-qr-dialog'
 import { PaymentConfirmDialog } from './components/dialogs/payment-confirm-dialog'
 import { TransferDialog } from './components/dialogs/transfer-dialog'
 import { RechargeFormCard } from './components/recharge-form-card'
@@ -39,11 +40,14 @@ import {
   useCreemPayment,
   useWaffoPayment,
   useWaffoPancakePayment,
+  useIPayNowPayment,
 } from './hooks'
+import type { IPayNowOrder } from './hooks'
 import {
   getDefaultPaymentType,
   getMinTopupAmount,
   isWaffoPancakePayment,
+  isIPayNowPayment,
 } from './lib'
 import type {
   UserWalletData,
@@ -72,6 +76,8 @@ export function Wallet(props: WalletProps) {
   const [creemDialogOpen, setCreemDialogOpen] = useState(false)
   const [selectedCreemProduct, setSelectedCreemProduct] =
     useState<CreemProduct | null>(null)
+  const [ipaynowDialogOpen, setIpaynowDialogOpen] = useState(false)
+  const [ipaynowOrder, setIpaynowOrder] = useState<IPayNowOrder | null>(null)
   const [showSubscriptionPanel, setShowSubscriptionPanel] = useState(true)
 
   const { status } = useStatus()
@@ -86,6 +92,7 @@ export function Wallet(props: WalletProps) {
   }, [currency?.quotaDisplayType, currency?.usdExchangeRate])
   const {
     amount: paymentAmount,
+    groupRatio,
     calculating,
     processing,
     calculatePaymentAmount,
@@ -102,6 +109,7 @@ export function Wallet(props: WalletProps) {
   const { processWaffoPayment } = useWaffoPayment()
   const { processing: pancakeProcessing, processWaffoPancakePayment } =
     useWaffoPancakePayment()
+  const { processIPayNowPayment } = useIPayNowPayment()
 
   // Fetch and refresh user data
   const fetchUser = useCallback(async () => {
@@ -173,8 +181,20 @@ export function Wallet(props: WalletProps) {
         return
       }
 
-      // Calculate payment amount and show confirmation dialog
+      // Calculate payment amount (also used as the QR dialog display amount)
       await calculatePaymentAmount(topupAmount, method.type)
+
+      // iPayNow renders an in-app QR and polls for completion instead of
+      // redirecting, so initiate the order and open the QR dialog directly.
+      if (isIPayNowPayment(method.type)) {
+        const order = await processIPayNowPayment(topupAmount)
+        if (order) {
+          setIpaynowOrder(order)
+          setIpaynowDialogOpen(true)
+        }
+        return
+      }
+
       setConfirmDialogOpen(true)
     } finally {
       setPaymentLoading(null)
@@ -281,6 +301,7 @@ export function Wallet(props: WalletProps) {
                   topupAmount={topupAmount}
                   onTopupAmountChange={handleTopupAmountChange}
                   paymentAmount={paymentAmount}
+                  groupRatio={groupRatio}
                   calculating={calculating}
                   onPaymentMethodSelect={handlePaymentMethodSelect}
                   paymentLoading={paymentLoading}
@@ -357,6 +378,20 @@ export function Wallet(props: WalletProps) {
         onConfirm={handleCreemConfirm}
         product={selectedCreemProduct}
         processing={creemProcessing}
+      />
+
+      <IPayNowQRDialog
+        open={ipaynowDialogOpen}
+        onOpenChange={(open) => {
+          setIpaynowDialogOpen(open)
+          if (!open) setIpaynowOrder(null)
+        }}
+        tradeNo={ipaynowOrder?.tradeNo}
+        qrUrl={ipaynowOrder?.qrUrl}
+        amount={paymentAmount}
+        onPaid={() => {
+          fetchUser()
+        }}
       />
     </>
   )

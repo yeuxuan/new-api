@@ -34,7 +34,8 @@ export interface ApiResponse<T = unknown> {
  */
 export type TopupInfoResponse = ApiResponse<TopupInfo>
 export type RedemptionResponse = ApiResponse<number>
-export type AmountResponse = ApiResponse<string>
+/** Amount calculation response; group_ratio is the user's topup group rate */
+export type AmountResponse = ApiResponse<string> & { group_ratio?: number }
 export type PaymentResponse = ApiResponse<Record<string, unknown>> & {
   url?: string
 }
@@ -152,11 +153,46 @@ export interface TopupInfo {
   waffo_pancake_min_topup?: number
   /** Whether redemption code usage is enabled */
   enable_redemption?: boolean
+  /** Whether iPayNow (WeChat/Alipay aggregated QR) topup is enabled */
+  enable_ipaynow_topup?: boolean
+  /** Minimum topup amount for iPayNow */
+  ipaynow_min_topup?: number
   /** Whether compliance confirmation has been completed */
   payment_compliance_confirmed?: boolean
   /** Current compliance terms version */
   payment_compliance_terms_version?: string
 }
+
+/**
+ * iPayNow payment request (WeChat/Alipay aggregated dynamic QR)
+ */
+export interface IPayNowPaymentRequest {
+  /** Topup amount (unit count) */
+  amount: number
+  /** Payment method identifier */
+  payment_method: 'ipaynow'
+}
+
+/**
+ * iPayNow payment response — returns trade number and a QR url to render
+ */
+export type IPayNowPaymentResponse = ApiResponse<{
+  trade_no: string
+  qr_url: string
+}>
+
+/** iPayNow order status query data (polled until success/expired) */
+export interface IPayNowOrderData {
+  /** Order status: pending | success | expired */
+  status: string
+  /** Paid money amount */
+  money: number
+  /** Trade number */
+  trade_no: string
+}
+
+/** iPayNow order query response */
+export type IPayNowOrderResponse = ApiResponse<IPayNowOrderData>
 
 /**
  * Preset amount option with optional discount

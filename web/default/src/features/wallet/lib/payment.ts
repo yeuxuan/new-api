@@ -87,6 +87,17 @@ export function isWaffoPancakePayment(paymentType: string): boolean {
 }
 
 /**
+ * Check if payment method is iPayNow (WeChat/Alipay aggregated QR)
+ *
+ * iPayNow returns a QR url that is rendered in-app and polled for completion,
+ * rather than redirecting via the generic epay form submission, so it must be
+ * special-cased in payment dispatch logic.
+ */
+export function isIPayNowPayment(paymentType: string): boolean {
+  return paymentType === PAYMENT_TYPES.IPAYNOW
+}
+
+/**
  * Get default payment type from topup info
  */
 export function getDefaultPaymentType(topupInfo: TopupInfo | null): string {

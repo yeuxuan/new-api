@@ -58,6 +58,7 @@ interface RechargeFormCardProps {
   topupAmount: number
   onTopupAmountChange: (amount: number) => void
   paymentAmount: number
+  groupRatio?: number
   calculating: boolean
   onPaymentMethodSelect: (method: PaymentMethod) => void
   paymentLoading: string | null
@@ -88,6 +89,7 @@ export function RechargeFormCard({
   topupAmount,
   onTopupAmountChange,
   paymentAmount,
+  groupRatio = 1,
   calculating,
   onPaymentMethodSelect,
   paymentLoading,
@@ -301,6 +303,11 @@ export function RechargeFormCard({
                     )}
                   </div>
                 </div>
+                {!calculating && groupRatio !== 1 && (
+                  <div className='text-muted-foreground text-xs'>
+                    {t('Group ratio:')} {groupRatio}x
+                  </div>
+                )}
               </div>
 
               <div className='space-y-2.5 sm:space-y-3'>

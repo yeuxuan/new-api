@@ -4506,6 +4506,14 @@
     "Cleared successfully": "清除成功",
     "Please select a date range": "请选择日期范围",
     "Please enter valid user IDs": "请输入有效的用户 ID",
-    "Quota Logs": "额度明细"
+    "Quota Logs": "额度明细",
+    "iPayNow (WeChat / Alipay)": "iPayNow（微信/支付宝）",
+    "Aggregated dynamic QR payment. Configure the App ID and App Key issued by iPayNow.": "聚合动态码支付。配置 iPayNow 签发的 App ID 与 App Key。",
+    "App ID": "App ID",
+    "App Key": "App Key",
+    "Enter iPayNow App ID": "请输入 iPayNow App ID",
+    "Enter iPayNow App Key": "请输入 iPayNow App Key",
+    "App Key (leave blank unless updating)": "App Key（不修改请留空）",
+    "Minimum Top-up": "最低充值"
   }
 }

@@ -138,6 +138,9 @@ const paymentSchema = z.object({
       })
     }
   }),
+  IPayNowAppId: z.string(),
+  IPayNowAppKey: z.string(),
+  IPayNowMinTopUp: z.coerce.number().min(0),
 })
 
 type PaymentFormValues = z.infer<typeof paymentSchema>
@@ -305,6 +308,9 @@ export function PaymentSettingsSection({
       CreemWebhookSecret: values.CreemWebhookSecret.trim(),
       CreemTestMode: values.CreemTestMode,
       CreemProducts: values.CreemProducts.trim(),
+      IPayNowAppId: values.IPayNowAppId.trim(),
+      IPayNowAppKey: values.IPayNowAppKey.trim(),
+      IPayNowMinTopUp: values.IPayNowMinTopUp,
     }
 
     const initial = {
@@ -330,6 +336,9 @@ export function PaymentSettingsSection({
       CreemWebhookSecret: initialRef.current.CreemWebhookSecret.trim(),
       CreemTestMode: initialRef.current.CreemTestMode,
       CreemProducts: initialRef.current.CreemProducts.trim(),
+      IPayNowAppId: initialRef.current.IPayNowAppId.trim(),
+      IPayNowAppKey: initialRef.current.IPayNowAppKey.trim(),
+      IPayNowMinTopUp: initialRef.current.IPayNowMinTopUp,
     }
 
     const updates: Array<{ key: string; value: string | number | boolean }> = []
@@ -453,6 +462,18 @@ export function PaymentSettingsSection({
       normalizeJsonForComparison(initial.CreemProducts)
     ) {
       updates.push({ key: 'CreemProducts', value: sanitized.CreemProducts })
+    }
+
+    if (sanitized.IPayNowAppId !== initial.IPayNowAppId) {
+      updates.push({ key: 'IPayNowAppId', value: sanitized.IPayNowAppId })
+    }
+
+    if (sanitized.IPayNowAppKey !== initial.IPayNowAppKey) {
+      updates.push({ key: 'IPayNowAppKey', value: sanitized.IPayNowAppKey })
+    }
+
+    if (sanitized.IPayNowMinTopUp !== initial.IPayNowMinTopUp) {
+      updates.push({ key: 'IPayNowMinTopUp', value: sanitized.IPayNowMinTopUp })
     }
 
     for (const update of updates) {
@@ -1205,6 +1226,86 @@ export function PaymentSettingsSection({
                 </FormItem>
               )}
             />
+
+            <div className='space-y-4'>
+              <div>
+                <h4 className='text-sm font-medium'>
+                  {t('iPayNow (WeChat / Alipay)')}
+                </h4>
+                <p className='text-muted-foreground text-sm'>
+                  {t(
+                    'Aggregated dynamic QR payment. Configure the App ID and App Key issued by iPayNow.'
+                  )}
+                </p>
+              </div>
+              <div className='grid gap-6 md:grid-cols-2'>
+                <FormField
+                  control={form.control}
+                  name='IPayNowAppId'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('App ID')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder={t('Enter iPayNow App ID')}
+                          {...field}
+                          onChange={(event) =>
+                            field.onChange(event.target.value)
+                          }
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='IPayNowAppKey'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('App Key')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='password'
+                          placeholder={t('Enter iPayNow App Key')}
+                          autoComplete='new-password'
+                          {...field}
+                          onChange={(event) =>
+                            field.onChange(event.target.value)
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t('App Key (leave blank unless updating)')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='IPayNowMinTopUp'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Minimum Top-up')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='number'
+                          min={0}
+                          value={(field.value ?? 0) as number}
+                          onChange={(event) =>
+                            field.onChange(event.target.valueAsNumber)
+                          }
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </div>
           </div>
         </SettingsForm>
       </Form>

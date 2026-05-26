@@ -252,7 +252,7 @@ func IPayNowNotify(c *gin.Context) {
 		return
 	}
 
-	if err := completeIPayNowTopUp(topUp); err != nil {
+	if err := completeIPayNowTopUp(topUp, c.ClientIP()); err != nil {
 		common.SysError("iPayNow 充值落库失败: " + err.Error())
 		c.String(200, "success=N")
 		return
@@ -261,7 +261,7 @@ func IPayNowNotify(c *gin.Context) {
 	c.String(200, "success=Y")
 }
 
-func completeIPayNowTopUp(topUp *model.TopUp) error {
+func completeIPayNowTopUp(topUp *model.TopUp, callerIp string) error {
 	if topUp == nil {
 		return errors.New("空订单")
 	}
@@ -283,9 +283,10 @@ func completeIPayNowTopUp(topUp *model.TopUp) error {
 		return fmt.Errorf("增加用户额度失败: %w", err)
 	}
 
-	model.RecordLogWithQuota(topUp.UserId, model.LogTypeTopup,
+	model.RecordTopupLogWithQuota(topUp.UserId,
 		fmt.Sprintf("使用聚合动态码充值成功，充值金额: %v，支付金额：%.2f",
-			logger.LogQuota(quotaToAdd), topUp.Money), quotaToAdd)
+			logger.LogQuota(quotaToAdd), topUp.Money),
+		quotaToAdd, callerIp, topUp.PaymentMethod, "ipaynow")
 	return nil
 }
 
@@ -396,7 +397,7 @@ func tryActiveQueryIPayNow(tradeNo string) bool {
 		}
 	}
 
-	if err := completeIPayNowTopUp(topUp); err != nil {
+	if err := completeIPayNowTopUp(topUp, ""); err != nil {
 		common.SysError("iPayNow MQ002 补偿落库失败: " + err.Error())
 		return false
 	}

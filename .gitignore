@@ -16,9 +16,16 @@ web/dist
 .env.*
 docker-compose.yml
 docker-compose.dev.yml
+docker-compose.infra.yml
 one-api
 new-api
+newapi
 /__debug_bin*
+# 本地 AI 协作工作笔记 (非仓库内容)
+tasks/
+# 游离 lockfile (项目用 Bun, web/default/bun.lock 才是真锁文件)
+web/package-lock.json
+web/yarn.lock
 .DS_Store
 tiktoken_cache
 .eslintcache

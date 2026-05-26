@@ -20,8 +20,11 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useQueryClient, useIsFetching } from '@tanstack/react-query'
 import { useNavigate, getRouteApi } from '@tanstack/react-router'
 import { type Table } from '@tanstack/react-table'
-import { Eye, EyeOff } from 'lucide-react'
+import { Download, Eye, EyeOff } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+import { api } from '@/lib/api'
+import { downloadBlob } from '@/lib/download'
 import { useIsAdmin } from '@/hooks/use-admin'
 import { Button } from '@/components/ui/button'
 import {
@@ -39,7 +42,11 @@ import {
 } from '@/components/ui/tooltip'
 import { LOG_TYPE_ALL_VALUE, LOG_TYPE_FILTERS } from '../constants'
 import { buildSearchParams } from '../lib/filter'
-import { getDefaultTimeRange } from '../lib/utils'
+import {
+  buildApiParams,
+  buildQueryParams,
+  getDefaultTimeRange,
+} from '../lib/utils'
 import type { CommonLogFilters } from '../types'
 import { CommonLogsStats } from './common-logs-stats'
 import { CompactDateTimeRangePicker } from './compact-date-time-range-picker'
@@ -79,6 +86,34 @@ export function CommonLogsFilterBar<TData>(
     return { startTime: start, endTime: end }
   })
   const [logType, setLogType] = useState<LogTypeValue>(LOG_TYPE_ALL_VALUE)
+  const [exporting, setExporting] = useState(false)
+
+  const handleExport = useCallback(async () => {
+    setExporting(true)
+    try {
+      const params = buildApiParams({
+        page: 1,
+        pageSize: 1,
+        searchParams,
+        columnFilters: [],
+        isAdmin,
+      })
+      // p/page_size are paging hints the export endpoint ignores; drop them
+      // so the CSV reflects the full filtered range, not a single page.
+      delete (params as Record<string, unknown>).p
+      delete (params as Record<string, unknown>).page_size
+      const query = buildQueryParams(params as Record<string, unknown>)
+      const path = isAdmin ? '/api/log/export' : '/api/log/self/export'
+      const res = await api.get(`${path}?${query.toString()}`, {
+        responseType: 'blob',
+      })
+      downloadBlob(res.data, `logs_export_${Date.now()}.csv`)
+    } catch {
+      toast.error(t('Export failed'))
+    } finally {
+      setExporting(false)
+    }
+  }, [searchParams, isAdmin, t])
 
   useEffect(() => {
     const { start, end } = getDefaultTimeRange()
@@ -216,6 +251,23 @@ export function CommonLogsFilterBar<TData>(
         <TooltipContent>
           {sensitiveVisible ? t('Hide') : t('Show')}
         </TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant='ghost'
+              size='icon'
+              onClick={handleExport}
+              disabled={exporting}
+              aria-label={t('Export')}
+              className='text-muted-foreground hover:text-foreground size-7'
+            />
+          }
+        >
+          <Download />
+        </TooltipTrigger>
+        <TooltipContent>{t('Export')}</TooltipContent>
       </Tooltip>
     </div>
   )

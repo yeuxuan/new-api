@@ -192,6 +192,19 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
       meta: { label: t('Quota') },
     },
     {
+      id: 'used_quota',
+      accessorKey: 'used_quota',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title={t('Used Quota')} />
+      ),
+      cell: ({ row }) => (
+        <span className='font-medium tabular-nums'>
+          {formatQuota(row.original.used_quota)}
+        </span>
+      ),
+      meta: { label: t('Used Quota') },
+    },
+    {
       accessorKey: 'group',
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title={t('Group')} />

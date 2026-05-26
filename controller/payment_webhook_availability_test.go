@@ -142,6 +142,49 @@ func TestWaffoPancakeWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 	require.False(t, isWaffoPancakeWebhookEnabled())
 }
 
+func TestIPayNowTopUpEnabledRequiresComplianceAndConfig(t *testing.T) {
+	paymentSetting := operation_setting.GetPaymentSetting()
+	originalConfirmed := paymentSetting.ComplianceConfirmed
+	originalTermsVersion := paymentSetting.ComplianceTermsVersion
+	originalAppID := operation_setting.IPayNowAppId
+	originalAppKey := operation_setting.IPayNowAppKey
+	t.Cleanup(func() {
+		paymentSetting.ComplianceConfirmed = originalConfirmed
+		paymentSetting.ComplianceTermsVersion = originalTermsVersion
+		operation_setting.IPayNowAppId = originalAppID
+		operation_setting.IPayNowAppKey = originalAppKey
+	})
+
+	operation_setting.IPayNowAppId = "app_id"
+	operation_setting.IPayNowAppKey = "app_key"
+	paymentSetting.ComplianceConfirmed = false
+	paymentSetting.ComplianceTermsVersion = ""
+	require.False(t, isIPayNowTopUpEnabled())
+
+	confirmPaymentComplianceForTest(t)
+	require.True(t, isIPayNowTopUpEnabled())
+
+	operation_setting.IPayNowAppKey = ""
+	require.False(t, isIPayNowTopUpEnabled())
+}
+
+func TestIPayNowWebhookEnabledFollowsTopUpEnabled(t *testing.T) {
+	confirmPaymentComplianceForTest(t)
+	originalAppID := operation_setting.IPayNowAppId
+	originalAppKey := operation_setting.IPayNowAppKey
+	t.Cleanup(func() {
+		operation_setting.IPayNowAppId = originalAppID
+		operation_setting.IPayNowAppKey = originalAppKey
+	})
+
+	operation_setting.IPayNowAppId = ""
+	operation_setting.IPayNowAppKey = "app_key"
+	require.False(t, isIPayNowWebhookEnabled())
+
+	operation_setting.IPayNowAppId = "app_id"
+	require.True(t, isIPayNowWebhookEnabled())
+}
+
 func TestEpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 	confirmPaymentComplianceForTest(t)
 	originalPayAddress := operation_setting.PayAddress

@@ -65,6 +65,9 @@ func RequestIPayNowPay(c *gin.Context) {
 }
 
 func (*IPayNowAdaptor) RequestPay(c *gin.Context, req *IPayNowPayRequest) {
+	if !requirePaymentCompliance(c) {
+		return
+	}
 	if req.PaymentMethod != PaymentMethodIPayNow {
 		c.JSON(200, gin.H{"message": "error", "data": "不支持的支付渠道"})
 		return
@@ -192,8 +195,8 @@ func IPayNowNotify(c *gin.Context) {
 		params[k] = values.Get(k)
 	}
 
-	if !IsIPayNowEnabled() {
-		common.SysError("iPayNow 回调失败：未配置 appId/appKey")
+	if !isIPayNowWebhookEnabled() {
+		common.SysError("iPayNow 回调失败：未配置 appId/appKey 或未确认支付合规")
 		c.String(200, "success=N")
 		return
 	}
@@ -327,8 +330,8 @@ func QueryIPayNowOrder(c *gin.Context) {
 		return
 	}
 
-	// notify 补偿：本地仍 pending 且 iPayNow 已配置时，主动调 MQ002
-	if topUp.Status == common.TopUpStatusPending && IsIPayNowEnabled() {
+	// notify 补偿：本地仍 pending 且 iPayNow 已启用时，主动调 MQ002
+	if topUp.Status == common.TopUpStatusPending && isIPayNowWebhookEnabled() {
 		if tryActiveQueryIPayNow(tradeNo) {
 			if refreshed := model.GetTopUpByTradeNo(tradeNo); refreshed != nil {
 				topUp = refreshed

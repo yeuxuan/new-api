@@ -31,7 +31,8 @@ func GetTopUpInfo(c *gin.Context) {
 	}
 
 	// 如果启用了 iPayNow 聚合动态码支付，置于支付方法列表最前
-	if IsIPayNowEnabled() {
+	enableIPayNow := isIPayNowTopUpEnabled()
+	if enableIPayNow {
 		hasIPayNow := false
 		for _, method := range payMethods {
 			if method["type"] == PaymentMethodIPayNow {
@@ -97,7 +98,7 @@ func GetTopUpInfo(c *gin.Context) {
 		"enable_online_topup":              isEpayTopUpEnabled(),
 		"enable_stripe_topup":              isStripeTopUpEnabled(),
 		"enable_creem_topup":               isCreemTopUpEnabled(),
-		"enable_ipaynow_topup":             IsIPayNowEnabled(),
+		"enable_ipaynow_topup":             enableIPayNow,
 		"enable_waffo_topup":               enableWaffo,
 		"enable_waffo_pancake_topup":       enableWaffoPancake,
 		"enable_redemption":                complianceConfirmed,

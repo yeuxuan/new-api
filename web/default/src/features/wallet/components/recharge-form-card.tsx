@@ -126,11 +126,17 @@ export function RechargeFormCard({
     }
   }
 
+  // iPayNow participates in the configurable-topup gate so the amount input +
+  // payment-method grid still render when iPayNow is the only enabled gateway
+  // (epay/stripe/waffo all off). The iPayNow button itself is injected into
+  // pay_methods by the backend (GetTopUpInfo), so no extra frontend button.
+  const enableIPayNow = topupInfo?.enable_ipaynow_topup === true
   const hasConfigurableTopup =
     topupInfo?.enable_online_topup ||
     topupInfo?.enable_stripe_topup ||
     enableWaffoTopup ||
-    enableWaffoPancakeTopup
+    enableWaffoPancakeTopup ||
+    enableIPayNow
   const hasAnyTopup = hasConfigurableTopup || enableCreemTopup
   const hasStandardPaymentMethods =
     Array.isArray(topupInfo?.pay_methods) && topupInfo.pay_methods.length > 0

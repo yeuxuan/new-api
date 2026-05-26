@@ -110,13 +110,14 @@ func (*IPayNowAdaptor) RequestPay(c *gin.Context, req *IPayNowPayRequest) {
 	}
 
 	topUp := &model.TopUp{
-		UserId:        userId,
-		Amount:        storedAmount,
-		Money:         payMoney,
-		TradeNo:       tradeNo,
-		PaymentMethod: PaymentMethodIPayNow,
-		CreateTime:    time.Now().Unix(),
-		Status:        common.TopUpStatusPending,
+		UserId:          userId,
+		Amount:          storedAmount,
+		Money:           payMoney,
+		TradeNo:         tradeNo,
+		PaymentMethod:   PaymentMethodIPayNow,
+		PaymentProvider: model.PaymentProviderIPayNow,
+		CreateTime:      time.Now().Unix(),
+		Status:          common.TopUpStatusPending,
 	}
 	if err := topUp.Insert(); err != nil {
 		common.SysError("iPayNow 创建充值订单失败: " + err.Error())
@@ -264,6 +265,13 @@ func IPayNowNotify(c *gin.Context) {
 func completeIPayNowTopUp(topUp *model.TopUp, callerIp string) error {
 	if topUp == nil {
 		return errors.New("空订单")
+	}
+
+	// 防跨网关：iPayNow 回调只允许完成 iPayNow 订单。
+	// 以 PaymentMethod 判定（部署前的在途订单 PaymentProvider 可能为空，
+	// 但 PaymentMethod 始终为 ipaynow），既挡住冒充又不误伤历史订单。
+	if topUp.PaymentMethod != PaymentMethodIPayNow {
+		return fmt.Errorf("订单支付方式不匹配: trade_no=%s payment_method=%s", topUp.TradeNo, topUp.PaymentMethod)
 	}
 
 	topUp.Status = common.TopUpStatusSuccess

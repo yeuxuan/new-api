@@ -33,6 +33,8 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { sendEmailVerification, bindEmail } from '../../api'
+import { formatQuotaWithCurrency } from '@/lib/currency'
+import dayjs from 'dayjs'
 
 // ============================================================================
 // Email Bind Dialog Component
@@ -99,7 +101,32 @@ export function EmailBindDialog({
       const response = await bindEmail(email, code)
 
       if (response.success) {
-        toast.success(t('Email bound successfully!'))
+        const awarded = response.quota_awarded ?? 0
+        if (awarded > 0) {
+          const expiresAt = response.expires_at ?? 0
+          if (expiresAt > 0) {
+            toast.success(
+              t(
+                'Email bound successfully! You received {{amount}} bonus quota, valid until {{date}}.',
+                {
+                  amount: formatQuotaWithCurrency(awarded),
+                  date: dayjs.unix(expiresAt).format('YYYY-MM-DD HH:mm'),
+                }
+              )
+            )
+          } else {
+            toast.success(
+              t(
+                'Email bound successfully! You received {{amount}} bonus quota (never expires).',
+                {
+                  amount: formatQuotaWithCurrency(awarded),
+                }
+              )
+            )
+          }
+        } else {
+          toast.success(t('Email bound successfully!'))
+        }
         onOpenChange(false)
         onSuccess()
         // Reset form

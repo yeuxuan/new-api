@@ -27,6 +27,8 @@ import SettingsLog from '../../pages/Setting/Operation/SettingsLog';
 import SettingsMonitoring from '../../pages/Setting/Operation/SettingsMonitoring';
 import SettingsCreditLimit from '../../pages/Setting/Operation/SettingsCreditLimit';
 import SettingsCheckin from '../../pages/Setting/Operation/SettingsCheckin';
+import SettingsEmailBind from '../../pages/Setting/Operation/SettingsEmailBind';
+import SettingsBonusQuota from '../../pages/Setting/Operation/SettingsBonusQuota';
 import { API, showError, toBoolean } from '../../helpers';
 
 const OperationSetting = () => {
@@ -78,6 +80,10 @@ const OperationSetting = () => {
     'checkin_setting.enabled': false,
     'checkin_setting.min_quota': 1000,
     'checkin_setting.max_quota': 10000,
+    'email_bind_setting.enabled': false,
+    'email_bind_setting.quota': 0,
+    'bonus_quota_setting.validity_days': 0,
+    'bonus_quota_setting.allowed_models': '',
 
     /* 令牌设置 */
     'token_setting.max_user_tokens': 1000,
@@ -153,6 +159,12 @@ const OperationSetting = () => {
         {/* 签到设置 */}
         <Card style={{ marginTop: '10px' }}>
           <SettingsCheckin options={inputs} refresh={onRefresh} />
+        </Card>
+        <Card style={{ marginTop: '10px' }}>
+          <SettingsEmailBind options={inputs} refresh={onRefresh} />
+        </Card>
+        <Card style={{ marginTop: '10px' }}>
+          <SettingsBonusQuota options={inputs} refresh={onRefresh} />
         </Card>
       </Spin>
     </>

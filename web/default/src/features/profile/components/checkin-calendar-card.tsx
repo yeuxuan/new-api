@@ -53,12 +53,14 @@ interface CheckinCalendarCardProps {
   checkinEnabled: boolean
   turnstileEnabled: boolean
   turnstileSiteKey: string
+  onProfileRefresh?: () => void
 }
 
 export function CheckinCalendarCard({
   checkinEnabled,
   turnstileEnabled,
   turnstileSiteKey,
+  onProfileRefresh,
 }: CheckinCalendarCardProps) {
   const { t } = useTranslation()
   const [currentMonth, setCurrentMonth] = useState(() => {
@@ -121,6 +123,23 @@ export function CheckinCalendarCard({
 
   const checkedToday = checkinData?.stats?.checked_in_today === true
   const todayAward = checkinRecordsMap[todayString]
+  const bonusQuota = checkinData?.stats?.bonus_quota ?? 0
+  const bonusValidityDays = checkinData?.stats?.bonus_quota_validity_days ?? 0
+  const bonusAllowedModels =
+    checkinData?.stats?.bonus_quota_allowed_models ?? []
+
+  const bonusHint = useMemo(() => {
+    const parts: string[] = []
+    if (bonusValidityDays > 0) {
+      parts.push(
+        t('Valid for {{days}} days', { days: bonusValidityDays })
+      )
+    }
+    if (bonusAllowedModels.length > 0) {
+      parts.push(t('Limited to selected models'))
+    }
+    return parts.join(' · ')
+  }, [bonusAllowedModels.length, bonusValidityDays, t])
 
   useEffect(() => {
     if (initialLoaded) return
@@ -145,10 +164,15 @@ export function CheckinCalendarCard({
       try {
         const res = await performCheckin(token)
         if (res.success && res.data) {
+          const validityHint =
+            bonusValidityDays > 0
+              ? t('Valid for {{days}} days', { days: bonusValidityDays })
+              : t('Never expires')
           toast.success(
-            `${t('Check-in successful! Received')} ${formatQuotaWithCurrency(res.data.quota_awarded)}`
+            `${t('Check-in successful! Received')} ${formatQuotaWithCurrency(res.data.quota_awarded)} · ${validityHint}`
           )
           refetch()
+          onProfileRefresh?.()
           setTurnstileModalVisible(false)
         } else {
           if (!token && shouldTriggerTurnstile(res.message)) {
@@ -170,7 +194,7 @@ export function CheckinCalendarCard({
         setCheckinLoading(false)
       }
     },
-    [refetch, shouldTriggerTurnstile, t, turnstileSiteKey]
+    [bonusValidityDays, onProfileRefresh, refetch, shouldTriggerTurnstile, t, turnstileSiteKey]
   )
 
   const handlePrevMonth = () => {
@@ -315,6 +339,7 @@ export function CheckinCalendarCard({
                   {checkedToday && todayAward !== undefined
                     ? `${t('Today')} +${formatQuotaWithCurrency(todayAward)}`
                     : t('Check in daily to receive random quota rewards')}
+                  {bonusHint ? ` · ${bonusHint}` : ''}
                 </p>
               </div>
             </Button>
@@ -336,13 +361,21 @@ export function CheckinCalendarCard({
         {!collapsed ? (
           <>
             {/* Stats */}
-            <div className='grid grid-cols-3 gap-px border-b'>
+            <div className='grid grid-cols-2 gap-px border-b sm:grid-cols-4'>
               <div className='bg-card p-3 text-center sm:p-5'>
                 <div className='text-xl font-semibold tracking-tight tabular-nums sm:text-2xl'>
                   {checkinData?.stats?.total_checkins || 0}
                 </div>
                 <div className='text-muted-foreground mt-0.5 text-[10px] font-medium sm:mt-1 sm:text-xs'>
                   {t('Total check-ins')}
+                </div>
+              </div>
+              <div className='bg-card p-3 text-center sm:p-5'>
+                <div className='text-xl font-semibold tracking-tight tabular-nums sm:text-2xl'>
+                  {formatQuotaWithCurrency(bonusQuota, { digitsLarge: 0 })}
+                </div>
+                <div className='text-muted-foreground mt-0.5 text-[10px] font-medium sm:mt-1 sm:text-xs'>
+                  {t('Bonus quota available')}
                 </div>
               </div>
               <div className='bg-card p-3 text-center sm:p-5'>
@@ -473,7 +506,7 @@ export function CheckinCalendarCard({
                       {t('Check in daily to receive random quota rewards')}
                     </li>
                     <li>
-                      {t('Rewards will be added directly to your balance')}
+                      {t('Rewards are added to your bonus quota pool')}
                     </li>
                     <li>{t('Do not repeat check-in; only once per day')}</li>
                   </ul>

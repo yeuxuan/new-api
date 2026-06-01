@@ -120,6 +120,10 @@ func GetStatus(c *gin.Context) {
 		"user_agreement_enabled":      legalSetting.UserAgreement != "",
 		"privacy_policy_enabled":      legalSetting.PrivacyPolicy != "",
 		"checkin_enabled":             operation_setting.GetCheckinSetting().Enabled,
+		"email_bind_reward_enabled":   operation_setting.IsEmailBindRewardEnabled(),
+		"email_bind_reward_quota":     operation_setting.GetEmailBindSetting().Quota,
+		"bonus_quota_validity_days":   operation_setting.GetBonusQuotaSetting().ValidityDays,
+		"bonus_quota_allowed_models":  operation_setting.GetBonusQuotaSetting().GetAllowedModelsList(),
 	}
 
 	// 根据启用状态注入可选内容

@@ -21,6 +21,7 @@ import { Mail, Shield, Send, Link2, Unlink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { SiGithub, SiWechat, SiLinux } from 'react-icons/si'
 import { toast } from 'sonner'
+import { formatQuotaWithCurrency } from '@/lib/currency'
 import { IconDiscord } from '@/assets/brand-icons'
 import {
   handleGitHubOAuth,
@@ -287,6 +288,23 @@ export function AccountBindingsTab({
                 <p className='text-muted-foreground truncate text-xs'>
                   {binding.value || t('Not bound')}
                 </p>
+                {binding.id === 'email' &&
+                  !binding.isBound &&
+                  status?.email_bind_reward_enabled === true &&
+                  (status.email_bind_reward_quota ?? 0) > 0 && (
+                    <p className='text-primary mt-0.5 text-xs'>
+                      {t('Bind to receive {{amount}} bonus quota', {
+                        amount: formatQuotaWithCurrency(
+                          status.email_bind_reward_quota ?? 0
+                        ),
+                      })}
+                      {(status.bonus_quota_validity_days ?? 0) > 0
+                        ? ` · ${t('Valid for {{days}} days', {
+                            days: status.bonus_quota_validity_days ?? 0,
+                          })}`
+                        : ` · ${t('Never expires')}`}
+                    </p>
+                  )}
               </div>
             </div>
             <Button

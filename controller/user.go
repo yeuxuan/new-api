@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -419,6 +420,10 @@ func GetSelf(c *gin.Context) {
 	userSetting := user.GetSetting()
 
 	// 构建响应数据，包含用户信息和权限
+	bonusQuota, _ := model.GetUserBonusQuotaTotal(id)
+	bonusGrants, _ := model.GetUserBonusQuotaGrantSummaries(id)
+	bonusSetting := operation_setting.GetBonusQuotaSetting()
+
 	responseData := map[string]interface{}{
 		"id":                user.Id,
 		"username":          user.Username,
@@ -445,6 +450,10 @@ func GetSelf(c *gin.Context) {
 		"stripe_customer":   user.StripeCustomer,
 		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
 		"permissions":       permissions,                // 新增权限字段
+		"bonus_quota":       bonusQuota,
+		"bonus_quota_grants": bonusGrants,
+		"bonus_quota_validity_days": bonusSetting.ValidityDays,
+		"bonus_quota_allowed_models": bonusSetting.GetAllowedModelsList(),
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1057,16 +1066,37 @@ func EmailBind(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+
+	isFirstBind := user.Email == ""
+	quotaAwarded := 0
+	var expiresAt int64
+
 	user.Email = email
-	// no need to check if this email already taken, because we have used verification code to check it
 	err = user.Update(false)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
+
+	if isFirstBind && operation_setting.IsEmailBindRewardEnabled() {
+		alreadyRewarded, checkErr := model.HasEmailBindBonusGrant(user.Id)
+		if checkErr == nil && !alreadyRewarded {
+			setting := operation_setting.GetEmailBindSetting()
+			expiresAt = operation_setting.CalcBonusQuotaExpiresAt(time.Now().Unix())
+			if _, grantErr := model.CreateBonusQuotaGrant(user.Id, model.BonusQuotaSourceEmailBind, "", setting.Quota, expiresAt); grantErr != nil {
+				common.SysLog(fmt.Sprintf("failed to create email bind bonus grant for user %d: %v", user.Id, grantErr))
+			} else {
+				quotaAwarded = setting.Quota
+				model.RecordLog(user.Id, model.LogTypeSystem, fmt.Sprintf("绑定邮箱赠送 %s", logger.LogQuota(quotaAwarded)))
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
+		"success":       true,
+		"message":       "",
+		"quota_awarded": quotaAwarded,
+		"expires_at":    expiresAt,
 	})
 	return
 }

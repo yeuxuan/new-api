@@ -269,6 +269,10 @@ export type BillingSettings = {
   'checkin_setting.enabled': boolean
   'checkin_setting.min_quota': number
   'checkin_setting.max_quota': number
+  'email_bind_setting.enabled': boolean
+  'email_bind_setting.quota': number
+  'bonus_quota_setting.validity_days': number
+  'bonus_quota_setting.allowed_models': string
 }
 
 export type OperationsSettings = {

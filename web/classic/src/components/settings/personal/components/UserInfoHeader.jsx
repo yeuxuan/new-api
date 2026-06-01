@@ -124,6 +124,12 @@ const UserInfoHeader = ({ t, userState }) => {
             {renderQuota(userState?.user?.quota)}
           </div>
         </Badge>
+        {(userState?.user?.bonus_quota ?? 0) > 0 && (
+          <Typography.Text size='small' type='tertiary' className='mt-1 block'>
+            {t('Bonus quota available')}:{' '}
+            {renderQuota(userState.user.bonus_quota)}
+          </Typography.Text>
+        )}
 
         {/* 桌面版统计信息（Semi UI 卡片） */}
         <div className='hidden lg:block flex-shrink-0'>

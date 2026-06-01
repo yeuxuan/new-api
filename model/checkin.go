@@ -96,19 +96,15 @@ func UserCheckin(userId int) (*Checkin, error) {
 
 // userCheckinWithTransaction 使用事务执行签到（适用于 MySQL 和 PostgreSQL）
 func userCheckinWithTransaction(checkin *Checkin, userId int, quotaAwarded int) (*Checkin, error) {
+	expiresAt := operation_setting.CalcBonusQuotaExpiresAt(time.Now().Unix())
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		// 步骤1: 创建签到记录
-		// 数据库有唯一约束 (user_id, checkin_date)，可以防止并发重复签到
 		if err := tx.Create(checkin).Error; err != nil {
 			return errors.New("签到失败，请稍后重试")
 		}
-
-		// 步骤2: 在事务中增加用户额度
-		if err := tx.Model(&User{}).Where("id = ?", userId).
-			Update("quota", gorm.Expr("quota + ?", quotaAwarded)).Error; err != nil {
-			return errors.New("签到失败：更新额度出错")
+		_, err := CreateBonusQuotaGrantTx(tx, userId, BonusQuotaSourceCheckin, checkin.CheckinDate, quotaAwarded, expiresAt)
+		if err != nil {
+			return errors.New("签到失败：创建奖励额度出错")
 		}
-
 		return nil
 	})
 
@@ -116,28 +112,20 @@ func userCheckinWithTransaction(checkin *Checkin, userId int, quotaAwarded int) 
 		return nil, err
 	}
 
-	// 事务成功后，异步更新缓存
-	go func() {
-		_ = cacheIncrUserQuota(userId, int64(quotaAwarded))
-	}()
-
 	return checkin, nil
 }
 
 // userCheckinWithoutTransaction 不使用事务执行签到（适用于 SQLite）
 func userCheckinWithoutTransaction(checkin *Checkin, userId int, quotaAwarded int) (*Checkin, error) {
-	// 步骤1: 创建签到记录
-	// 数据库有唯一约束 (user_id, checkin_date)，可以防止并发重复签到
 	if err := DB.Create(checkin).Error; err != nil {
 		return nil, errors.New("签到失败，请稍后重试")
 	}
 
-	// 步骤2: 增加用户额度
-	// 使用 db=true 强制直接写入数据库，不使用批量更新
-	if err := IncreaseUserQuota(userId, quotaAwarded, true); err != nil {
-		// 如果增加额度失败，需要回滚签到记录
+	expiresAt := operation_setting.CalcBonusQuotaExpiresAt(time.Now().Unix())
+	_, err := CreateBonusQuotaGrant(userId, BonusQuotaSourceCheckin, checkin.CheckinDate, quotaAwarded, expiresAt)
+	if err != nil {
 		DB.Delete(checkin)
-		return nil, errors.New("签到失败：更新额度出错")
+		return nil, errors.New("签到失败：创建奖励额度出错")
 	}
 
 	return checkin, nil
@@ -172,12 +160,20 @@ func GetUserCheckinStats(userId int, month string) (map[string]interface{}, erro
 	DB.Model(&Checkin{}).Where("user_id = ?", userId).Count(&totalCheckins)
 	DB.Model(&Checkin{}).Where("user_id = ?", userId).Select("COALESCE(SUM(quota_awarded), 0)").Scan(&totalQuota)
 
+	bonusQuota, _ := GetUserBonusQuotaTotal(userId)
+	bonusGrants, _ := GetUserBonusQuotaGrantSummaries(userId)
+	bonusSetting := operation_setting.GetBonusQuotaSetting()
+
 	return map[string]interface{}{
-		"total_quota":      totalQuota,      // 所有时间累计获得的额度
-		"total_checkins":   totalCheckins,   // 所有时间累计签到次数
-		"checkin_count":    len(records),    // 本月签到次数
-		"checked_in_today": hasCheckedToday, // 今天是否已签到
-		"records":          checkinRecords,  // 本月签到记录详情（不含id和user_id）
+		"total_quota":               totalQuota,
+		"total_checkins":            totalCheckins,
+		"checkin_count":             len(records),
+		"checked_in_today":          hasCheckedToday,
+		"records":                   checkinRecords,
+		"bonus_quota":               bonusQuota,
+		"bonus_quota_grants":        bonusGrants,
+		"bonus_quota_validity_days": bonusSetting.ValidityDays,
+		"bonus_quota_allowed_models": bonusSetting.GetAllowedModelsList(),
 	}, nil
 }
 
@@ -187,30 +183,19 @@ type UserCheckinSum struct {
 	Total    int
 }
 
-// GetCheckinQuotaSumByUsers 按用户分组统计未清除的签到额度
+// GetCheckinQuotaSumByUsers 按用户分组统计未清除的签到额度（基于奖励额度池）
 func GetCheckinQuotaSumByUsers(startDate, endDate string, userIds []int) ([]UserCheckinSum, error) {
-	var results []struct {
-		UserId int `gorm:"column:user_id"`
-		Total  int `gorm:"column:total"`
-	}
-	query := DB.Model(&Checkin{}).
-		Select("user_id, SUM(quota_awarded) as total").
-		Where("checkin_date >= ? AND checkin_date <= ? AND cleared = ?", startDate, endDate, false).
-		Group("user_id")
-	if len(userIds) > 0 {
-		query = query.Where("user_id IN ?", userIds)
-	}
-	if err := query.Find(&results).Error; err != nil {
+	sums, err := GetCheckinBonusQuotaSumByUsers(startDate, endDate, userIds)
+	if err != nil {
 		return nil, err
 	}
-
-	if len(results) == 0 {
+	if len(sums) == 0 {
 		return nil, nil
 	}
 
-	ids := make([]int, len(results))
-	for i, r := range results {
-		ids[i] = r.UserId
+	ids := make([]int, len(sums))
+	for i, s := range sums {
+		ids[i] = s.UserId
 	}
 	var users []User
 	DB.Unscoped().Where("id IN ?", ids).Select("id, username").Find(&users)
@@ -219,23 +204,22 @@ func GetCheckinQuotaSumByUsers(startDate, endDate string, userIds []int) ([]User
 		usernameMap[u.Id] = u.Username
 	}
 
-	sums := make([]UserCheckinSum, len(results))
-	for i, r := range results {
-		sums[i] = UserCheckinSum{
-			UserId:   r.UserId,
-			Username: usernameMap[r.UserId],
-			Total:    r.Total,
+	results := make([]UserCheckinSum, len(sums))
+	for i, s := range sums {
+		results[i] = UserCheckinSum{
+			UserId:   s.UserId,
+			Username: usernameMap[s.UserId],
+			Total:    s.Total,
 		}
 	}
-	return sums, nil
+	return results, nil
 }
 
 type ClearCheckinPreviewItem struct {
-	UserId        int    `json:"user_id"`
-	Username      string `json:"username"`
-	CheckinQuota  int    `json:"checkin_quota"`
-	CurrentQuota  int    `json:"current_quota"`
-	ActualClear   int    `json:"actual_clear"`
+	UserId       int    `json:"user_id"`
+	Username     string `json:"username"`
+	CheckinQuota int    `json:"checkin_quota"`
+	ActualClear  int    `json:"actual_clear"`
 }
 
 // PreviewClearCheckinQuota 预览清除签到额度的影响
@@ -250,26 +234,17 @@ func PreviewClearCheckinQuota(startDate, endDate string, userIds []int) ([]Clear
 
 	items := make([]ClearCheckinPreviewItem, 0, len(sums))
 	for _, s := range sums {
-		quota, err := GetUserQuota(s.UserId, true)
-		if err != nil {
-			continue
-		}
-		actualClear := s.Total
-		if actualClear > quota {
-			actualClear = quota
-		}
 		items = append(items, ClearCheckinPreviewItem{
 			UserId:       s.UserId,
 			Username:     s.Username,
 			CheckinQuota: s.Total,
-			CurrentQuota: quota,
-			ActualClear:  actualClear,
+			ActualClear:  s.Total,
 		})
 	}
 	return items, nil
 }
 
-// BatchClearCheckinQuota 批量清除签到额度
+// BatchClearCheckinQuota 批量清除签到奖励额度
 func BatchClearCheckinQuota(startDate, endDate string, userIds []int, operatorName string) (affectedUsers int, totalCleared int, err error) {
 	sums, err := GetCheckinQuotaSumByUsers(startDate, endDate, userIds)
 	if err != nil {
@@ -279,99 +254,14 @@ func BatchClearCheckinQuota(startDate, endDate string, userIds []int, operatorNa
 		return 0, 0, nil
 	}
 
-	if common.UsingSQLite {
-		return batchClearCheckinWithoutTransaction(sums, startDate, endDate, userIds, operatorName)
+	for _, s := range sums {
+		totalCleared += s.Total
 	}
-	return batchClearCheckinWithTransaction(sums, startDate, endDate, userIds, operatorName)
-}
-
-type clearOp struct {
-	userId    int
-	deduction int
-}
-
-func batchClearCheckinWithTransaction(sums []UserCheckinSum, startDate, endDate string, userIds []int, operatorName string) (int, int, error) {
-	var ops []clearOp
-
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		for _, s := range sums {
-			var quota int
-			if err := tx.Model(&User{}).Where("id = ?", s.UserId).Select("quota").Scan(&quota).Error; err != nil {
-				continue
-			}
-			actualDeduction := s.Total
-			if actualDeduction > quota {
-				actualDeduction = quota
-			}
-			if actualDeduction <= 0 {
-				continue
-			}
-
-			if err := tx.Model(&User{}).Where("id = ?", s.UserId).
-				Update("quota", gorm.Expr("CASE WHEN quota >= ? THEN quota - ? ELSE 0 END", actualDeduction, actualDeduction)).Error; err != nil {
-				return err
-			}
-
-			ops = append(ops, clearOp{userId: s.UserId, deduction: actualDeduction})
-		}
-
-		// 标记签到记录为已清除
-		markQuery := tx.Model(&Checkin{}).
-			Where("checkin_date >= ? AND checkin_date <= ? AND cleared = ?", startDate, endDate, false)
-		if len(userIds) > 0 {
-			markQuery = markQuery.Where("user_id IN ?", userIds)
-		}
-		if err := markQuery.Update("cleared", true).Error; err != nil {
-			return err
-		}
-
-		return nil
-	})
-
+	_, err = ClearCheckinBonusGrantsByDateRange(startDate, endDate, userIds)
 	if err != nil {
 		return 0, 0, err
 	}
 
-	// 事务成功后：更新缓存和写日志
-	totalCleared := 0
-	for _, op := range ops {
-		totalCleared += op.deduction
-		go func(userId int, delta int64) {
-			_ = cacheDecrUserQuota(userId, delta)
-		}(op.userId, int64(op.deduction))
-		RecordLogWithQuota(op.userId, LogTypeManage,
-			fmt.Sprintf("%s 清除了用户 %s 至 %s 期间的签到额度 %s",
-				operatorName, startDate, endDate, logger.LogQuota(op.deduction)),
-			-op.deduction)
-	}
-
-	return len(ops), totalCleared, nil
-}
-
-func batchClearCheckinWithoutTransaction(sums []UserCheckinSum, startDate, endDate string, userIds []int, operatorName string) (int, int, error) {
-	var ops []clearOp
-
-	for _, s := range sums {
-		quota, err := GetUserQuota(s.UserId, true)
-		if err != nil {
-			continue
-		}
-		actualDeduction := s.Total
-		if actualDeduction > quota {
-			actualDeduction = quota
-		}
-		if actualDeduction <= 0 {
-			continue
-		}
-
-		if err := DecreaseUserQuota(s.UserId, actualDeduction, false); err != nil {
-			continue
-		}
-
-		ops = append(ops, clearOp{userId: s.UserId, deduction: actualDeduction})
-	}
-
-	// 标记签到记录为已清除
 	markQuery := DB.Model(&Checkin{}).
 		Where("checkin_date >= ? AND checkin_date <= ? AND cleared = ?", startDate, endDate, false)
 	if len(userIds) > 0 {
@@ -381,15 +271,15 @@ func batchClearCheckinWithoutTransaction(sums []UserCheckinSum, startDate, endDa
 		return 0, 0, fmt.Errorf("标记签到记录失败: %w", err)
 	}
 
-	// 标记成功后才写日志
-	totalCleared := 0
-	for _, op := range ops {
-		totalCleared += op.deduction
-		RecordLogWithQuota(op.userId, LogTypeManage,
-			fmt.Sprintf("%s 清除了用户 %s 至 %s 期间的签到额度 %s",
-				operatorName, startDate, endDate, logger.LogQuota(op.deduction)),
-			-op.deduction)
+	for _, s := range sums {
+		if s.Total <= 0 {
+			continue
+		}
+		RecordLogWithQuota(s.UserId, LogTypeManage,
+			fmt.Sprintf("%s 清除了用户 %s 至 %s 期间的签到奖励额度 %s",
+				operatorName, startDate, endDate, logger.LogQuota(s.Total)),
+			-s.Total)
 	}
 
-	return len(ops), totalCleared, nil
+	return len(sums), totalCleared, nil
 }

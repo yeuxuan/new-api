@@ -81,6 +81,21 @@ export interface UserProfile {
   telegram_id?: string
   /** LinuxDO ID (OAuth) */
   linux_do_id?: string
+  /** Available bonus quota balance */
+  bonus_quota?: number
+  /** Bonus quota grant summaries */
+  bonus_quota_grants?: BonusQuotaGrantSummary[]
+  /** Bonus quota validity days from system settings */
+  bonus_quota_validity_days?: number
+  /** Models allowed for bonus quota usage */
+  bonus_quota_allowed_models?: string[]
+}
+
+export interface BonusQuotaGrantSummary {
+  id: number
+  source: string
+  amount_remaining: number
+  expires_at: number
 }
 
 /**
@@ -213,6 +228,14 @@ export interface CheckinStats {
   checkin_count: number
   /** Check-in records for the queried month */
   records: CheckinRecord[]
+  /** Available bonus quota balance */
+  bonus_quota?: number
+  /** Bonus quota grant summaries */
+  bonus_quota_grants?: BonusQuotaGrantSummary[]
+  /** Bonus quota validity days */
+  bonus_quota_validity_days?: number
+  /** Models allowed for bonus quota */
+  bonus_quota_allowed_models?: string[]
 }
 
 /**

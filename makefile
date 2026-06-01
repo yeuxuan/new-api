@@ -8,7 +8,13 @@ DEV_POSTGRES_DB = new-api
 DEV_POSTGRES_USER = root
 DEV_SQLITE_PATH ?= one-api.db
 
-.PHONY: all build-frontend build-frontend-classic build-all-frontends start-backend dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup
+DEV_INFRA_SERVICES = postgres redis
+DEV_POSTGRES_PORT = 5432
+DEV_REDIS_PORT = 6379
+DEV_LOCAL_DSN = postgresql://root:123456@localhost:$(DEV_POSTGRES_PORT)/new-api
+DEV_LOCAL_REDIS = redis://localhost:$(DEV_REDIS_PORT)
+
+.PHONY: all build-frontend build-frontend-classic build-all-frontends start-backend dev dev-api dev-api-rebuild dev-local dev-web dev-web-classic reset-setup
 
 all: build-all-frontends start-backend
 
@@ -22,17 +28,18 @@ build-frontend-classic:
 
 build-all-frontends: build-frontend build-frontend-classic
 
-start-backend:
-	@echo "Starting backend dev server..."
-	@cd $(BACKEND_DIR) && go run main.go &
+start-backend: dev-local
 
 dev-api:
-	@echo "Starting backend services (docker)..."
-	@docker compose -f $(DEV_COMPOSE_FILE) up -d
+	@echo "Starting dev infrastructure (PostgreSQL + Redis in Docker)..."
+	@docker compose -f $(DEV_COMPOSE_FILE) up -d $(DEV_INFRA_SERVICES)
 
-dev-api-rebuild:
-	@echo "Rebuilding and starting backend service (docker)..."
-	@docker compose -f $(DEV_COMPOSE_FILE) up -d --build $(DEV_BACKEND_SERVICE)
+dev-api-rebuild: dev-api
+	@echo "Note: backend runs on host. Restart with: make dev-local  (or go run main.go)"
+
+dev-local:
+	@echo "Starting backend on host (loads .env)..."
+	@cd $(BACKEND_DIR) && go run main.go
 
 dev-web:
 	@echo "Starting frontend dev server..."
@@ -53,8 +60,7 @@ reset-setup:
 			-c 'DELETE FROM setups;' \
 			-c 'DELETE FROM users WHERE role = 100;' \
 			-c "DELETE FROM options WHERE key IN ('SelfUseModeEnabled', 'DemoSiteEnabled');"; \
-		echo "Restarting docker dev backend so setup status is recalculated..."; \
-		docker compose -f $(DEV_COMPOSE_FILE) restart $(DEV_BACKEND_SERVICE); \
+		echo "Restart the local backend (make dev-local) so setup status is recalculated."; \
 	elif db_path="$${SQLITE_PATH:-$(DEV_SQLITE_PATH)}"; db_path="$${db_path%%\?*}"; [ -f "$$db_path" ]; then \
 		db_path="$${SQLITE_PATH:-$(DEV_SQLITE_PATH)}"; \
 		db_path="$${db_path%%\?*}"; \

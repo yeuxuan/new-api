@@ -24,6 +24,7 @@ import {
   CardStaggerItem,
 } from '@/components/page-transition'
 import { CheckinCalendarCard } from './components/checkin-calendar-card'
+import { BonusQuotaGrantsCard } from './components/bonus-quota-grants-card'
 import { LanguagePreferencesCard } from './components/language-preferences-card'
 import { PasskeyCard } from './components/passkey-card'
 import { ProfileHeader } from './components/profile-header'
@@ -69,11 +70,13 @@ export function Profile() {
               </div>
 
               <div className='space-y-4 sm:space-y-6 xl:sticky xl:top-6'>
+                <BonusQuotaGrantsCard profile={profile} loading={loading} />
                 {checkinEnabled && (
                   <CheckinCalendarCard
                     checkinEnabled={checkinEnabled}
                     turnstileEnabled={turnstileEnabled}
                     turnstileSiteKey={turnstileSiteKey}
+                    onProfileRefresh={refreshProfile}
                   />
                 )}
                 {canConfigureSidebar && <SidebarModulesCard />}

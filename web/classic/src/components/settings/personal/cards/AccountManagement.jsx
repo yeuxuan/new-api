@@ -218,6 +218,20 @@ const AccountManagement = ({
                           t('邮箱地址'),
                         )}
                       </div>
+                      {!isBound(userState.user?.email) &&
+                        status?.email_bind_reward_enabled === true &&
+                        (status.email_bind_reward_quota ?? 0) > 0 && (
+                          <div className='text-xs text-blue-600 dark:text-blue-400 mt-1'>
+                            {t('Bind to receive {{amount}} bonus quota', {
+                              amount: renderQuota(status.email_bind_reward_quota),
+                            })}
+                            {(status.bonus_quota_validity_days ?? 0) > 0
+                              ? ` · ${t('Valid for {{days}} days', {
+                                  days: status.bonus_quota_validity_days,
+                                })}`
+                              : ` · ${t('Never expires')}`}
+                          </div>
+                        )}
                     </div>
                   </div>
                   <div className='flex-shrink-0'>

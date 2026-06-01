@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { parseCurrencyDisplayType } from '@/lib/currency'
 import { CheckinSettingsSection } from '../general/checkin-settings-section'
+import { EmailBindSettingsSection } from '../general/email-bind-settings-section'
+import { BonusQuotaSettingsSection } from '../general/bonus-quota-settings-section'
 import { PricingSection } from '../general/pricing-section'
 import { QuotaSettingsSection } from '../general/quota-settings-section'
 import { PaymentSettingsSection } from '../integrations/payment-settings-section'
@@ -202,7 +204,41 @@ const BILLING_SECTIONS = [
       />
     ),
   },
+  {
+    id: 'email-bind',
+    titleKey: 'Email Bind Reward',
+    build: (settings: BillingSettings) => (
+      <EmailBindSettingsSection
+        defaultValues={{
+          enabled: settings['email_bind_setting.enabled'],
+          quota: settings['email_bind_setting.quota'],
+        }}
+      />
+    ),
+  },
+  {
+    id: 'bonus-quota',
+    titleKey: 'Bonus Quota Restrictions',
+    build: (settings: BillingSettings) => (
+      <BonusQuotaSettingsSection
+        defaultValues={{
+          validityDays: settings['bonus_quota_setting.validity_days'],
+          allowedModels: parseAllowedModels(
+            settings['bonus_quota_setting.allowed_models']
+          ),
+        }}
+      />
+    ),
+  },
 ] as const
+
+function parseAllowedModels(raw: string | undefined): string[] {
+  if (!raw) return []
+  return raw
+    .split(',')
+    .map((m) => m.trim())
+    .filter(Boolean)
+}
 
 export type BillingSectionId = (typeof BILLING_SECTIONS)[number]['id']
 

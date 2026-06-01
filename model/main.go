@@ -254,6 +254,9 @@ func migrateDB() error {
 	if err := migrateTokenModelLimitsToText(); err != nil {
 		return err
 	}
+	if err := MigrateBonusQuotaGrantUniqueIndex(); err != nil {
+		return err
+	}
 
 	err := DB.AutoMigrate(
 		&Channel{},
@@ -275,6 +278,7 @@ func migrateDB() error {
 		&TwoFA{},
 		&TwoFABackupCode{},
 		&Checkin{},
+		&BonusQuotaGrant{},
 		&SubscriptionOrder{},
 		&UserSubscription{},
 		&SubscriptionPreConsumeRecord{},
@@ -284,6 +288,9 @@ func migrateDB() error {
 		&PerfMetric{},
 	)
 	if err != nil {
+		return err
+	}
+	if err := EnsureBonusQuotaGrantUniqueIndex(); err != nil {
 		return err
 	}
 	if common.UsingSQLite {
@@ -299,6 +306,9 @@ func migrateDB() error {
 }
 
 func migrateDBFast() error {
+	if err := MigrateBonusQuotaGrantUniqueIndex(); err != nil {
+		return err
+	}
 
 	var wg sync.WaitGroup
 
@@ -325,6 +335,7 @@ func migrateDBFast() error {
 		{&TwoFA{}, "TwoFA"},
 		{&TwoFABackupCode{}, "TwoFABackupCode"},
 		{&Checkin{}, "Checkin"},
+		{&BonusQuotaGrant{}, "BonusQuotaGrant"},
 		{&SubscriptionOrder{}, "SubscriptionOrder"},
 		{&UserSubscription{}, "UserSubscription"},
 		{&SubscriptionPreConsumeRecord{}, "SubscriptionPreConsumeRecord"},
@@ -363,6 +374,9 @@ func migrateDBFast() error {
 		if err := DB.AutoMigrate(&SubscriptionPlan{}); err != nil {
 			return err
 		}
+	}
+	if err := EnsureBonusQuotaGrantUniqueIndex(); err != nil {
+		return err
 	}
 	common.SysLog("database migrated")
 	return nil

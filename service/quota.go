@@ -24,6 +24,19 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// GetUserTotalSpendableQuota 返回用户在指定模型下可用的钱包+奖励额度总量。
+func GetUserTotalSpendableQuota(userId int, modelName string) (int, error) {
+	userQuota, err := model.GetUserQuota(userId, false)
+	if err != nil {
+		return 0, err
+	}
+	bonusQuota, err := model.GetAvailableBonusQuota(userId, modelName)
+	if err != nil {
+		return 0, err
+	}
+	return userQuota + bonusQuota, nil
+}
+
 type TokenDetails struct {
 	TextTokens  int
 	AudioTokens int
@@ -418,10 +431,14 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 			relayInfo.SubscriptionPostDelta += delta
 		}
 	} else {
-		// Wallet
+		// Wallet（含奖励额度池，bonus_first）
 		if quota > 0 {
-			err = model.DecreaseUserQuota(relayInfo.UserId, quota, false)
-		} else {
+			w := &WalletFunding{
+				userId:    relayInfo.UserId,
+				modelName: relayInfo.OriginModelName,
+			}
+			err = w.PreConsume(quota)
+		} else if quota < 0 {
 			err = model.IncreaseUserQuota(relayInfo.UserId, -quota, false)
 		}
 		if err != nil {

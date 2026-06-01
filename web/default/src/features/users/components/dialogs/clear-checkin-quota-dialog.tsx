@@ -48,7 +48,6 @@ interface PreviewItem {
   user_id: number
   username: string
   checkin_quota: number
-  current_quota: number
   actual_clear: number
 }
 
@@ -281,7 +280,6 @@ export function ClearCheckinQuotaDialog({
                         <TableHead>{t('User ID')}</TableHead>
                         <TableHead>{t('Username')}</TableHead>
                         <TableHead>{t('Check-in Quota')}</TableHead>
-                        <TableHead>{t('Current Quota')}</TableHead>
                         <TableHead>{t('Actual Clear')}</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -291,7 +289,6 @@ export function ClearCheckinQuotaDialog({
                           <TableCell>{item.user_id}</TableCell>
                           <TableCell>{item.username}</TableCell>
                           <TableCell>{formatQuota(item.checkin_quota)}</TableCell>
-                          <TableCell>{formatQuota(item.current_quota)}</TableCell>
                           <TableCell className='text-destructive'>
                             -{formatQuota(item.actual_clear)}
                           </TableCell>

@@ -108,6 +108,10 @@ const defaultBillingSettings: BillingSettings = {
   'checkin_setting.enabled': false,
   'checkin_setting.min_quota': 1000,
   'checkin_setting.max_quota': 10000,
+  'email_bind_setting.enabled': false,
+  'email_bind_setting.quota': 0,
+  'bonus_quota_setting.validity_days': 0,
+  'bonus_quota_setting.allowed_models': '',
 }
 
 export function BillingSettings() {

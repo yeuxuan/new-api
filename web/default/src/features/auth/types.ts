@@ -172,6 +172,11 @@ export interface SystemStatus {
   password_login_enabled?: boolean
   password_register_enabled?: boolean
   custom_oauth_providers?: CustomOAuthProviderInfo[]
+  checkin_enabled?: boolean
+  email_bind_reward_enabled?: boolean
+  email_bind_reward_quota?: number
+  bonus_quota_validity_days?: number
+  bonus_quota_allowed_models?: string[]
   [key: string]: unknown
 }
 

@@ -81,7 +81,12 @@ export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
     {
       label: t('Current Balance'),
       value: formatQuota(profile.quota),
-      description: t('Remaining quota'),
+      description:
+        (profile.bonus_quota ?? 0) > 0
+          ? t('Remaining quota ({{bonus}} bonus)', {
+              bonus: formatQuota(profile.bonus_quota ?? 0),
+            })
+          : t('Remaining quota'),
       icon: WalletCards,
     },
     {

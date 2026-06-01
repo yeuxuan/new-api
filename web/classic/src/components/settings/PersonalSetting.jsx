@@ -41,6 +41,7 @@ import AccountManagement from './personal/cards/AccountManagement';
 import NotificationSettings from './personal/cards/NotificationSettings';
 import PreferencesSettings from './personal/cards/PreferencesSettings';
 import CheckinCalendar from './personal/cards/CheckinCalendar';
+import BonusQuotaGrants from './personal/cards/BonusQuotaGrants';
 import EmailBindModal from './personal/modals/EmailBindModal';
 import WeChatBindModal from './personal/modals/WeChatBindModal';
 import AccountDeleteModal from './personal/modals/AccountDeleteModal';
@@ -475,11 +476,32 @@ const PersonalSetting = () => {
       email: inputs.email,
       code: inputs.email_verification_code,
     });
-    const { success, message } = res.data;
+    const { success, message, quota_awarded, expires_at } = res.data;
     if (success) {
-      showSuccess(t('邮箱账户绑定成功！'));
+      if ((quota_awarded ?? 0) > 0) {
+        const amount = renderQuota(quota_awarded);
+        if ((expires_at ?? 0) > 0) {
+          const date = new Date(expires_at * 1000).toLocaleString();
+          showSuccess(
+            t(
+              'Email bound successfully! You received {{amount}} bonus quota, valid until {{date}}.',
+              { amount, date },
+            ),
+          );
+        } else {
+          showSuccess(
+            t(
+              'Email bound successfully! You received {{amount}} bonus quota (never expires).',
+              { amount },
+            ),
+          );
+        }
+      } else {
+        showSuccess(t('邮箱账户绑定成功！'));
+      }
       setShowEmailBindModal(false);
       userState.user.email = inputs.email;
+      await getUserData();
     } else {
       showError(message);
     }
@@ -548,6 +570,8 @@ const PersonalSetting = () => {
           {/* 顶部用户信息区域 */}
           <UserInfoHeader t={t} userState={userState} />
 
+          <BonusQuotaGrants t={t} userState={userState} status={status} />
+
           {/* 签到日历 - 仅在启用时显示 */}
           {status?.checkin_enabled && (
             <div className='mt-4 md:mt-6'>
@@ -556,6 +580,7 @@ const PersonalSetting = () => {
                 status={status}
                 turnstileEnabled={turnstileEnabled}
                 turnstileSiteKey={turnstileSiteKey}
+                onUserRefresh={getUserData}
               />
             </div>
           )}

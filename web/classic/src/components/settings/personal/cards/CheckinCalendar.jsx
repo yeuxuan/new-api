@@ -39,7 +39,7 @@ import {
 import Turnstile from 'react-turnstile';
 import { API, showError, showSuccess, renderQuota } from '../../../../helpers';
 
-const CheckinCalendar = ({ t, status, turnstileEnabled, turnstileSiteKey }) => {
+const CheckinCalendar = ({ t, status, turnstileEnabled, turnstileSiteKey, onUserRefresh }) => {
   const [loading, setLoading] = useState(false);
   const [checkinLoading, setCheckinLoading] = useState(false);
   const [turnstileModalVisible, setTurnstileModalVisible] = useState(false);
@@ -132,11 +132,16 @@ const CheckinCalendar = ({ t, status, turnstileEnabled, turnstileSiteKey }) => {
       const res = await postCheckin(token);
       const { success, data, message } = res.data;
       if (success) {
+        const validityDays = status?.bonus_quota_validity_days ?? 0;
+        const validityHint =
+          validityDays > 0
+            ? t('Valid for {{days}} days', { days: validityDays })
+            : t('Never expires');
         showSuccess(
-          t('签到成功！获得') + ' ' + renderQuota(data.quota_awarded),
+          `${t('签到成功！获得')} ${renderQuota(data.quota_awarded)} · ${validityHint}`,
         );
-        // 刷新签到状态
         fetchCheckinStatus(currentMonth);
+        onUserRefresh?.();
         setTurnstileModalVisible(false);
       } else {
         if (!token && shouldTriggerTurnstile(message)) {
@@ -289,12 +294,20 @@ const CheckinCalendar = ({ t, status, turnstileEnabled, turnstileSiteKey }) => {
       {/* 可折叠内容 */}
       <Collapsible isOpen={isCollapsed === false} keepDOM>
         {/* 签到统计 */}
-        <div className='grid grid-cols-3 gap-3 mb-4 mt-4'>
+        <div className='grid grid-cols-2 gap-3 mb-4 mt-4 sm:grid-cols-4'>
           <div className='text-center p-2.5 bg-slate-50 dark:bg-slate-800 rounded-lg'>
             <div className='text-xl font-bold text-green-600'>
               {checkinData.stats?.total_checkins || 0}
             </div>
             <div className='text-xs text-gray-500'>{t('累计签到')}</div>
+          </div>
+          <div className='text-center p-2.5 bg-slate-50 dark:bg-slate-800 rounded-lg'>
+            <div className='text-xl font-bold text-purple-600'>
+              {renderQuota(checkinData.stats?.bonus_quota || 0, 6)}
+            </div>
+            <div className='text-xs text-gray-500'>
+              {t('Bonus quota available')}
+            </div>
           </div>
           <div className='text-center p-2.5 bg-slate-50 dark:bg-slate-800 rounded-lg'>
             <div className='text-xl font-bold text-orange-600'>
@@ -371,7 +384,7 @@ const CheckinCalendar = ({ t, status, turnstileEnabled, turnstileSiteKey }) => {
           <Typography.Text type='tertiary' className='text-xs'>
             <ul className='list-disc list-inside space-y-0.5'>
               <li>{t('每日签到可获得随机额度奖励')}</li>
-              <li>{t('签到奖励将直接添加到您的账户余额')}</li>
+              <li>{t('Rewards are added to your bonus quota pool')}</li>
               <li>{t('每日仅可签到一次，请勿重复签到')}</li>
             </ul>
           </Typography.Text>

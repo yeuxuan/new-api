@@ -97,41 +97,43 @@ export function UsersTable() {
     (columnFilters.find((filter) => filter.id === 'group')?.value as string) ??
     ''
 
-  // Fetch data with React Query
+  const searchKeyword = (globalFilter ?? '').trim()
+  const hasKeyword = Boolean(searchKeyword)
+  const hasColumnFilter =
+    statusFilter.length > 0 || roleFilter.length > 0 || Boolean(groupFilter)
+  const useServerSearch = hasKeyword || hasColumnFilter
+
   const { data, isLoading, isFetching } = useQuery({
     queryKey: [
       'users',
       pagination.pageIndex + 1,
       pagination.pageSize,
-      globalFilter,
+      searchKeyword,
       statusFilter,
       roleFilter,
       groupFilter,
       refreshTrigger,
     ],
     queryFn: async () => {
-      const hasFilter = globalFilter?.trim()
-      const hasColumnFilter =
-        statusFilter.length > 0 || roleFilter.length > 0 || Boolean(groupFilter)
       const params = {
         p: pagination.pageIndex + 1,
         page_size: pagination.pageSize,
       }
 
-      const result =
-        hasFilter || hasColumnFilter
-          ? await searchUsers({
-              ...params,
-              keyword: globalFilter,
-              status: statusFilter[0] ?? '',
-              role: roleFilter[0] ?? '',
-              group: groupFilter,
-            })
-          : await getUsers(params)
+      const result = useServerSearch
+        ? await searchUsers({
+            ...params,
+            keyword: searchKeyword,
+            status: statusFilter[0] ?? '',
+            role: roleFilter[0] ?? '',
+            group: groupFilter,
+          })
+        : await getUsers(params)
 
       if (!result.success) {
         toast.error(
-          result.message || `Failed to ${hasFilter ? 'search' : 'load'} users`
+          result.message ||
+            `Failed to ${hasKeyword ? 'search' : 'load'} users`
         )
         return { items: [], total: 0 }
       }
@@ -161,19 +163,7 @@ export function UsersTable() {
     onRowSelectionChange: setRowSelection,
     onSortingChange: setSorting,
     onColumnVisibilityChange: setColumnVisibility,
-    globalFilterFn: (row, _columnId, filterValue) => {
-      const searchValue = String(filterValue).toLowerCase()
-      const fields = [
-        row.getValue('username'),
-        row.original.display_name,
-        row.original.email,
-      ]
-      return fields.some((field) =>
-        String(field || '')
-          .toLowerCase()
-          .includes(searchValue)
-      )
-    },
+    globalFilterFn: () => true,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -204,7 +194,9 @@ export function UsersTable() {
       )}
       skeletonKeyPrefix='users-skeleton'
       toolbarProps={{
-        searchPlaceholder: t('Filter by username, name or email...'),
+        searchPlaceholder: t(
+          'Filter by user ID, username, name or email...'
+        ),
         filters: [
           {
             columnId: 'status',

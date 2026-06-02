@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Activity, BarChart3, WalletCards } from 'lucide-react'
+import { Activity, BarChart3, Gift, WalletCards } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { formatCompactNumber, formatQuota } from '@/lib/format'
 import { getRoleLabel } from '@/lib/roles'
@@ -33,9 +33,14 @@ import type { UserProfile } from '../types'
 interface ProfileHeaderProps {
   profile: UserProfile | null
   loading: boolean
+  bonusFeaturesEnabled?: boolean
 }
 
-export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
+export function ProfileHeader({
+  profile,
+  loading,
+  bonusFeaturesEnabled = false,
+}: ProfileHeaderProps) {
   const { t } = useTranslation()
 
   if (loading) {
@@ -77,18 +82,26 @@ export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
   const displayName = getDisplayName(profile)
   const initials = getUserInitials(profile)
   const roleLabel = getRoleLabel(profile.role)
+  const showBonusStat =
+    bonusFeaturesEnabled || (profile.bonus_quota ?? 0) > 0
+
   const stats = [
     {
       label: t('Current Balance'),
       value: formatQuota(profile.quota),
-      description:
-        (profile.bonus_quota ?? 0) > 0
-          ? t('Remaining quota ({{bonus}} bonus)', {
-              bonus: formatQuota(profile.bonus_quota ?? 0),
-            })
-          : t('Remaining quota'),
+      description: t('Wallet balance for recharge and redemption'),
       icon: WalletCards,
     },
+    ...(showBonusStat
+      ? [
+          {
+            label: t('Limited-time bonus quota'),
+            value: formatQuota(profile.bonus_quota ?? 0),
+            description: t('Used before wallet balance on API calls'),
+            icon: Gift,
+          },
+        ]
+      : []),
     {
       label: t('Total Usage'),
       value: formatQuota(profile.used_quota),
@@ -144,7 +157,9 @@ export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
         </div>
       </div>
       <div className='border-t'>
-        <div className='divide-border/60 grid grid-cols-3 divide-x'>
+        <div
+          className={`divide-border/60 grid divide-x ${stats.length > 3 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'}`}
+        >
           {stats.map((item) => (
             <div key={item.label} className='min-w-0 px-3 py-3 sm:px-5 sm:py-4'>
               <div className='flex items-center gap-2'>

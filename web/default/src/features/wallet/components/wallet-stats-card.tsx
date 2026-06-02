@@ -16,8 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Activity, BarChart3, WalletCards } from 'lucide-react'
+import { Activity, BarChart3, Gift, WalletCards } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useStatus } from '@/hooks/use-status'
 import { formatQuota } from '@/lib/format'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { UserWalletData } from '../types'
@@ -29,11 +30,13 @@ interface WalletStatsCardProps {
 
 export function WalletStatsCard(props: WalletStatsCardProps) {
   const { t } = useTranslation()
+  const { status } = useStatus()
+
   if (props.loading) {
     return (
       <div className='overflow-hidden rounded-lg border'>
-        <div className='divide-border/60 grid grid-cols-3 divide-x'>
-          {Array.from({ length: 3 }).map((_, i) => (
+        <div className='divide-border/60 grid grid-cols-2 divide-x sm:grid-cols-4'>
+          {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className='px-3 py-3 sm:px-5 sm:py-4'>
               <Skeleton className='h-3.5 w-20' />
               <Skeleton className='mt-2 h-7 w-28' />
@@ -45,13 +48,29 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     )
   }
 
+  const bonusFeaturesEnabled =
+    status?.checkin_enabled === true ||
+    status?.email_bind_reward_enabled === true
+  const bonusQuota = props.user?.bonus_quota ?? 0
+  const showBonusStat = bonusFeaturesEnabled || bonusQuota > 0
+
   const stats = [
     {
       label: t('Current Balance'),
       value: formatQuota(props.user?.quota ?? 0),
-      description: t('Remaining quota'),
+      description: t('Wallet balance for recharge and redemption'),
       icon: WalletCards,
     },
+    ...(showBonusStat
+      ? [
+          {
+            label: t('Limited-time bonus quota'),
+            value: formatQuota(bonusQuota),
+            description: t('Used before wallet balance on API calls'),
+            icon: Gift,
+          },
+        ]
+      : []),
     {
       label: t('Total Usage'),
       value: formatQuota(props.user?.used_quota ?? 0),
@@ -66,9 +85,14 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     },
   ]
 
+  const gridClass =
+    stats.length > 3
+      ? 'grid-cols-2 sm:grid-cols-4'
+      : 'grid-cols-3'
+
   return (
     <div className='overflow-hidden rounded-lg border'>
-      <div className='divide-border/60 grid grid-cols-3 divide-x'>
+      <div className={`divide-border/60 grid divide-x ${gridClass}`}>
         {stats.map((item) => (
           <div key={item.label} className='px-3 py-3 sm:px-5 sm:py-4'>
             <div className='flex items-center gap-2'>

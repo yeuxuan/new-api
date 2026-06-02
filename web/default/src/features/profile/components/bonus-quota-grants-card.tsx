@@ -35,6 +35,8 @@ import type { BonusQuotaGrantSummary, UserProfile } from '../types'
 interface BonusQuotaGrantsCardProps {
   profile: UserProfile | null
   loading: boolean
+  /** Show card when check-in or email-bind rewards are enabled, even if balance is 0 */
+  featuresEnabled?: boolean
 }
 
 function formatExpiresAt(expiresAt: number, t: (key: string) => string) {
@@ -57,6 +59,7 @@ function sourceLabel(source: string, t: (key: string) => string) {
 export function BonusQuotaGrantsCard({
   profile,
   loading,
+  featuresEnabled = false,
 }: BonusQuotaGrantsCardProps) {
   const { t } = useTranslation()
 
@@ -78,12 +81,17 @@ export function BonusQuotaGrantsCard({
       parts.push(t('Valid for {{days}} days', { days: validityDays }))
     }
     if (allowedModels.length > 0) {
-      parts.push(t('Limited to selected models'))
+      parts.push(
+        t('Limited to selected models: {{models}}', {
+          models: allowedModels.join(', '),
+        })
+      )
     }
     return parts.join(' · ')
-  }, [allowedModels.length, t, validityDays])
+  }, [allowedModels, t, validityDays])
 
-  if (!loading && bonusQuota <= 0 && grants.length === 0) {
+  const hasBonus = bonusQuota > 0 || grants.length > 0
+  if (!loading && !hasBonus && !featuresEnabled) {
     return null
   }
 
@@ -95,7 +103,7 @@ export function BonusQuotaGrantsCard({
         </div>
         <div className='min-w-0 flex-1'>
           <h3 className='text-base font-semibold tracking-tight sm:text-lg'>
-            {t('Bonus quota grants')}
+            {t('Limited-time bonus quota')}
           </h3>
           <p className='text-muted-foreground mt-1 text-xs sm:text-sm'>
             {loading
@@ -116,7 +124,11 @@ export function BonusQuotaGrantsCard({
           </div>
         ) : grants.length === 0 ? (
           <p className='text-muted-foreground text-sm'>
-            {t('No active bonus quota grants')}
+            {hasBonus
+              ? t('No active bonus quota grants')
+              : t(
+                  'Check in or bind your email to earn limited-time bonus quota. Expiring grants appear here.'
+                )}
           </p>
         ) : (
           <div className='overflow-x-auto rounded-md border'>

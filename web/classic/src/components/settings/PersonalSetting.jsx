@@ -568,7 +568,7 @@ const PersonalSetting = () => {
       <div className='flex justify-center'>
         <div className='w-full max-w-7xl mx-auto px-2'>
           {/* 顶部用户信息区域 */}
-          <UserInfoHeader t={t} userState={userState} />
+          <UserInfoHeader t={t} userState={userState} status={status} />
 
           <BonusQuotaGrants t={t} userState={userState} status={status} />
 

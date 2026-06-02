@@ -266,6 +266,10 @@ export interface UserWalletData {
   username: string
   /** Current quota balance */
   quota: number
+  /** Available bonus quota (limited-time rewards pool) */
+  bonus_quota?: number
+  /** Bonus quota validity policy (days, 0 = never) */
+  bonus_quota_validity_days?: number
   /** Total used quota */
   used_quota: number
   /** Total request count */

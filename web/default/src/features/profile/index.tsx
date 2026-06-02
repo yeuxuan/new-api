@@ -40,6 +40,8 @@ export function Profile() {
   const permissions = useAuthStore((s) => s.auth.user?.permissions)
 
   const checkinEnabled = status?.checkin_enabled === true
+  const bonusFeaturesEnabled =
+    checkinEnabled || status?.email_bind_reward_enabled === true
   const turnstileEnabled = !!(
     status?.turnstile_check && status?.turnstile_site_key
   )
@@ -51,7 +53,19 @@ export function Profile() {
       <div className='min-h-0 flex-1 overflow-auto px-3 py-3 sm:px-4 sm:py-6'>
         <CardStaggerContainer className='mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-6'>
           <CardStaggerItem>
-            <ProfileHeader profile={profile} loading={loading} />
+            <ProfileHeader
+              profile={profile}
+              loading={loading}
+              bonusFeaturesEnabled={bonusFeaturesEnabled}
+            />
+          </CardStaggerItem>
+
+          <CardStaggerItem>
+            <BonusQuotaGrantsCard
+              profile={profile}
+              loading={loading}
+              featuresEnabled={bonusFeaturesEnabled}
+            />
           </CardStaggerItem>
 
           <CardStaggerItem>
@@ -70,7 +84,6 @@ export function Profile() {
               </div>
 
               <div className='space-y-4 sm:space-y-6 xl:sticky xl:top-6'>
-                <BonusQuotaGrantsCard profile={profile} loading={loading} />
                 {checkinEnabled && (
                   <CheckinCalendarCard
                     checkinEnabled={checkinEnabled}

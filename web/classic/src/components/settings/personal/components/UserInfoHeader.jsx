@@ -34,7 +34,11 @@ import {
 } from '../../../../helpers';
 import { Coins, BarChart2, Users } from 'lucide-react';
 
-const UserInfoHeader = ({ t, userState }) => {
+const UserInfoHeader = ({ t, userState, status }) => {
+  const bonusFeaturesEnabled =
+    status?.checkin_enabled === true || status?.email_bind_reward_enabled === true;
+  const bonusQuota = userState?.user?.bonus_quota ?? 0;
+  const showBonusQuota = bonusFeaturesEnabled || bonusQuota > 0;
   const getUsername = () => {
     if (userState.user) {
       return userState.user.username;
@@ -124,10 +128,9 @@ const UserInfoHeader = ({ t, userState }) => {
             {renderQuota(userState?.user?.quota)}
           </div>
         </Badge>
-        {(userState?.user?.bonus_quota ?? 0) > 0 && (
+        {showBonusQuota && (
           <Typography.Text size='small' type='tertiary' className='mt-1 block'>
-            {t('Bonus quota available')}:{' '}
-            {renderQuota(userState.user.bonus_quota)}
+            {t('Limited-time bonus quota')}: {renderQuota(bonusQuota)}
           </Typography.Text>
         )}
 

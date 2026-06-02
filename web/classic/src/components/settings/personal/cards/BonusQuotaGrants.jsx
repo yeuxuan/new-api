@@ -51,7 +51,10 @@ const BonusQuotaGrants = ({ t, userState, status }) => {
   const allowedModels =
     user?.bonus_quota_allowed_models ?? status?.bonus_quota_allowed_models ?? [];
 
-  if (bonusQuota <= 0 && grants.length === 0) {
+  const featuresEnabled =
+    status?.checkin_enabled === true || status?.email_bind_reward_enabled === true;
+  const hasBonus = bonusQuota > 0 || grants.length > 0;
+  if (!hasBonus && !featuresEnabled) {
     return null;
   }
 
@@ -89,7 +92,7 @@ const BonusQuotaGrants = ({ t, userState, status }) => {
         </div>
         <div>
           <Typography.Title heading={5} className='!mb-1'>
-            {t('Bonus quota grants')}
+            {t('Limited-time bonus quota')}
           </Typography.Title>
           <Typography.Text type='tertiary' className='text-sm'>
             {t('Available bonus quota: {{amount}}', {
@@ -101,7 +104,11 @@ const BonusQuotaGrants = ({ t, userState, status }) => {
       </div>
       {grants.length === 0 ? (
         <Typography.Text type='tertiary'>
-          {t('No active bonus quota grants')}
+          {hasBonus
+            ? t('No active bonus quota grants')
+            : t(
+                'Check in or bind your email to earn limited-time bonus quota. Expiring grants appear here.',
+              )}
         </Typography.Text>
       ) : (
         <Table columns={columns} dataSource={grants} rowKey='id' pagination={false} />

@@ -205,19 +205,28 @@ function readAdvancedSettingsPreference(): boolean {
 
 function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
   return Boolean(
+    values.model_mapping?.trim() ||
     values.param_override?.trim() ||
     values.header_override?.trim() ||
     values.status_code_mapping?.trim() ||
+    values.test_model?.trim() ||
     values.tag?.trim() ||
     values.remark?.trim() ||
     values.priority ||
     values.weight ||
+    values.auto_ban !== CHANNEL_FORM_DEFAULT_VALUES.auto_ban ||
     values.proxy?.trim() ||
     values.system_prompt?.trim() ||
     values.force_format ||
     values.thinking_to_content ||
     values.pass_through_body_enabled ||
     values.system_prompt_override ||
+    values.allow_service_tier ||
+    values.disable_store ||
+    values.allow_safety_identifier ||
+    values.allow_include_obfuscation ||
+    values.allow_inference_geo ||
+    values.allow_speed ||
     values.claude_beta_query ||
     values.upstream_model_update_check_enabled ||
     values.upstream_model_update_auto_sync_enabled ||

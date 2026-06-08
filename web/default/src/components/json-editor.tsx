@@ -43,6 +43,22 @@ type EditorRow = {
   value: string
 }
 
+function parseJsonRows(json: string): EditorRow[] | null {
+  try {
+    if (!json.trim()) {
+      return []
+    }
+    const parsed = JSON.parse(json)
+    return Object.entries(parsed).map(([key, val], index) => ({
+      id: `${key}-${index}`,
+      key,
+      value: typeof val === 'object' ? JSON.stringify(val) : String(val),
+    }))
+  } catch (_error) {
+    return null
+  }
+}
+
 export function JsonEditor({
   value,
   onChange,
@@ -63,27 +79,17 @@ export function JsonEditor({
   const resolvedKeyLabel = keyLabel ?? t('Key')
   const resolvedValueLabel = valueLabel ?? t('Value')
   const [mode, setMode] = useState<'visual' | 'json'>('visual')
-  const [rows, setRows] = useState<EditorRow[]>([])
+  const [rows, setRows] = useState<EditorRow[]>(
+    () => parseJsonRows(value) ?? []
+  )
   const [jsonValue, setJsonValue] = useState(value)
 
   const parseJsonToRows = (json: string) => {
-    try {
-      if (!json.trim()) {
-        setRows([])
-        return
-      }
-      const parsed = JSON.parse(json)
-      const newRows: EditorRow[] = Object.entries(parsed).map(
-        ([key, val], index) => ({
-          id: `${Date.now()}-${index}`,
-          key,
-          value: typeof val === 'object' ? JSON.stringify(val) : String(val),
-        })
-      )
+    const newRows = parseJsonRows(json)
+    if (newRows) {
       setRows(newRows)
-    } catch (_error) {
-      // Invalid JSON, keep current rows
     }
+    // Invalid JSON, keep current rows
   }
 
   // Parse JSON to rows when value changes externally

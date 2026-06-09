@@ -97,6 +97,18 @@ export async function calculateStripeAmount(
 }
 
 /**
+ * Calculate payment amount for iPayNow payment
+ */
+export async function calculateIPayNowAmount(
+  request: AmountRequest
+): Promise<AmountResponse> {
+  const res = await api.post('/api/user/ipaynow/amount', request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
  * Request regular payment
  */
 export async function requestPayment(

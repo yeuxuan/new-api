@@ -39,6 +39,7 @@ import InvitationCard from './InvitationCard';
 import TransferModal from './modals/TransferModal';
 import PaymentConfirmModal from './modals/PaymentConfirmModal';
 import TopupHistoryModal from './modals/TopupHistoryModal';
+import IPayNowQRModal from './modals/IPayNowQRModal';
 
 // Reject non-navigable schemes (e.g. javascript:, data:) and relative URLs.
 // Only http / https are allowed for backend-provided redirect targets.
@@ -92,6 +93,9 @@ const TopUp = () => {
   const [waffoMinTopUp, setWaffoMinTopUp] = useState(1);
   const [enableWaffoPancakeTopUp, setEnableWaffoPancakeTopUp] = useState(false);
   const [waffoPancakeMinTopUp, setWaffoPancakeMinTopUp] = useState(1);
+  const [enableIPayNowTopUp, setEnableIPayNowTopUp] = useState(false);
+  const [ipaynowOpen, setIpaynowOpen] = useState(false);
+  const [ipaynowOrder, setIpaynowOrder] = useState(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [open, setOpen] = useState(false);
@@ -154,6 +158,9 @@ const TopUp = () => {
   const requestAmountByPayment = async (payment, value) => {
     if (payment === 'stripe') {
       return getStripeAmount(value);
+    }
+    if (payment === 'ipaynow') {
+      return getIPayNowAmount(value);
     }
     if (payment === 'waffo_pancake') {
       return getWaffoPancakeAmount(value);
@@ -219,6 +226,11 @@ const TopUp = () => {
         showError(t('管理员未开启 Waffo Pancake 充值！'));
         return;
       }
+    } else if (payment === 'ipaynow') {
+      if (!enableIPayNowTopUp) {
+        showError(t('管理员未开启在线充值！'));
+        return;
+      }
     } else if (payment.startsWith('waffo:')) {
       if (!enableWaffoTopUp) {
         showError(t('管理员未开启 Waffo 充值！'));
@@ -266,6 +278,17 @@ const TopUp = () => {
       setConfirmLoading(true);
       try {
         await waffoTopUp(Number.isFinite(payMethodIndex) ? payMethodIndex : 0);
+      } finally {
+        setOpen(false);
+        setConfirmLoading(false);
+      }
+      return;
+    }
+
+    if (payWay === 'ipaynow') {
+      setConfirmLoading(true);
+      try {
+        await ipaynowTopUp();
       } finally {
         setOpen(false);
         setConfirmLoading(false);
@@ -495,6 +518,70 @@ const TopUp = () => {
     }
   };
 
+  const ipaynowTopUp = async () => {
+    const minTopUpValue = Number(topupInfo.ipaynow_min_topup || minTopUp || 1);
+    if (topUpCount < minTopUpValue) {
+      showError(t('充值数量不能小于') + minTopUpValue);
+      return;
+    }
+
+    setPaymentLoading(true);
+    try {
+      const res = await API.post('/api/user/ipaynow/pay', {
+        amount: parseInt(topUpCount),
+        payment_method: 'ipaynow',
+      });
+      if (res !== undefined) {
+        const { message, data } = res.data;
+        if (message === 'success' && data?.trade_no && data?.qr_url) {
+          setIpaynowOrder({
+            tradeNo: data.trade_no,
+            qrUrl: data.qr_url,
+            amount,
+          });
+          setIpaynowOpen(true);
+        } else {
+          const errorMsg =
+            typeof data === 'string' ? data : message || t('支付请求失败');
+          showError(errorMsg);
+        }
+      } else {
+        showError(res);
+      }
+    } catch (e) {
+      showError(t('支付请求失败'));
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
+  const getIPayNowAmount = async (value) => {
+    if (value === undefined) {
+      value = topUpCount;
+    }
+    setAmountLoading(true);
+    try {
+      const res = await API.post('/api/user/ipaynow/amount', {
+        amount: parseInt(value),
+      });
+      if (res !== undefined) {
+        const { message, data } = res.data;
+        if (message === 'success') {
+          setAmount(parseFloat(data));
+        } else {
+          setAmount(0);
+          Toast.error({ content: '错误：' + data, id: 'getAmount' });
+        }
+      } else {
+        showError(res);
+      }
+    } catch (err) {
+      // amount fetch failed silently
+    } finally {
+      setAmountLoading(false);
+    }
+  };
+
   const getWaffoPancakeAmount = async (value) => {
     if (value === undefined) {
       value = topUpCount;
@@ -660,15 +747,23 @@ const TopUp = () => {
           const enableWaffoTopUp = data.enable_waffo_topup || false;
           const enableWaffoPancakeTopUp =
             data.enable_waffo_pancake_topup || false;
-          const minTopUpValue = enableOnlineTopUp
-            ? data.min_topup
-            : enableStripeTopUp
-              ? data.stripe_min_topup
-              : enableWaffoTopUp
-                ? data.waffo_min_topup
-                : enableWaffoPancakeTopUp
-                  ? data.waffo_pancake_min_topup
-                  : 1;
+          const enableIPayNowTopUp = data.enable_ipaynow_topup || false;
+          const primaryPaymentMinTopUp = Number(payMethods[0]?.min_topup);
+          const minTopUpValue =
+            Number.isFinite(primaryPaymentMinTopUp) &&
+            primaryPaymentMinTopUp > 0
+              ? primaryPaymentMinTopUp
+              : enableOnlineTopUp
+                ? data.min_topup
+                : enableStripeTopUp
+                  ? data.stripe_min_topup
+                  : enableWaffoTopUp
+                    ? data.waffo_min_topup
+                    : enableWaffoPancakeTopUp
+                      ? data.waffo_pancake_min_topup
+                      : enableIPayNowTopUp
+                        ? data.ipaynow_min_topup
+                        : 1;
           setEnableOnlineTopUp(enableOnlineTopUp);
           setEnableStripeTopUp(enableStripeTopUp);
           setEnableCreemTopUp(enableCreemTopUp);
@@ -677,11 +772,14 @@ const TopUp = () => {
           setWaffoMinTopUp(data.waffo_min_topup || 1);
           setEnableWaffoPancakeTopUp(enableWaffoPancakeTopUp);
           setWaffoPancakeMinTopUp(data.waffo_pancake_min_topup || 1);
+          setEnableIPayNowTopUp(enableIPayNowTopUp);
           setMinTopUp(minTopUpValue);
           setTopUpCount(minTopUpValue);
           setTopUpLink(data.topup_link || '');
           setTopupInfo((prev) => ({
             ...prev,
+            enable_ipaynow_topup: enableIPayNowTopUp,
+            ipaynow_min_topup: data.ipaynow_min_topup || 1,
             enable_redemption: data.enable_redemption !== false,
             payment_compliance_confirmed:
               data.payment_compliance_confirmed !== false,
@@ -703,7 +801,7 @@ const TopUp = () => {
           }
 
           // 初始化显示实付金额
-          getAmount(minTopUpValue);
+          requestAmountByPayment(payMethods[0]?.type, minTopUpValue);
         } catch (e) {
           setPayMethods([]);
         }
@@ -941,6 +1039,21 @@ const TopUp = () => {
         t={t}
       />
 
+      <IPayNowQRModal
+        t={t}
+        visible={ipaynowOpen}
+        tradeNo={ipaynowOrder?.tradeNo}
+        qrUrl={ipaynowOrder?.qrUrl}
+        amount={ipaynowOrder?.amount}
+        onClose={() => {
+          setIpaynowOpen(false);
+          setIpaynowOrder(null);
+        }}
+        onPaid={() => {
+          getUserQuota().then();
+        }}
+      />
+
       {/* Creem 充值确认模态框 */}
       <Modal
         title={t('确定要充值 $')}
@@ -980,6 +1093,7 @@ const TopUp = () => {
           creemPreTopUp={creemPreTopUp}
           enableWaffoTopUp={enableWaffoTopUp}
           enableWaffoPancakeTopUp={enableWaffoPancakeTopUp}
+          enableIPayNowTopUp={enableIPayNowTopUp}
           presetAmounts={presetAmounts}
           selectedPreset={selectedPreset}
           selectPresetAmount={selectPresetAmount}
@@ -989,6 +1103,7 @@ const TopUp = () => {
           minTopUp={minTopUp}
           renderQuotaWithAmount={renderQuotaWithAmount}
           getAmount={getAmount}
+          requestAmountByPayment={requestAmountByPayment}
           setTopUpCount={setTopUpCount}
           setSelectedPreset={setSelectedPreset}
           renderAmount={renderAmount}

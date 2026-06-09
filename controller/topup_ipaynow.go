@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strconv"
 	"sync"
@@ -62,6 +63,41 @@ func RequestIPayNowPay(c *gin.Context) {
 		return
 	}
 	iPayNowAdaptor.RequestPay(c, &req)
+}
+
+func RequestIPayNowAmount(c *gin.Context) {
+	var req IPayNowPayRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
+		return
+	}
+	iPayNowAdaptor.RequestAmount(c, &req)
+}
+
+func (*IPayNowAdaptor) RequestAmount(c *gin.Context, req *IPayNowPayRequest) {
+	if req.Amount < getIPayNowMinTopup() {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", getIPayNowMinTopup())})
+		return
+	}
+
+	userId := c.GetInt("id")
+	group, err := model.GetUserGroup(userId, true)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
+		return
+	}
+
+	payMoney := getPayMoney(req.Amount, group)
+	if payMoney <= 0.01 {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
+		return
+	}
+
+	topupGroupRatio := common.GetTopupGroupRatio(group)
+	if topupGroupRatio == 0 {
+		topupGroupRatio = 1
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "success", "data": strconv.FormatFloat(payMoney, 'f', 2, 64), "group_ratio": topupGroupRatio})
 }
 
 func (*IPayNowAdaptor) RequestPay(c *gin.Context, req *IPayNowPayRequest) {

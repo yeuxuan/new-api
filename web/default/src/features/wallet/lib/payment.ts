@@ -133,6 +133,11 @@ export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
     return DEFAULT_MIN_TOPUP
   }
 
+  const primaryPaymentMinTopup = Number(topupInfo.pay_methods?.[0]?.min_topup)
+  if (Number.isFinite(primaryPaymentMinTopup) && primaryPaymentMinTopup > 0) {
+    return primaryPaymentMinTopup
+  }
+
   if (topupInfo.enable_online_topup) {
     return topupInfo.min_topup
   }
@@ -147,6 +152,10 @@ export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
 
   if (topupInfo.enable_waffo_pancake_topup) {
     return topupInfo.waffo_pancake_min_topup || DEFAULT_MIN_TOPUP
+  }
+
+  if (topupInfo.enable_ipaynow_topup) {
+    return topupInfo.ipaynow_min_topup || DEFAULT_MIN_TOPUP
   }
 
   return DEFAULT_MIN_TOPUP

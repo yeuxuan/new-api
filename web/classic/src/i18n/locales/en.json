@@ -3862,6 +3862,12 @@
     "绑定赠送额度": "Email bind bonus quota",
     "保存邮箱绑定设置": "Save email bind settings",
     "，": ", ",
-    "、": ", "
+    "、": ", ",
+    "1) 点击「打开授权页面」完成登录；2) 浏览器会跳转到 localhost（页面打不开也没关系）；3) 复制地址栏完整 URL 粘贴到下方；4) 点击「生成并填入」。": "1) Click \"Open Authorization Page\" to complete login; 2) The browser will redirect to localhost (it's OK if the page doesn't load); 3) Copy the full URL from the address bar and paste it below; 4) Click \"Generate and Fill\".",
+    "Codex 授权": "Codex Authorization",
+    "已打开授权页面": "Authorization page opened",
+    "已生成授权凭据": "Authorization credentials generated",
+    "打开授权页面": "Open Authorization Page",
+    "复制授权链接": "Copy Authorization Link"
   }
 }

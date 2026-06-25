@@ -2553,6 +2553,20 @@
     "Limited to selected models: {{models}}": "Giới hạn cho các mô hình đã chọn: {{models}}",
     "Loading...": "Đang tải...",
     "Never expires": "Không hết hạn",
-    "No active bonus quota grants": "Không có hạn mức thưởng đang hoạt động"
+    "No active bonus quota grants": "Không có hạn mức thưởng đang hoạt động",
+    "1) Click \"Open authorization page\" and complete login. 2) Your browser may redirect to localhost (it is OK if the page does not load). 3) Copy the full URL from the address bar and paste it below. 4) Click \"Generate credential\".": "1) Nhấp «Mở trang ủy quyền» và đăng nhập. 2) Trình duyệt có thể chuyển tới localhost (trang không tải cũng được). 3) Sao chép toàn bộ URL từ thanh địa chỉ và dán xuống. 4) Nhấp «Tạo thông tin xác thực».",
+    "Callback URL": "URL callback",
+    "Codex Authorization": "Ủy quyền Codex",
+    "Copy authorization link": "Sao chép liên kết ủy quyền",
+    "Credential generated": "Đã tạo thông tin xác thực",
+    "Generate a Codex OAuth credential and paste it into the channel key field.": "Tạo thông tin xác thực OAuth Codex và dán vào trường khóa kênh.",
+    "Generate credential": "Tạo thông tin xác thực",
+    "OAuth failed": "OAuth thất bại",
+    "OAuth start failed": "Bắt đầu OAuth thất bại",
+    "Open authorization page": "Mở trang ủy quyền",
+    "Opened authorization page": "Đã mở trang ủy quyền",
+    "Paste the full callback URL (includes code & state)": "Dán toàn bộ URL callback (gồm code và state)",
+    "Please manually copy and open the authorization link": "Vui lòng tự sao chép và mở liên kết ủy quyền",
+    "Tip: The generated key is a JSON credential including access_token / refresh_token / account_id.": "Mẹo: Khóa tạo ra là thông tin xác thực JSON gồm access_token / refresh_token / account_id."
   }
 }

@@ -44,6 +44,7 @@ import {
   Settings,
   SlidersHorizontal,
   Wand2,
+  Link2,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -150,6 +151,7 @@ import {
 import type { Channel } from '../../types'
 import { useChannels } from '../channels-provider'
 import { AdvancedCustomEditorDialog } from '../dialogs/advanced-custom-editor-dialog'
+import { CodexOAuthDialog } from '../dialogs/codex-oauth-dialog'
 import { FetchModelsDialog } from '../dialogs/fetch-models-dialog'
 import {
   MissingModelsConfirmationDialog,
@@ -290,6 +292,7 @@ export function ChannelMutateDrawer({
   const queryClient = useQueryClient()
   const { setOpen, setCurrentRow } = useChannels()
   const [fetchModelsDialogOpen, setFetchModelsDialogOpen] = useState(false)
+  const [codexOAuthDialogOpen, setCodexOAuthDialogOpen] = useState(false)
   const [channelKey, setChannelKey] = useState<string | null>(null)
   const [isChannelKeyLoading, setIsChannelKeyLoading] = useState(false)
   const [isCodexCredentialRefreshing, setIsCodexCredentialRefreshing] =
@@ -2097,6 +2100,15 @@ export function ChannelMutateDrawer({
                               )}
                             </div>
                             <div className='flex flex-wrap items-center gap-2'>
+                              <Button
+                                type='button'
+                                variant='outline'
+                                size='sm'
+                                onClick={() => setCodexOAuthDialogOpen(true)}
+                              >
+                                <Link2 className='mr-2 h-4 w-4' />
+                                {t('Authorize')}
+                              </Button>
                               {isEditing && channelId && (
                                 <Button
                                   type='button'
@@ -3591,6 +3603,17 @@ export function ChannelMutateDrawer({
         }}
         detailItems={statusCodeRiskDetailItems}
         onConfirm={() => handleStatusCodeRiskAction(true)}
+      />
+
+      <CodexOAuthDialog
+        open={codexOAuthDialogOpen}
+        onOpenChange={setCodexOAuthDialogOpen}
+        onKeyGenerated={(key) => {
+          form.setValue('key', key, {
+            shouldDirty: true,
+            shouldValidate: true,
+          })
+        }}
       />
     </>
   )

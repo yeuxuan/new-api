@@ -68,6 +68,7 @@ import ChannelKeyDisplay from '../../../common/ui/ChannelKeyDisplay';
 import { useSecureVerification } from '../../../../hooks/common/useSecureVerification';
 import { parseChannelConnectionString } from '../../../../helpers/token';
 import { createApiCalls } from '../../../../services/secureVerification';
+import CodexOAuthModal from './CodexOAuthModal';
 import {
   collectInvalidStatusCodeEntries,
   collectNewDisallowedStatusCodeRedirects,
@@ -382,6 +383,7 @@ const EditChannelModal = (props) => {
   const [ionetMetadata, setIonetMetadata] = useState(null);
   const [codexCredentialRefreshing, setCodexCredentialRefreshing] =
     useState(false);
+  const [codexOAuthVisible, setCodexOAuthVisible] = useState(false);
   const [paramOverrideEditorVisible, setParamOverrideEditorVisible] =
     useState(false);
 
@@ -2840,6 +2842,15 @@ const EditChannelModal = (props) => {
                                   </Text>
 
                                   <Space wrap spacing='tight'>
+                                    <Button
+                                      size='small'
+                                      type='primary'
+                                      theme='outline'
+                                      onClick={() => setCodexOAuthVisible(true)}
+                                      disabled={isIonetLocked}
+                                    >
+                                      {t('Codex 授权')}
+                                    </Button>
                                     {isEdit && (
                                       <Button
                                         size='small'
@@ -3918,6 +3929,18 @@ const EditChannelModal = (props) => {
             formApiRef.current.setValue('models', nextModels);
           }
           showSuccess(t('模型列表已追加更新'));
+        }}
+      />
+
+      <CodexOAuthModal
+        visible={codexOAuthVisible}
+        onCancel={() => setCodexOAuthVisible(false)}
+        onSuccess={(key) => {
+          handleInputChange('key', key);
+          if (formApiRef.current) {
+            formApiRef.current.setValue('key', key);
+          }
+          setCodexOAuthVisible(false);
         }}
       />
     </>

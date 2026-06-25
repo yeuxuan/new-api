@@ -2553,6 +2553,20 @@
     "Limited to selected models: {{models}}": "Limité aux modèles sélectionnés : {{models}}",
     "Loading...": "Chargement...",
     "Never expires": "N'expire jamais",
-    "No active bonus quota grants": "Aucun quota bonus actif"
+    "No active bonus quota grants": "Aucun quota bonus actif",
+    "1) Click \"Open authorization page\" and complete login. 2) Your browser may redirect to localhost (it is OK if the page does not load). 3) Copy the full URL from the address bar and paste it below. 4) Click \"Generate credential\".": "1) Cliquez sur « Ouvrir la page d'autorisation » et connectez-vous. 2) Votre navigateur peut rediriger vers localhost (la page peut ne pas s'afficher). 3) Copiez l'URL complète de la barre d'adresse et collez-la ci-dessous. 4) Cliquez sur « Générer l'identifiant ».",
+    "Callback URL": "URL de callback",
+    "Codex Authorization": "Autorisation Codex",
+    "Copy authorization link": "Copier le lien d'autorisation",
+    "Credential generated": "Identifiant généré",
+    "Generate a Codex OAuth credential and paste it into the channel key field.": "Générer un identifiant OAuth Codex et le coller dans le champ clé du canal.",
+    "Generate credential": "Générer l'identifiant",
+    "OAuth failed": "Échec de l'OAuth",
+    "OAuth start failed": "Échec du démarrage OAuth",
+    "Open authorization page": "Ouvrir la page d'autorisation",
+    "Opened authorization page": "Page d'autorisation ouverte",
+    "Paste the full callback URL (includes code & state)": "Coller l'URL de callback complète (inclut code et state)",
+    "Please manually copy and open the authorization link": "Veuillez copier et ouvrir manuellement le lien d'autorisation",
+    "Tip: The generated key is a JSON credential including access_token / refresh_token / account_id.": "Conseil : La clé générée est un identifiant JSON incluant access_token / refresh_token / account_id."
   }
 }

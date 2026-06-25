@@ -2553,6 +2553,20 @@
     "Limited to selected models: {{models}}": "選択したモデルに限定: {{models}}",
     "Loading...": "読み込み中...",
     "Never expires": "無期限",
-    "No active bonus quota grants": "有効なボーナスクォータはありません"
+    "No active bonus quota grants": "有効なボーナスクォータはありません",
+    "1) Click \"Open authorization page\" and complete login. 2) Your browser may redirect to localhost (it is OK if the page does not load). 3) Copy the full URL from the address bar and paste it below. 4) Click \"Generate credential\".": "1)「認証ページを開く」をクリックしてログイン。2) ブラウザが localhost にリダイレクトしても構いません。3) アドレスバーのURL全体をコピーして下に貼り付け。4)「認証情報を生成」をクリック。",
+    "Callback URL": "コールバックURL",
+    "Codex Authorization": "Codex認証",
+    "Copy authorization link": "認証リンクをコピー",
+    "Credential generated": "認証情報を生成しました",
+    "Generate a Codex OAuth credential and paste it into the channel key field.": "Codex OAuth認証情報を生成し、チャネルキー欄に貼り付けてください。",
+    "Generate credential": "認証情報を生成",
+    "OAuth failed": "OAuth に失敗しました",
+    "OAuth start failed": "OAuth開始に失敗しました",
+    "Open authorization page": "認証ページを開く",
+    "Opened authorization page": "認証ページを開きました",
+    "Paste the full callback URL (includes code & state)": "コールバックURL全体を貼り付け（code と state を含む）",
+    "Please manually copy and open the authorization link": "認証リンクを手動でコピーして開いてください",
+    "Tip: The generated key is a JSON credential including access_token / refresh_token / account_id.": "ヒント：生成されたキーは access_token / refresh_token / account_id を含むJSON認証情報です。"
   }
 }

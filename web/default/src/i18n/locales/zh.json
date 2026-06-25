@@ -2553,6 +2553,20 @@
     "Limited to selected models: {{models}}": "仅限模型：{{models}}",
     "Loading...": "加载中...",
     "Never expires": "永不过期",
-    "No active bonus quota grants": "暂无可用奖励额度"
+    "No active bonus quota grants": "暂无可用奖励额度",
+    "1) Click \"Open authorization page\" and complete login. 2) Your browser may redirect to localhost (it is OK if the page does not load). 3) Copy the full URL from the address bar and paste it below. 4) Click \"Generate credential\".": "1) 点击「打开授权页」并完成登录。2) 浏览器可能跳转到 localhost（页面打不开也正常）。3) 从地址栏复制完整 URL 粘贴到下方。4) 点击「生成凭据」。",
+    "Callback URL": "回调 URL",
+    "Codex Authorization": "Codex 授权",
+    "Copy authorization link": "复制授权链接",
+    "Credential generated": "凭据已生成",
+    "Generate a Codex OAuth credential and paste it into the channel key field.": "生成 Codex OAuth 凭据并粘贴到渠道密钥字段。",
+    "Generate credential": "生成凭据",
+    "OAuth failed": "OAuth 失败",
+    "OAuth start failed": "OAuth 启动失败",
+    "Open authorization page": "打开授权页",
+    "Opened authorization page": "已打开授权页",
+    "Paste the full callback URL (includes code & state)": "粘贴完整回调 URL（含 code 和 state）",
+    "Please manually copy and open the authorization link": "请手动复制并打开授权链接",
+    "Tip: The generated key is a JSON credential including access_token / refresh_token / account_id.": "提示：生成的密钥为包含 access_token / refresh_token / account_id 的 JSON 凭据。"
   }
 }

@@ -2553,6 +2553,20 @@
     "Limited to selected models: {{models}}": "Limited to models: {{models}}",
     "Loading...": "Loading...",
     "Never expires": "Never expires",
-    "No active bonus quota grants": "No active bonus quota grants"
+    "No active bonus quota grants": "No active bonus quota grants",
+    "1) Click \"Open authorization page\" and complete login. 2) Your browser may redirect to localhost (it is OK if the page does not load). 3) Copy the full URL from the address bar and paste it below. 4) Click \"Generate credential\".": "1) Click \"Open authorization page\" and complete login. 2) Your browser may redirect to localhost (it is OK if the page does not load). 3) Copy the full URL from the address bar and paste it below. 4) Click \"Generate credential\".",
+    "Callback URL": "Callback URL",
+    "Codex Authorization": "Codex Authorization",
+    "Copy authorization link": "Copy authorization link",
+    "Credential generated": "Credential generated",
+    "Generate a Codex OAuth credential and paste it into the channel key field.": "Generate a Codex OAuth credential and paste it into the channel key field.",
+    "Generate credential": "Generate credential",
+    "OAuth failed": "OAuth failed",
+    "OAuth start failed": "OAuth start failed",
+    "Open authorization page": "Open authorization page",
+    "Opened authorization page": "Opened authorization page",
+    "Paste the full callback URL (includes code & state)": "Paste the full callback URL (includes code & state)",
+    "Please manually copy and open the authorization link": "Please manually copy and open the authorization link",
+    "Tip: The generated key is a JSON credential including access_token / refresh_token / account_id.": "Tip: The generated key is a JSON credential including access_token / refresh_token / account_id."
   }
 }

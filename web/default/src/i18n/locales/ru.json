@@ -2553,6 +2553,20 @@
     "Limited to selected models: {{models}}": "Ограничено выбранными моделями: {{models}}",
     "Loading...": "Загрузка...",
     "Never expires": "Никогда не истекает",
-    "No active bonus quota grants": "Нет активной бонусной квоты"
+    "No active bonus quota grants": "Нет активной бонусной квоты",
+    "1) Click \"Open authorization page\" and complete login. 2) Your browser may redirect to localhost (it is OK if the page does not load). 3) Copy the full URL from the address bar and paste it below. 4) Click \"Generate credential\".": "1) Нажмите «Открыть страницу авторизации» и войдите. 2) Браузер может перенаправить на localhost — это нормально. 3) Скопируйте полный URL из адресной строки и вставьте ниже. 4) Нажмите «Создать учётные данные».",
+    "Callback URL": "URL обратного вызова",
+    "Codex Authorization": "Авторизация Codex",
+    "Copy authorization link": "Копировать ссылку авторизации",
+    "Credential generated": "Учётные данные созданы",
+    "Generate a Codex OAuth credential and paste it into the channel key field.": "Создайте учётные данные Codex OAuth и вставьте их в поле ключа канала.",
+    "Generate credential": "Создать учётные данные",
+    "OAuth failed": "OAuth не удался",
+    "OAuth start failed": "Ошибка запуска OAuth",
+    "Open authorization page": "Открыть страницу авторизации",
+    "Opened authorization page": "Страница авторизации открыта",
+    "Paste the full callback URL (includes code & state)": "Вставьте полный callback URL (включая code и state)",
+    "Please manually copy and open the authorization link": "Скопируйте и откройте ссылку авторизации вручную",
+    "Tip: The generated key is a JSON credential including access_token / refresh_token / account_id.": "Подсказка: сгенерированный ключ — это учётные данные JSON с access_token / refresh_token / account_id."
   }
 }

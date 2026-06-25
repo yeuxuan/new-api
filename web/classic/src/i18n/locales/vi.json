@@ -4250,6 +4250,12 @@
     "绑定赠送额度": "Hạn mức thưởng khi liên kết email",
     "保存邮箱绑定设置": "Lưu cài đặt liên kết email",
     "，": ", ",
-    "、": ", "
+    "、": ", ",
+    "1) 点击「打开授权页面」完成登录；2) 浏览器会跳转到 localhost（页面打不开也没关系）；3) 复制地址栏完整 URL 粘贴到下方；4) 点击「生成并填入」。": "1) Nhấn \"Mở trang xác thực\" để đăng nhập; 2) Trình duyệt sẽ chuyển hướng đến localhost (không sao nếu trang không mở được); 3) Sao chép URL đầy đủ từ thanh địa chỉ và dán vào bên dưới; 4) Nhấn \"Tạo và điền\".",
+    "Codex 授权": "Xác thực Codex",
+    "已打开授权页面": "Đã mở trang xác thực",
+    "已生成授权凭据": "Đã tạo thông tin xác thực",
+    "打开授权页面": "Mở trang xác thực",
+    "复制授权链接": "Sao chép liên kết xác thực"
   }
 }

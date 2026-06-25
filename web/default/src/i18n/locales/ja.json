@@ -2544,6 +2544,15 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Available bonus quota: {{amount}}": "利用可能なボーナスクォータ：{{amount}}",
+    "Check in or bind your email to earn limited-time bonus quota. Expiring grants appear here.": "チェックインまたはメール連携で期限付きボーナスを獲得できます。明細は下に表示されます。",
+    "Check-in reward": "チェックイン報酬",
+    "Limited-time bonus quota": "期限付きボーナスクォータ",
+    "Limited to selected models": "選択したモデルに限定",
+    "Limited to selected models: {{models}}": "選択したモデルに限定: {{models}}",
+    "Loading...": "読み込み中...",
+    "Never expires": "無期限",
+    "No active bonus quota grants": "有効なボーナスクォータはありません"
   }
 }

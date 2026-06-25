@@ -2544,6 +2544,15 @@
     "Zero retention": "Без хранения данных",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Available bonus quota: {{amount}}": "Доступная бонусная квота: {{amount}}",
+    "Check in or bind your email to earn limited-time bonus quota. Expiring grants appear here.": "Получайте бонус через чек-ин или привязку email. Срок действия — в таблице ниже.",
+    "Check-in reward": "Награда за регистрацию",
+    "Limited-time bonus quota": "Бонусная квота с ограниченным сроком",
+    "Limited to selected models": "Ограничено выбранными моделями",
+    "Limited to selected models: {{models}}": "Ограничено выбранными моделями: {{models}}",
+    "Loading...": "Загрузка...",
+    "Never expires": "Никогда не истекает",
+    "No active bonus quota grants": "Нет активной бонусной квоты"
   }
 }

@@ -2544,6 +2544,15 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Available bonus quota: {{amount}}": "Hạn mức thưởng khả dụng: {{amount}}",
+    "Check in or bind your email to earn limited-time bonus quota. Expiring grants appear here.": "Điểm danh hoặc liên kết email để nhận hạn mức thưởng có thời hạn. Chi tiết hiển thị bên dưới.",
+    "Check-in reward": "Phần thưởng điểm danh",
+    "Limited-time bonus quota": "Hạn mức thưởng có thời hạn",
+    "Limited to selected models": "Giới hạn cho các mô hình đã chọn",
+    "Limited to selected models: {{models}}": "Giới hạn cho các mô hình đã chọn: {{models}}",
+    "Loading...": "Đang tải...",
+    "Never expires": "Không hết hạn",
+    "No active bonus quota grants": "Không có hạn mức thưởng đang hoạt động"
   }
 }

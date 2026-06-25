@@ -2544,6 +2544,15 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "Available bonus quota: {{amount}}": "可用奖励额度：{{amount}}",
+    "Check in or bind your email to earn limited-time bonus quota. Expiring grants appear here.": "可通过签到或绑定邮箱获得限时奖励额度，过期时间会显示在下方明细中。",
+    "Check-in reward": "签到奖励",
+    "Limited-time bonus quota": "限时奖励额度",
+    "Limited to selected models": "仅限部分模型",
+    "Limited to selected models: {{models}}": "仅限模型：{{models}}",
+    "Loading...": "加载中...",
+    "Never expires": "永不过期",
+    "No active bonus quota grants": "暂无可用奖励额度"
   }
 }

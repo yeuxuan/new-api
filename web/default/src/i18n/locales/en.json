@@ -2544,6 +2544,15 @@
     "Zero retention": "Zero retention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Available bonus quota: {{amount}}": "Available bonus quota: {{amount}}",
+    "Check in or bind your email to earn limited-time bonus quota. Expiring grants appear here.": "Check in or bind your email to earn limited-time bonus quota. Expiring grants appear here.",
+    "Check-in reward": "Check-in reward",
+    "Limited-time bonus quota": "Limited-time bonus quota",
+    "Limited to selected models": "Limited to selected models",
+    "Limited to selected models: {{models}}": "Limited to models: {{models}}",
+    "Loading...": "Loading...",
+    "Never expires": "Never expires",
+    "No active bonus quota grants": "No active bonus quota grants"
   }
 }

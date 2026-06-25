@@ -10,6 +10,7 @@ import (
 
 func setupWalletFundingTestDB(t *testing.T) {
 	t.Helper()
+	originalDB := model.DB
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
@@ -18,6 +19,12 @@ func setupWalletFundingTestDB(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 	model.DB = db
+	t.Cleanup(func() {
+		model.DB = originalDB
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
 	db.Create(&model.User{Id: 1, Quota: 5000})
 }
 

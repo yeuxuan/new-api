@@ -319,6 +319,57 @@ func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) 
 	return "openai"
 }
 
+func marshalConversationLogMessages(relayInfo *relaycommon.RelayInfo) ([]byte, bool) {
+	if relayInfo == nil || relayInfo.Request == nil {
+		return nil, false
+	}
+
+	var messages any
+	switch req := relayInfo.Request.(type) {
+	case *dto.GeneralOpenAIRequest:
+		if len(req.Messages) == 0 {
+			return nil, false
+		}
+		messages = req.Messages
+	case *dto.GeminiChatRequest:
+		if len(req.Contents) == 0 {
+			return nil, false
+		}
+		messages = req.Contents
+	case *dto.ClaudeRequest:
+		if len(req.Messages) == 0 {
+			return nil, false
+		}
+		messages = req.Messages
+	case *dto.OpenAIResponsesRequest:
+		if len(req.Input) == 0 {
+			return nil, false
+		}
+		messages = map[string]any{
+			"input":                req.Input,
+			"instructions":         req.Instructions,
+			"previous_response_id": req.PreviousResponseID,
+		}
+	case *dto.OpenAIResponsesCompactionRequest:
+		if len(req.Input) == 0 {
+			return nil, false
+		}
+		messages = map[string]any{
+			"input":                req.Input,
+			"instructions":         req.Instructions,
+			"previous_response_id": req.PreviousResponseID,
+		}
+	default:
+		return nil, false
+	}
+
+	messagesJSON, err := common.Marshal(messages)
+	if err != nil {
+		return nil, false
+	}
+	return messagesJSON, true
+}
+
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) {
 	originUsage := usage
 	if usage == nil {
@@ -474,25 +525,23 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		Other:            other,
 	})
 
-	// 对话日志：仅记录 Claude 格式请求的会话内容（自研功能，上游重构后统一归集到此唯一计费入口）
+	// 对话日志：统一在计费入口记录，避免各 relay handler 分散写库后漏掉重构链路。
 	if common.ConversationLogEnabled {
-		if claudeReq, ok := relayInfo.Request.(*dto.ClaudeRequest); ok {
+		if messagesJSON, ok := marshalConversationLogMessages(relayInfo); ok {
 			responseContent := common.GetContextKeyString(ctx, constant.ContextKeyResponseContent)
-			if messagesJson, err := common.Marshal(claudeReq.Messages); err == nil {
-				model.EnqueueConversationLog(&model.ConversationLog{
-					RequestId: relayInfo.RequestId,
-					UserId:    relayInfo.UserId,
-					Username:  ctx.GetString("username"),
-					TokenId:   relayInfo.TokenId,
-					TokenName: summary.TokenName,
-					ModelName: summary.ModelName,
-					ChannelId: relayInfo.ChannelId,
-					CreatedAt: common.GetTimestamp(),
-					Messages:  string(messagesJson),
-					Response:  responseContent,
-					Ip:        ctx.ClientIP(),
-				})
-			}
+			model.EnqueueConversationLog(&model.ConversationLog{
+				RequestId: relayInfo.RequestId,
+				UserId:    relayInfo.UserId,
+				Username:  ctx.GetString("username"),
+				TokenId:   relayInfo.TokenId,
+				TokenName: summary.TokenName,
+				ModelName: summary.ModelName,
+				ChannelId: relayInfo.ChannelId,
+				CreatedAt: common.GetTimestamp(),
+				Messages:  string(messagesJSON),
+				Response:  responseContent,
+				Ip:        ctx.ClientIP(),
+			})
 		}
 	}
 

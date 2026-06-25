@@ -11,6 +11,7 @@ import (
 
 func setupBonusQuotaTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	originalDB := DB
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
@@ -19,6 +20,12 @@ func setupBonusQuotaTestDB(t *testing.T) *gorm.DB {
 		t.Fatalf("migrate: %v", err)
 	}
 	DB = db
+	t.Cleanup(func() {
+		DB = originalDB
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
 	return db
 }
 

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -14,6 +15,87 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMarshalConversationLogMessagesSupportsChatRequestFormats(t *testing.T) {
+	tests := []struct {
+		name       string
+		request    dto.Request
+		wantFields []string
+	}{
+		{
+			name: "openai chat",
+			request: &dto.GeneralOpenAIRequest{
+				Messages: []dto.Message{
+					{Role: "user", Content: "hello"},
+				},
+			},
+			wantFields: []string{`"role":"user"`, `"content":"hello"`},
+		},
+		{
+			name: "gemini native",
+			request: &dto.GeminiChatRequest{
+				Contents: []dto.GeminiChatContent{
+					{
+						Role: "user",
+						Parts: []dto.GeminiPart{
+							{Text: "hello"},
+						},
+					},
+				},
+			},
+			wantFields: []string{`"role":"user"`, `"text":"hello"`},
+		},
+		{
+			name: "claude native",
+			request: &dto.ClaudeRequest{
+				Messages: []dto.ClaudeMessage{
+					{Role: "user", Content: "hello"},
+				},
+			},
+			wantFields: []string{`"role":"user"`, `"content":"hello"`},
+		},
+		{
+			name: "openai responses",
+			request: &dto.OpenAIResponsesRequest{
+				Input:              json.RawMessage(`"hello"`),
+				Instructions:       json.RawMessage(`"be concise"`),
+				PreviousResponseID: "resp_123",
+			},
+			wantFields: []string{`"input":"hello"`, `"instructions":"be concise"`, `"previous_response_id":"resp_123"`},
+		},
+		{
+			name: "openai responses compact",
+			request: &dto.OpenAIResponsesCompactionRequest{
+				Input:              json.RawMessage(`"summarize this conversation"`),
+				Instructions:       json.RawMessage(`"compact"`),
+				PreviousResponseID: "resp_456",
+			},
+			wantFields: []string{`"input":"summarize this conversation"`, `"instructions":"compact"`, `"previous_response_id":"resp_456"`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			messagesJSON, ok := marshalConversationLogMessages(&relaycommon.RelayInfo{Request: tt.request})
+
+			require.True(t, ok)
+			for _, field := range tt.wantFields {
+				require.Contains(t, string(messagesJSON), field)
+			}
+		})
+	}
+}
+
+func TestMarshalConversationLogMessagesSkipsNonChatRequest(t *testing.T) {
+	messagesJSON, ok := marshalConversationLogMessages(&relaycommon.RelayInfo{
+		Request: &dto.GeneralOpenAIRequest{
+			Input: "embed me",
+		},
+	})
+
+	require.False(t, ok)
+	require.Nil(t, messagesJSON)
+}
 
 func TestCalculateTextQuotaSummaryUnifiedForClaudeSemantic(t *testing.T) {
 	gin.SetMode(gin.TestMode)

@@ -19,6 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 import { useMutation } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import {
+  ADMIN_PERMISSION_ACTIONS,
+  ADMIN_PERMISSION_RESOURCES,
+  hasPermission,
+} from '@/lib/admin-permissions'
+import { useAuthStore } from '@/stores/auth-store'
 import { createChannel, updateChannel } from '../api'
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
@@ -39,6 +45,18 @@ type ChannelMutationResult = {
   messageKey: string
   updatedChannel?: Channel
 }
+
+const SENSITIVE_UPDATE_FIELDS = [
+  'type',
+  'key',
+  'base_url',
+  'openai_organization',
+  'param_override',
+  'header_override',
+  'setting',
+  'settings',
+  'other',
+] satisfies (keyof Channel)[]
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -67,6 +85,12 @@ function getErrorMessage(error: unknown): string | undefined {
 
 export function useChannelMutateForm(props: UseChannelMutateFormParams) {
   const { t } = useTranslation()
+  const currentUser = useAuthStore((s) => s.auth.user)
+  const canEditSensitive = hasPermission(
+    currentUser,
+    ADMIN_PERMISSION_RESOURCES.CHANNEL,
+    ADMIN_PERMISSION_ACTIONS.SENSITIVE_WRITE
+  )
 
   return useMutation({
     mutationFn: async (
@@ -77,8 +101,19 @@ export function useChannelMutateForm(props: UseChannelMutateFormParams) {
           data,
           props.currentRow.id
         )
+        if (!data.key?.trim()) {
+          delete payload.key
+        }
+        if (!canEditSensitive) {
+          for (const field of SENSITIVE_UPDATE_FIELDS) {
+            delete payload[field]
+          }
+        }
         const payloadWithKeyMode =
-          props.isMultiKeyChannel && data.key_mode
+          canEditSensitive &&
+          props.isMultiKeyChannel &&
+          data.key?.trim() &&
+          data.key_mode
             ? {
                 ...payload,
                 key_mode: data.key_mode,

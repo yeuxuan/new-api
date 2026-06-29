@@ -49,6 +49,9 @@ function parseJsonRows(json: string): EditorRow[] | null {
       return []
     }
     const parsed = JSON.parse(json)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return []
+    }
     return Object.entries(parsed).map(([key, val], index) => ({
       id: `${key}-${index}`,
       key,
@@ -234,7 +237,7 @@ export function JsonEditor({
               <div className='grid grid-cols-[1fr_1fr_auto] gap-2 text-sm font-medium'>
                 <div>{resolvedKeyLabel}</div>
                 <div>{resolvedValueLabel}</div>
-                <div className='w-10'></div>
+                <div className='w-10' />
               </div>
               {rows.map((row) => (
                 <div

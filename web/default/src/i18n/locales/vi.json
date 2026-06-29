@@ -435,6 +435,7 @@
     "Authorization Endpoint": "Điểm cuối ủy quyền",
     "Authorization Endpoint (Optional)": "Điểm cuối ủy quyền (Tùy chọn)",
     "Authorize": "Ủy quyền",
+    "Bind to receive {{amount}} bonus quota": "Liên kết để nhận {{amount}} hạn mức thưởng",
     "Auto": "Tự động",
     "Auto (Circuit Breaker)": "Tự động (Bộ ngắt mạch)",
     "Auto assignment order": "Thứ tự gán tự động",

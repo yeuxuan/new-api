@@ -435,6 +435,7 @@
     "Authorization Endpoint": "認可エンドポイント",
     "Authorization Endpoint (Optional)": "認証エンドポイント (オプション)",
     "Authorize": "認証",
+    "Bind to receive {{amount}} bonus quota": "{{amount}} のボーナスクォータを受け取るにはメールを連携",
     "Auto": "自動",
     "Auto (Circuit Breaker)": "自動（サーキットブレーカー）",
     "Auto assignment order": "自動割り当て順序",

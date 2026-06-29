@@ -435,6 +435,7 @@
     "Authorization Endpoint": "授权端点",
     "Authorization Endpoint (Optional)": "授权端点（可选）",
     "Authorize": "授权",
+    "Bind to receive {{amount}} bonus quota": "绑定可获得 {{amount}} 奖励额度",
     "Auto": "自动",
     "Auto (Circuit Breaker)": "自动分组（熔断）",
     "Auto assignment order": "自动分配顺序",

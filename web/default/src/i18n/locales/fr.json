@@ -435,6 +435,7 @@
     "Authorization Endpoint": "Point de terminaison d'autorisation",
     "Authorization Endpoint (Optional)": "Point de terminaison d'autorisation (Facultatif)",
     "Authorize": "Autoriser",
+    "Bind to receive {{amount}} bonus quota": "Liez votre e-mail pour recevoir {{amount}} de quota bonus",
     "Auto": "Auto",
     "Auto (Circuit Breaker)": "Auto (Disjoncteur)",
     "Auto assignment order": "Ordre d'affectation automatique",

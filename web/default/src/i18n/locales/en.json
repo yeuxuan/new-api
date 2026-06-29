@@ -435,6 +435,7 @@
     "Authorization Endpoint": "Authorization Endpoint",
     "Authorization Endpoint (Optional)": "Authorization Endpoint (Optional)",
     "Authorize": "Authorize",
+    "Bind to receive {{amount}} bonus quota": "Bind to receive {{amount}} bonus quota",
     "Auto": "Auto",
     "Auto (Circuit Breaker)": "Auto (Circuit Breaker)",
     "Auto assignment order": "Auto assignment order",

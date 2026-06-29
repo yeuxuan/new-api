@@ -435,6 +435,7 @@
     "Authorization Endpoint": "Конечная точка авторизации",
     "Authorization Endpoint (Optional)": "Конечная точка авторизации (необязательно)",
     "Authorize": "Авторизовать",
+    "Bind to receive {{amount}} bonus quota": "Привяжите email, чтобы получить бонусную квоту {{amount}}",
     "Auto": "Авто",
     "Auto (Circuit Breaker)": "Авто (Автовыключатель)",
     "Auto assignment order": "Порядок автоматического назначения",

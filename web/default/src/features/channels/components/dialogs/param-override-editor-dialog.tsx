@@ -24,6 +24,7 @@ import {
   useMemo,
   useState,
 } from 'react'
+import type { TFunction } from 'i18next'
 import {
   ChevronDown,
   ChevronUp,
@@ -536,10 +537,11 @@ const isOperationBlank = (operation: ParamOverrideOperation): boolean => {
 
 const getOperationSummary = (
   operation: ParamOverrideOperation,
-  index: number
+  index: number,
+  t: TFunction
 ): string => {
   const mode = operation.mode || 'set'
-  const modeLabel = OPERATION_MODE_LABEL_MAP[mode] || mode
+  const modeLabel = t(OPERATION_MODE_LABEL_MAP[mode] || mode)
   if (mode === 'sync_fields') {
     const from = operation.from.trim()
     const to = operation.to.trim()
@@ -1942,7 +1944,7 @@ export function ParamOverrideEditorDialog(
                                   </Badge>
                                 </div>
                                 <p className='text-muted-foreground mt-0.5 line-clamp-1 text-[11px]'>
-                                  {getOperationSummary(operation, index)}
+                                  {getOperationSummary(operation, index, t)}
                                 </p>
                                 {operation.description.trim() && (
                                   <p className='text-muted-foreground mt-0.5 line-clamp-2 text-[10px]'>
@@ -2122,7 +2124,7 @@ function RuleEditor(ruleEditorProps: RuleEditorProps) {
               #{ruleEditorProps.operationIndex + 1}
             </Badge>
             <span className='text-muted-foreground line-clamp-1 text-xs'>
-              {getOperationSummary(operation, ruleEditorProps.operationIndex)}
+              {getOperationSummary(operation, ruleEditorProps.operationIndex, t)}
             </span>
           </div>
           <div className='flex items-center gap-1'>

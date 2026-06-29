@@ -64,6 +64,7 @@ export function ComboboxInput({
     [options, value]
   )
   const displayValue = open ? searchValue : (selectedOption?.label ?? value)
+  const translatedPlaceholder = t(placeholder)
 
   const filteredOptions = React.useMemo(() => {
     if (!searchValue.trim()) return options
@@ -168,7 +169,7 @@ export function ComboboxInput({
         aria-haspopup='listbox'
         aria-autocomplete='list'
         autoComplete='off'
-        placeholder={placeholder}
+        placeholder={translatedPlaceholder}
         value={displayValue}
         onChange={(e) => {
           const nextValue = e.target.value

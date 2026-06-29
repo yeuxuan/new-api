@@ -1,4 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -133,9 +134,11 @@ export function StatusBadge({
   onClick,
   ...props
 }: StatusBadgeProps) {
+  const { t } = useTranslation()
   const { copyToClipboard } = useCopyToClipboard()
   const contextType = React.useContext(StatusBadgeTypeContext)
   const type = typeProp ?? contextType
+  const translatedLabel = label ? t(label) : ''
 
   const computedVariant: StatusVariant = autoColor
     ? (stringToColor(autoColor) as StatusVariant)
@@ -152,13 +155,17 @@ export function StatusBadge({
   const content =
     children ??
     (label ? (
-      <span className='min-w-0 truncate leading-normal'>{label}</span>
+      <span className='min-w-0 truncate leading-normal'>
+        {translatedLabel}
+      </span>
     ) : null)
 
   const isBadge = type === 'badge'
   const title = copyable
-    ? `Click to copy: ${copyText || label || ''}`
-    : label || undefined
+    ? t('Click to copy: {{value}}', {
+        value: copyText || translatedLabel || '',
+      })
+    : translatedLabel || undefined
 
   return (
     <span

@@ -19,8 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 import { Activity, BarChart3, Gift, WalletCards } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useStatus } from '@/hooks/use-status'
-import { formatQuota } from '@/lib/format'
 import { Skeleton } from '@/components/ui/skeleton'
+import { formatQuota } from '@/lib/format'
+
 import type { UserWalletData } from '../types'
 
 interface WalletStatsCardProps {

@@ -16,13 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useAuthStore } from '@/stores/auth-store'
-import { useStatus } from '@/hooks/use-status'
 import { Main } from '@/components/layout'
 import {
   CardStaggerContainer,
   CardStaggerItem,
 } from '@/components/page-transition'
+import { useStatus } from '@/hooks/use-status'
+import { useAuthStore } from '@/stores/auth-store'
+
 import { CheckinCalendarCard } from './components/checkin-calendar-card'
 import { BonusQuotaGrantsCard } from './components/bonus-quota-grants-card'
 import { LanguagePreferencesCard } from './components/language-preferences-card'

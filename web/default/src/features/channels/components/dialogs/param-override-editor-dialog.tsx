@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { TFunction } from 'i18next'
 import {
   type DragEvent,
   type KeyboardEvent,
@@ -24,7 +25,6 @@ import {
   useMemo,
   useState,
 } from 'react'
-import type { TFunction } from 'i18next'
 import {
   ChevronDown,
   ChevronUp,
@@ -36,7 +36,8 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { cn } from '@/lib/utils'
+
+import { Dialog } from '@/components/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -56,7 +57,7 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { Dialog } from '@/components/dialog'
+import { cn } from '@/lib/utils'
 
 // ---------------------------------------------------------------------------
 // Types

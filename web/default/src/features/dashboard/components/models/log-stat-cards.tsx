@@ -31,6 +31,7 @@ import type {
   QuotaDataItem,
   DashboardFilters,
 } from '@/features/dashboard/types'
+import { toIntlLocale } from '@/i18n/languages'
 import { formatCompactNumber, formatNumber, formatQuota } from '@/lib/format'
 import { computeTimeRange } from '@/lib/time'
 import { cn } from '@/lib/utils'
@@ -121,7 +122,7 @@ export function LogStatCards(props: LogStatCardsProps) {
 
   const items = statCardsConfig.map((config) => {
     const rawValue = config.getValue(adaptedStats, timeRangeMinutes)
-    const locale = i18n.resolvedLanguage || i18n.language
+    const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
     const formatted =
       config.key === 'quota'
         ? {
@@ -168,7 +169,7 @@ export function LogStatCards(props: LogStatCardsProps) {
                 </div>
               ) : error ? (
                 <>
-                  <div className='text-muted-foreground mt-1.5 font-mono text-lg font-bold tracking-tight tabular-nums sm:mt-2 sm:text-2xl'>
+                  <div className='text-muted-foreground mt-1.5 text-lg font-bold tracking-tight tabular-nums sm:mt-2 sm:text-2xl'>
                     --
                   </div>
                   <div className='text-muted-foreground/40 mt-1 hidden text-xs md:block'>
@@ -178,7 +179,7 @@ export function LogStatCards(props: LogStatCardsProps) {
               ) : (
                 <>
                   <div
-                    className='text-foreground mt-1.5 max-w-full truncate font-mono text-lg font-bold tracking-tight tabular-nums sm:mt-2 sm:text-2xl'
+                    className='text-foreground mt-1.5 max-w-full truncate text-lg font-bold tracking-tight tabular-nums sm:mt-2 sm:text-2xl'
                     title={it.fullValue}
                   >
                     {it.value}

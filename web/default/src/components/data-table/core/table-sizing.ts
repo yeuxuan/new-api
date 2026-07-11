@@ -26,12 +26,15 @@ export function getTableSizeStyle<TData>(
 ): React.CSSProperties {
   const width = table
     .getVisibleLeafColumns()
-    .filter((column) => !isContentSizedColumn(column.id))
+    .filter(
+      (column) =>
+        !isContentSizedColumn(column.id, column.columnDef.meta?.contentSized)
+    )
     .reduce((total, column) => total + column.getSize(), 0)
 
   return {
     minWidth: `max(100%, ${width}px)`,
     tableLayout: 'auto',
-    width: 'max-content',
+    width: '100%',
   }
 }

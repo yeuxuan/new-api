@@ -21,7 +21,6 @@ import { memo, useCallback, useMemo, useState, type ReactNode } from 'react'
 import type { UseFormReturn } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
-import { Button } from '@/components/design-system/button'
 import {
   sideDrawerContentClassName,
   sideDrawerFormClassName,
@@ -33,6 +32,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion'
+import { Button } from '@/components/ui/button'
 import {
   Form,
   FormControl,
@@ -129,11 +129,11 @@ export const GroupRatioForm = memo(function GroupRatioForm({
   return (
     <div className='space-y-6'>
       <div className='flex flex-wrap justify-end gap-2'>
-        <Button variant='outline' onClick={() => setGuideOpen(true)}>
+        <Button variant='outline' size='sm' onClick={() => setGuideOpen(true)}>
           <HelpCircle className='mr-2 h-4 w-4' />
           {t('Usage guide')}
         </Button>
-        <Button variant='outline' onClick={toggleEditMode}>
+        <Button variant='outline' size='sm' onClick={toggleEditMode}>
           {editMode === 'visual' ? (
             <>
               <Code2 className='mr-2 h-4 w-4' />
@@ -154,6 +154,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
         <SettingsPageActionsPortal>
           <Button
             type='button'
+            size='sm'
             onClick={form.handleSubmit(onSave)}
             disabled={isSaving}
           >

@@ -22,7 +22,7 @@ import { Music } from 'lucide-react'
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { CopyableStatusBadge, StatusBadge } from '@/components/status-badge'
+import { StatusBadge } from '@/components/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatTimestampToDate } from '@/lib/format'
@@ -102,25 +102,20 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
 
         return (
           <div className='flex min-w-0 flex-col gap-0.5'>
-            <span className='text-xs tabular-nums'>
+            <span className='truncate font-mono text-xs tabular-nums'>
               {formatTimestampToDate(submitTime, 'seconds')}
             </span>
             {log.finish_time ? (
-              <span className='text-muted-foreground/60 text-xs tabular-nums'>
+              <span className='text-muted-foreground/60 truncate font-mono text-[11px] tabular-nums'>
                 {formatTimestampToDate(log.finish_time, 'seconds')}
               </span>
             ) : (
-              <span className='text-muted-foreground/50 text-xs'>-</span>
+              <span className='text-muted-foreground/50 text-[11px]'>-</span>
             )}
           </div>
         )
       },
       size: 180,
-      meta: {
-        cardRole: 'primary',
-        cardOrder: 10,
-        contentMode: 'full',
-      },
     },
   ]
 
@@ -148,7 +143,7 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
             <Avatar className='ring-border/60 size-6 ring-1 max-sm:hidden'>
               <AvatarFallback
                 className={cn(
-                  'text-xs font-semibold',
+                  'text-[11px] font-semibold',
                   !sensitiveVisible && 'bg-muted text-muted-foreground'
                 )}
                 style={
@@ -158,16 +153,11 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
                 {sensitiveVisible ? getUserAvatarFallback(displayName) : '•'}
               </AvatarFallback>
             </Avatar>
-            <span className='text-muted-foreground text-sm [overflow-wrap:anywhere] break-words hover:underline'>
+            <span className='text-muted-foreground truncate text-sm hover:underline'>
               {sensitiveVisible ? displayName : '••••'}
             </span>
           </button>
         )
-      },
-      meta: {
-        cardRole: 'primary',
-        cardOrder: 30,
-        contentMode: 'wrap',
       },
     })
   }
@@ -184,25 +174,20 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
         }
         return (
           <div className='flex max-w-[170px] flex-col gap-0.5'>
-            <CopyableStatusBadge
-              value={taskId}
+            <StatusBadge
+              label={taskId}
+              copyText={taskId}
               variant='neutral'
               size='sm'
-              className='h-auto max-w-full overflow-visible font-mono [overflow-wrap:anywhere] whitespace-normal [&_[data-slot=status-badge-label]]:overflow-visible [&_[data-slot=status-badge-label]]:text-clip [&_[data-slot=status-badge-label]]:whitespace-normal'
-            >
-              {taskId}
-            </CopyableStatusBadge>
-            <span className='text-muted-foreground/60 text-xs [overflow-wrap:anywhere] break-words'>
+              className='border-border/60 bg-muted/30 !text-foreground max-w-full truncate rounded-md border px-1.5 py-0.5 font-mono'
+            />
+            <span className='text-muted-foreground/60 truncate text-[11px]'>
               {t(log.platform)} · {t(taskActionMapper.getLabel(log.action))}
             </span>
           </div>
         )
       },
-      meta: {
-        cardRole: 'title',
-        cardSpan: 2,
-        contentMode: 'full',
-      },
+      meta: { mobileTitle: true },
     },
     createDurationColumn<TaskLog>({
       submitTimeKey: 'submit_time',
@@ -217,14 +202,14 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
       cell: ({ row }) => {
         const status = row.getValue('status') as string
         return (
-          <StatusBadge variant={taskStatusMapper.getVariant(status)} size='sm'>
-            {t(taskStatusMapper.getLabel(status, status || 'Submitting'))}
-          </StatusBadge>
+          <StatusBadge
+            label={t(taskStatusMapper.getLabel(status, status || 'Submitting'))}
+            variant={taskStatusMapper.getVariant(status)}
+            size='sm'
+            copyable={false}
+            className='-ml-1.5'
+          />
         )
-      },
-      meta: {
-        cardRole: 'badge',
-        contentMode: 'full',
       },
     },
     createProgressColumn<TaskLog>({ headerLabel: t('Progress') }),
@@ -288,7 +273,7 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
               onClick={() => setDialogOpen(true)}
               title={t('Click to view full error message')}
             >
-              <span className='text-destructive truncate leading-snug group-hover:underline'>
+              <span className='truncate leading-snug text-red-600 group-hover:underline dark:text-red-400'>
                 {failReason}
               </span>
             </button>
@@ -302,12 +287,6 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
       },
       size: 200,
       maxSize: 220,
-      meta: {
-        cardRole: 'secondary',
-        cardOrder: 20,
-        cardSpan: 2,
-        contentMode: 'summary',
-      },
     }
   )
 

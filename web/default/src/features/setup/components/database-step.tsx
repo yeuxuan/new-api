@@ -98,12 +98,12 @@ export function DatabaseStep({ status }: DatabaseStepProps) {
           </p>
         </div>
         <StatusBadge
+          label={meta?.label ?? t('Unknown')}
           variant={meta?.variant ?? 'info'}
           className='cursor-default'
-        >
-          <Database data-icon='inline-start' />
-          {meta?.label ?? t('Unknown')}
-        </StatusBadge>
+          copyable={false}
+          icon={Database}
+        />
       </div>
 
       {status?.database_type === 'sqlite' && (

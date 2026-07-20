@@ -16,12 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { api } from '@/lib/api'
-import { formatQuota } from '@/lib/format'
+
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -34,7 +33,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Table,
   TableBody,
@@ -43,6 +41,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Textarea } from '@/components/ui/textarea'
+import { api } from '@/lib/api'
+import { formatQuota } from '@/lib/format'
 
 interface PreviewItem {
   user_id: number
@@ -288,7 +289,9 @@ export function ClearCheckinQuotaDialog({
                         <TableRow key={item.user_id}>
                           <TableCell>{item.user_id}</TableCell>
                           <TableCell>{item.username}</TableCell>
-                          <TableCell>{formatQuota(item.checkin_quota)}</TableCell>
+                          <TableCell>
+                            {formatQuota(item.checkin_quota)}
+                          </TableCell>
                           <TableCell className='text-destructive'>
                             -{formatQuota(item.actual_clear)}
                           </TableCell>
@@ -309,9 +312,7 @@ export function ClearCheckinQuotaDialog({
             variant='destructive'
             onClick={handleClear}
             disabled={
-              clearing ||
-              !previewData ||
-              previewData.users.length === 0
+              clearing || !previewData || previewData.users.length === 0
             }
           >
             {clearing && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}

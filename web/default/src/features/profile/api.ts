@@ -113,9 +113,7 @@ export async function sendEmailVerification(
 export async function bindEmail(
   email: string,
   code: string
-): Promise<
-  ApiResponse & { quota_awarded?: number; expires_at?: number }
-> {
+): Promise<ApiResponse & { quota_awarded?: number; expires_at?: number }> {
   const res = await api.post('/api/oauth/email/bind', {
     email,
     code,

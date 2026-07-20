@@ -21,7 +21,9 @@ For commercial licensing, please contact support@quantumnous.com
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Button } from '@/components/design-system/button'
+import { Dialog } from '@/components/dialog'
+import { Button } from '@/components/ui/button'
+import { IconBadge } from '@/components/ui/icon-badge'
 import {
   Select,
   SelectContent,
@@ -29,8 +31,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/design-system/select'
-import { Dialog } from '@/components/dialog'
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 
 import { getDeploymentLogs, listDeploymentContainers } from '../../api'
@@ -190,7 +191,9 @@ export function ViewLogsDialog({
       onOpenChange={onOpenChange}
       title={
         <>
-          <Terminal className='h-5 w-5' />
+          <IconBadge tone='chart-3' size='sm'>
+            <Terminal />
+          </IconBadge>
           {t('Deployment logs')}
         </>
       }
@@ -206,6 +209,7 @@ export function ViewLogsDialog({
         <div className='grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center'>
           <Button
             variant='outline'
+            size='sm'
             onClick={() => {
               refetchContainers()
               refetchLogs()
@@ -221,6 +225,7 @@ export function ViewLogsDialog({
           </Button>
           <Button
             variant='outline'
+            size='sm'
             onClick={handleDownload}
             disabled={!logsText.trim()}
           >

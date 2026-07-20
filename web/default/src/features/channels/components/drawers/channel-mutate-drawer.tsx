@@ -56,17 +56,6 @@ import { type SubmitErrorHandler, useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { Button } from '@/components/design-system/button'
-import { Combobox } from '@/components/design-system/combobox'
-import { Input } from '@/components/design-system/input'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/design-system/select'
 import {
   sideDrawerContentClassName,
   sideDrawerFooterClassName,
@@ -79,6 +68,8 @@ import { JsonEditor } from '@/components/json-editor'
 import { MultiSelect } from '@/components/multi-select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Combobox } from '@/components/ui/combobox'
 import {
   Form,
   FormControl,
@@ -88,6 +79,16 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
+import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import {
   Sheet,
@@ -376,25 +377,37 @@ function formatUnixTime(timestamp: unknown): string {
   return new Date(seconds * 1000).toLocaleString()
 }
 
-function CardHeading({ title, icon }: { title: string; icon?: ReactNode }) {
+function CardHeading(props: {
+  title: string
+  icon?: ReactNode
+  iconTone?: IconBadgeTone
+}) {
   return (
     <div className='flex items-center gap-3'>
-      {icon && (
-        <span className='bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-md'>
-          {icon}
-        </span>
+      {props.icon && (
+        <IconBadge tone={props.iconTone} size='md'>
+          {props.icon}
+        </IconBadge>
       )}
-      <h3 className='text-sm font-semibold tracking-tight'>{title}</h3>
+      <h3 className='text-sm font-semibold tracking-tight'>{props.title}</h3>
     </div>
   )
 }
 
-function SubHeading({ title, icon }: { title: string; icon?: ReactNode }) {
+function SubHeading(props: {
+  title: string
+  icon?: ReactNode
+  iconTone?: IconBadgeTone
+}) {
   return (
     <div className='flex items-center gap-2'>
-      {icon && <span className='text-muted-foreground'>{icon}</span>}
+      {props.icon && (
+        <IconBadge tone={props.iconTone} size='xs'>
+          {props.icon}
+        </IconBadge>
+      )}
       <h4 className='text-muted-foreground text-xs font-medium tracking-wide uppercase'>
-        {title}
+        {props.title}
       </h4>
     </div>
   )
@@ -759,6 +772,9 @@ export function ChannelMutateDrawer({
   const currentUpstreamModelUpdateIgnoredModels = form.watch(
     'upstream_model_update_ignored_models'
   )
+  const shouldPreviewUnsavedModels =
+    !isEditing ||
+    (currentType === CHANNEL_TYPE_ADVANCED_CUSTOM && canEditSensitive)
   const {
     unlocked: doubaoApiEditUnlocked,
     handleClick: handleApiConfigSecretClick,
@@ -1421,8 +1437,8 @@ export function ChannelMutateDrawer({
       return
     }
 
-    // For creation mode, validate key before opening dialog
-    if (!isEditing) {
+    // Advanced Custom may use a model discovery route with no authentication.
+    if (!isEditing && type !== CHANNEL_TYPE_ADVANCED_CUSTOM) {
       const key = form.getValues('key')
       if (!key?.trim()) {
         toast.error(t('Please enter API key first'))
@@ -1433,20 +1449,30 @@ export function ChannelMutateDrawer({
     setFetchModelsDialogOpen(true)
   }, [isEditing, canEditSensitive, form, t])
 
-  const createModeFetcher = useCallback(async (): Promise<string[]> => {
+  const formPreviewFetcher = useCallback(async (): Promise<string[]> => {
     if (!canEditSensitive) {
       throw new Error(t("You don't have necessary permission"))
     }
+    const type = form.getValues('type')
+    const editingAdvancedCustom =
+      isEditing && type === CHANNEL_TYPE_ADVANCED_CUSTOM
+    if (editingAdvancedCustom && channelId === null) {
+      throw new Error(t('No channel selected'))
+    }
     const response = await fetchModels({
-      type: form.getValues('type'),
-      key: form.getValues('key'),
+      type,
+      key: isEditing ? undefined : form.getValues('key'),
+      channel_id: editingAdvancedCustom ? channelId || undefined : undefined,
       base_url: form.getValues('base_url') || '',
+      advanced_custom: form.getValues('advanced_custom'),
+      header_override: form.getValues('header_override'),
+      proxy: form.getValues('proxy'),
     })
     if (response.success && response.data) {
       return response.data
     }
-    throw new Error(response.message || 'No models fetched from upstream')
-  }, [canEditSensitive, form, t])
+    throw new Error(response.message || t('No models fetched from upstream'))
+  }, [canEditSensitive, channelId, form, isEditing, t])
 
   // Handle model operations
   const handleFillRelatedModels = useCallback(() => {
@@ -1848,9 +1874,9 @@ export function ChannelMutateDrawer({
             <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
               <div className='min-w-0'>
                 <SheetTitle className='flex items-center gap-3'>
-                  <span className='bg-muted flex size-9 shrink-0 items-center justify-center rounded-md'>
+                  <IconBadge tone='info' size='title'>
                     <ChannelTypeLogo type={currentType} size={22} />
-                  </span>
+                  </IconBadge>
                   <span>
                     {isEditing ? t('Edit Channel') : t('Create Channel')}
                     <span className='text-muted-foreground ml-2 text-sm font-normal'>
@@ -1872,6 +1898,7 @@ export function ChannelMutateDrawer({
                 <Button
                   type='button'
                   variant='outline'
+                  size='sm'
                   className='shrink-0'
                   onClick={pasteConnectionInfoFromClipboard}
                 >
@@ -1883,7 +1910,7 @@ export function ChannelMutateDrawer({
           </SheetHeader>
 
           {sensitiveLocked && (
-            <Alert className='border-warning/40 bg-warning/10'>
+            <Alert className='border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-50'>
               <AlertDescription>
                 {t(
                   'Sensitive channel settings are read-only for your account.'
@@ -1902,6 +1929,7 @@ export function ChannelMutateDrawer({
                 <span className='flex shrink-0 gap-2'>
                   <Button
                     type='button'
+                    size='sm'
                     onClick={() => applyConnectionInfo(clipboardConnectionInfo)}
                   >
                     {t('Fill in')}
@@ -1909,6 +1937,7 @@ export function ChannelMutateDrawer({
                   <Button
                     type='button'
                     variant='ghost'
+                    size='sm'
                     onClick={() => setClipboardConnectionInfo(null)}
                   >
                     {t('Ignore')}
@@ -2099,7 +2128,7 @@ export function ChannelMutateDrawer({
                         )}
 
                         {sensitiveLocked && (
-                          <Alert className='border-warning/40 bg-warning/10'>
+                          <Alert className='border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-50'>
                             <AlertDescription>
                               {t('No permission to perform this action')}
                             </AlertDescription>
@@ -2828,6 +2857,7 @@ export function ChannelMutateDrawer({
                                       <Button
                                         type='button'
                                         variant='outline'
+                                        size='sm'
                                         onClick={() =>
                                           setAdvancedCustomEditorOpen(true)
                                         }
@@ -2864,7 +2894,10 @@ export function ChannelMutateDrawer({
                                         value={field.value}
                                       >
                                         <FormControl>
-                                          <SelectTrigger className='w-full sm:w-56'>
+                                          <SelectTrigger
+                                            size='sm'
+                                            className='w-full sm:w-56'
+                                          >
                                             <SelectValue />
                                           </SelectTrigger>
                                         </FormControl>
@@ -2978,6 +3011,7 @@ export function ChannelMutateDrawer({
                                             <Button
                                               type='button'
                                               variant='outline'
+                                              size='sm'
                                               onClick={handleDeduplicateKeys}
                                               className='w-fit'
                                             >
@@ -3004,6 +3038,7 @@ export function ChannelMutateDrawer({
                                               <Button
                                                 type='button'
                                                 variant='outline'
+                                                size='sm'
                                                 onClick={handleRevealKey}
                                                 disabled={
                                                   isChannelKeyLoading ||
@@ -3021,6 +3056,7 @@ export function ChannelMutateDrawer({
                                               <Button
                                                 type='button'
                                                 variant='ghost'
+                                                size='sm'
                                                 onClick={async () => {
                                                   if (channelKey) {
                                                     await copyToClipboard(
@@ -3076,6 +3112,7 @@ export function ChannelMutateDrawer({
                                         <Button
                                           type='button'
                                           variant='outline'
+                                          size='sm'
                                           onClick={handleRefreshCodexCredential}
                                           disabled={
                                             sensitiveLocked ||
@@ -3094,7 +3131,7 @@ export function ChannelMutateDrawer({
                                       )}
                                     </div>
                                   </div>
-                                  <Alert className='border-warning/40 bg-warning/10'>
+                                  <Alert className='border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-50'>
                                     <AlertDescription>
                                       {t(
                                         "Disclaimer: Personal use only. Do not distribute or share any credentials. This channel has prerequisites and requires prior setup; use it only if you understand the flow and risks, and comply with OpenAI's terms and policies. Credentials and configuration are for Codex CLI integration only, and are not intended for any other client, platform, or channel."
@@ -3270,7 +3307,7 @@ export function ChannelMutateDrawer({
                                   </FormControl>
                                   {modelMappingGuardrail.exposedTargetModels
                                     .length > 0 && (
-                                    <Alert className='border-warning/40 bg-warning/10'>
+                                    <Alert className='border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-50'>
                                       <AlertDescription className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                                         <span>
                                           {t('The mapped upstream model(s)')}{' '}
@@ -3284,6 +3321,7 @@ export function ChannelMutateDrawer({
                                         <Button
                                           type='button'
                                           variant='outline'
+                                          size='sm'
                                           onClick={() => {
                                             const hiddenTargets = new Set(
                                               modelMappingGuardrail.exposedTargetModels
@@ -3323,6 +3361,7 @@ export function ChannelMutateDrawer({
                                 <Button
                                   type='button'
                                   variant='outline'
+                                  size='sm'
                                   onClick={handleFillRelatedModels}
                                   disabled={!basicModels.length}
                                 >
@@ -3335,6 +3374,7 @@ export function ChannelMutateDrawer({
                                 <Button
                                   type='button'
                                   variant='outline'
+                                  size='sm'
                                   onClick={handleFillAllModels}
                                   disabled={!allModelsList.length}
                                 >
@@ -3349,6 +3389,7 @@ export function ChannelMutateDrawer({
                                     <Button
                                       type='button'
                                       variant='outline'
+                                      size='sm'
                                       onClick={handleFetchModels}
                                       disabled={!isEditing && !canEditSensitive}
                                     >
@@ -3370,6 +3411,7 @@ export function ChannelMutateDrawer({
                                 <Button
                                   type='button'
                                   variant='outline'
+                                  size='sm'
                                   onClick={handleCopyModels}
                                   disabled={currentModelsArray.length === 0}
                                 >
@@ -3382,6 +3424,7 @@ export function ChannelMutateDrawer({
                                 <Button
                                   type='button'
                                   variant='ghost'
+                                  size='sm'
                                   onClick={handleClearModels}
                                   disabled={currentModelsArray.length === 0}
                                 >
@@ -3402,6 +3445,7 @@ export function ChannelMutateDrawer({
                                       key={group.id}
                                       type='button'
                                       variant='secondary'
+                                      size='sm'
                                       onClick={() =>
                                         handleAddPrefillGroup(group)
                                       }
@@ -3470,7 +3514,7 @@ export function ChannelMutateDrawer({
                                                 )
                                               )}
                                               {remainingMappingCount > 0 && (
-                                                <div className='text-xs opacity-70'>
+                                                <div className='text-[11px] opacity-70'>
                                                   +{remainingMappingCount}{' '}
                                                   {t('more mapping')}
                                                   {remainingMappingCount > 1
@@ -3479,7 +3523,7 @@ export function ChannelMutateDrawer({
                                                 </div>
                                               )}
                                             </div>
-                                            <p className='text-xs leading-relaxed opacity-80'>
+                                            <p className='text-[11px] leading-relaxed opacity-80'>
                                               {t(
                                                 'Users call the model on the left. The platform forwards the request to the upstream model on the right.'
                                               )}
@@ -3520,7 +3564,7 @@ export function ChannelMutateDrawer({
                                   )}
                                   {modelMappingGuardrail.missingSourceModels
                                     .length > 0 && (
-                                    <Alert className='border-warning/40 bg-warning/10'>
+                                    <Alert className='border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-50'>
                                       <AlertDescription className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                                         <span>
                                           {t('Add')}{' '}
@@ -3534,6 +3578,7 @@ export function ChannelMutateDrawer({
                                         <Button
                                           type='button'
                                           variant='outline'
+                                          size='sm'
                                           onClick={() => {
                                             updateModels([
                                               ...currentModelsArray,
@@ -3601,6 +3646,7 @@ export function ChannelMutateDrawer({
                           <CardHeading
                             title={t('Routing & Overrides')}
                             icon={<Route className='h-4 w-4' />}
+                            iconTone='info'
                           />
                           <div
                             id={ADVANCED_SETTINGS_SECTION_IDS.routingStrategy}
@@ -3612,6 +3658,7 @@ export function ChannelMutateDrawer({
                             <SubHeading
                               title={t('Routing Strategy')}
                               icon={<Route className='h-3.5 w-3.5' />}
+                              iconTone='info'
                             />
                             <div className='grid gap-4 sm:grid-cols-2'>
                               <FormField
@@ -3719,6 +3766,7 @@ export function ChannelMutateDrawer({
                             <SubHeading
                               title={t('Internal Notes')}
                               icon={<FileText className='h-3.5 w-3.5' />}
+                              iconTone='chart-3'
                             />
                             <div className='grid gap-4 sm:grid-cols-2'>
                               <FormField
@@ -3776,6 +3824,7 @@ export function ChannelMutateDrawer({
                             <SubHeading
                               title={t('Override Rules')}
                               icon={<Code className='h-3.5 w-3.5' />}
+                              iconTone='chart-4'
                             />
 
                             <FormField
@@ -3843,6 +3892,7 @@ export function ChannelMutateDrawer({
                                         <Button
                                           type='button'
                                           variant='outline'
+                                          size='sm'
                                           onClick={() =>
                                             setParamOverrideEditorOpen(true)
                                           }
@@ -3853,6 +3903,7 @@ export function ChannelMutateDrawer({
                                         <Button
                                           type='button'
                                           variant='outline'
+                                          size='sm'
                                           onClick={() => {
                                             field.onChange(
                                               JSON.stringify(
@@ -3885,6 +3936,7 @@ export function ChannelMutateDrawer({
                                         <Button
                                           type='button'
                                           variant='ghost'
+                                          size='sm'
                                           onClick={() => field.onChange('')}
                                         >
                                           {t('Clear')}
@@ -3928,6 +3980,7 @@ export function ChannelMutateDrawer({
                                         <Button
                                           type='button'
                                           variant='outline'
+                                          size='sm'
                                           onClick={() =>
                                             field.onChange(
                                               JSON.stringify(
@@ -3950,6 +4003,7 @@ export function ChannelMutateDrawer({
                                         <Button
                                           type='button'
                                           variant='outline'
+                                          size='sm'
                                           onClick={() =>
                                             field.onChange(
                                               JSON.stringify(
@@ -3965,6 +4019,7 @@ export function ChannelMutateDrawer({
                                         <Button
                                           type='button'
                                           variant='outline'
+                                          size='sm'
                                           onClick={() => {
                                             try {
                                               const parsed = JSON.parse(
@@ -3983,6 +4038,7 @@ export function ChannelMutateDrawer({
                                         <Button
                                           type='button'
                                           variant='ghost'
+                                          size='sm'
                                           onClick={() => field.onChange('')}
                                         >
                                           {t('Clear')}
@@ -4035,9 +4091,10 @@ export function ChannelMutateDrawer({
                           <CardHeading
                             title={t('Channel Extra Settings')}
                             icon={<Settings className='h-4 w-4' />}
+                            iconTone='chart-3'
                           />
                           {sensitiveLocked && (
-                            <Alert className='border-warning/40 bg-warning/10'>
+                            <Alert className='border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-50'>
                               <AlertDescription>
                                 {t('No permission to perform this action')}
                               </AlertDescription>
@@ -4242,6 +4299,7 @@ export function ChannelMutateDrawer({
                             <CardHeading
                               title={t('Field passthrough controls')}
                               icon={<SlidersHorizontal className='h-4 w-4' />}
+                              iconTone='chart-4'
                             />
                             <fieldset
                               disabled={sensitiveLocked}
@@ -4485,6 +4543,7 @@ export function ChannelMutateDrawer({
                             <CardHeading
                               title={t('Upstream Model Detection Settings')}
                               icon={<RefreshCw className='h-4 w-4' />}
+                              iconTone='info'
                             />
                             <fieldset
                               disabled={sensitiveLocked}
@@ -4505,6 +4564,7 @@ export function ChannelMutateDrawer({
                                             'Periodically check for upstream model changes'
                                           )}
                                         </FormDescription>
+                                        <FormMessage />
                                       </div>
                                       <FormControl>
                                         <Switch
@@ -4673,10 +4733,14 @@ export function ChannelMutateDrawer({
         }}
         redirectModels={redirectModelList}
         redirectSourceModels={redirectModelKeyList}
-        customFetcher={!isEditing ? createModeFetcher : undefined}
-        channelName={!isEditing ? currentName?.trim() : undefined}
+        customFetcher={
+          shouldPreviewUnsavedModels ? formPreviewFetcher : undefined
+        }
+        channelName={
+          shouldPreviewUnsavedModels ? currentName?.trim() : undefined
+        }
         existingModelsOverride={
-          !isEditing
+          shouldPreviewUnsavedModels
             ? parseModelsString(form.getValues('models') || '')
             : undefined
         }

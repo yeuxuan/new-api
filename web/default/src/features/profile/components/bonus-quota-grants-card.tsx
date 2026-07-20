@@ -16,11 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMemo } from 'react'
-import { Gift } from 'lucide-react'
-import { useTranslation } from 'react-i18next'
 import dayjs from 'dayjs'
-import { formatQuotaWithCurrency } from '@/lib/currency'
+import { Gift } from 'lucide-react'
+import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
+
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
@@ -30,6 +30,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { formatQuotaWithCurrency } from '@/lib/currency'
+
 import type { BonusQuotaGrantSummary, UserProfile } from '../types'
 
 interface BonusQuotaGrantsCardProps {

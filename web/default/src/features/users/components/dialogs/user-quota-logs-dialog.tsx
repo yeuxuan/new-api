@@ -19,14 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { api } from '@/lib/api'
-import { formatQuota } from '@/lib/format'
+
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  NativeSelect,
-  NativeSelectOption,
-} from '@/components/ui/native-select'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Sheet,
@@ -43,6 +39,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { api } from '@/lib/api'
+import { formatQuota } from '@/lib/format'
 
 interface QuotaLogItem {
   id: number
@@ -68,7 +66,13 @@ function formatTimestamp(ts?: number): string {
 }
 
 function logTypeBadge(type: number, t: (k: string) => string) {
-  const map: Record<number, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; text: string }> = {
+  const map: Record<
+    number,
+    {
+      variant: 'default' | 'secondary' | 'destructive' | 'outline'
+      text: string
+    }
+  > = {
     1: { variant: 'secondary', text: t('Recharge') },
     2: { variant: 'default', text: t('Consume') },
     3: { variant: 'outline', text: t('Manage') },
@@ -100,7 +104,9 @@ function renderQuotaChange(item: QuotaLogItem) {
   }
   const displayQuota = item.type === 2 ? -Math.abs(quota) : quota
   return (
-    <span className={displayQuota < 0 ? 'text-destructive' : 'text-emerald-600'}>
+    <span
+      className={displayQuota < 0 ? 'text-destructive' : 'text-emerald-600'}
+    >
       {displayQuota < 0 ? '-' : '+'}
       {formatQuota(Math.abs(quota))}
     </span>
@@ -189,7 +195,7 @@ export function UserQuotaLogsDialog({
         </SheetHeader>
 
         <div className='flex items-center gap-2 px-4 py-3'>
-          <span className='text-sm text-muted-foreground'>{t('Type')}:</span>
+          <span className='text-muted-foreground text-sm'>{t('Type')}:</span>
           <NativeSelect
             value={String(logType)}
             onChange={(e) => handleTypeChange(Number(e.target.value))}
@@ -220,24 +226,30 @@ export function UserQuotaLogsDialog({
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className='py-8 text-center text-muted-foreground'>
+                  <TableCell
+                    colSpan={6}
+                    className='text-muted-foreground py-8 text-center'
+                  >
                     {t('Loading...')}
                   </TableCell>
                 </TableRow>
               ) : logs.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className='py-8 text-center text-muted-foreground'>
+                  <TableCell
+                    colSpan={6}
+                    className='text-muted-foreground py-8 text-center'
+                  >
                     {t('No records')}
                   </TableCell>
                 </TableRow>
               ) : (
                 logs.map((item) => (
                   <TableRow key={item.id}>
-                    <TableCell className='whitespace-nowrap text-xs'>
+                    <TableCell className='text-xs whitespace-nowrap'>
                       {formatTimestamp(item.created_at)}
                     </TableCell>
                     <TableCell>{logTypeBadge(item.type, t)}</TableCell>
-                    <TableCell className='whitespace-nowrap text-sm font-medium'>
+                    <TableCell className='text-sm font-medium whitespace-nowrap'>
                       {renderQuotaChange(item)}
                     </TableCell>
                     <TableCell>
@@ -250,7 +262,7 @@ export function UserQuotaLogsDialog({
                         <Badge variant='secondary'>{item.token_name}</Badge>
                       ) : null}
                     </TableCell>
-                    <TableCell className='max-w-[260px] truncate text-xs text-muted-foreground'>
+                    <TableCell className='text-muted-foreground max-w-[260px] truncate text-xs'>
                       {item.content}
                     </TableCell>
                   </TableRow>

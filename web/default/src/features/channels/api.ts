@@ -416,7 +416,7 @@ export async function manageMultiKeys(
 export async function getMultiKeyStatus(
   channelId: number,
   page = 1,
-  pageSize = 20,
+  pageSize = 50,
   status?: number
 ): Promise<MultiKeyStatusResponse> {
   return manageMultiKeys({
@@ -563,12 +563,16 @@ export async function getTagModels(
 // ============================================================================
 
 /**
- * Fetch models from a custom endpoint (for testing before creating channel)
+ * Fetch models from the current unsaved channel form configuration.
  */
 export async function fetchModels(data: {
   base_url: string
   type: number
-  key: string
+  key?: string
+  channel_id?: number
+  advanced_custom?: string
+  header_override?: string
+  proxy?: string
 }): Promise<FetchModelsResponse> {
   const res = await api.post(
     '/api/channel/fetch_models',

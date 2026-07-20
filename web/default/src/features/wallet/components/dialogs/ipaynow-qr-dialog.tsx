@@ -16,12 +16,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Loader2,
+  RefreshCw,
+} from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { QRCodeSVG } from 'qrcode.react'
 import { SiAlipay, SiWechat } from 'react-icons/si'
-import { AlertTriangle, CheckCircle2, Clock, Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
+
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -29,6 +36,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+
 import { queryIPayNowOrder, isApiSuccess } from '../../api'
 import type { IPayNowOrderData } from '../../types'
 
@@ -193,7 +201,7 @@ export function IPayNowQRDialog({
 
         {/* Amount */}
         <div className='text-center'>
-          <div className='mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground'>
+          <div className='text-muted-foreground mb-1 text-[11px] font-semibold tracking-wide uppercase'>
             {isSuccess ? t('Amount received') : t('Amount due')}
           </div>
           <div
@@ -223,14 +231,20 @@ export function IPayNowQRDialog({
               (qrUrl ? (
                 <QRCodeSVG value={qrUrl} size={200} level='H' />
               ) : (
-                <Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
+                <Loader2 className='text-muted-foreground h-8 w-8 animate-spin' />
               ))}
             {isSuccess && (
-              <CheckCircle2 className='h-20 w-20 text-emerald-500' strokeWidth={2.2} />
+              <CheckCircle2
+                className='h-20 w-20 text-emerald-500'
+                strokeWidth={2.2}
+              />
             )}
             {isExpired && (
-              <div className='flex flex-col items-center gap-2 text-muted-foreground'>
-                <AlertTriangle className='h-14 w-14 text-red-500' strokeWidth={2} />
+              <div className='text-muted-foreground flex flex-col items-center gap-2'>
+                <AlertTriangle
+                  className='h-14 w-14 text-red-500'
+                  strokeWidth={2}
+                />
                 <span className='text-sm'>{t('QR code expired')}</span>
               </div>
             )}
@@ -244,7 +258,7 @@ export function IPayNowQRDialog({
               <SiWechat className='h-3.5 w-3.5' />
               {t('WeChat')}
             </span>
-            <span className='text-xs text-muted-foreground'>{t('or')}</span>
+            <span className='text-muted-foreground text-xs'>{t('or')}</span>
             <span className='inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-3 py-1.5 text-xs font-semibold text-blue-600'>
               <SiAlipay className='h-3.5 w-3.5' />
               {t('Alipay')}
@@ -253,7 +267,7 @@ export function IPayNowQRDialog({
         )}
 
         {/* Trade number */}
-        <div className='break-all text-center text-[11px] text-muted-foreground'>
+        <div className='text-muted-foreground text-center text-[11px] break-all'>
           {t('Order No.')}: {tradeNo || '-'}
         </div>
 

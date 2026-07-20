@@ -74,7 +74,11 @@ export function CompleteStep({ status, values }: CompleteStepProps) {
             </dt>
             <dd className='flex flex-wrap items-center gap-2'>
               <span className='text-sm font-semibold'>{dbType}</span>
-              <StatusBadge variant={databaseVariant}>{dbType}</StatusBadge>
+              <StatusBadge
+                label={dbType}
+                variant={databaseVariant}
+                copyable={false}
+              />
             </dd>
           </div>
 

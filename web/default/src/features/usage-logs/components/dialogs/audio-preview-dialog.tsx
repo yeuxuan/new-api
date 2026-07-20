@@ -21,9 +21,10 @@ import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { Button } from '@/components/design-system/button'
 import { Dialog } from '@/components/dialog'
 import { StatusBadge } from '@/components/status-badge'
+import { Button } from '@/components/ui/button'
+import { IconBadge } from '@/components/ui/icon-badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 export interface AudioClip {
@@ -88,9 +89,12 @@ function AudioClipCard({ clip }: { clip: AudioClip }) {
         <div className='mb-1 flex items-center gap-2'>
           <span className='truncate text-sm font-medium'>{title}</span>
           {duration != null && duration > 0 && (
-            <StatusBadge variant='neutral' className='shrink-0'>
-              {formatDuration(duration)}
-            </StatusBadge>
+            <StatusBadge
+              label={formatDuration(duration)}
+              variant='neutral'
+              className='shrink-0'
+              copyable={false}
+            />
           )}
         </div>
 
@@ -105,6 +109,8 @@ function AudioClipCard({ clip }: { clip: AudioClip }) {
             </span>
             <Button
               variant='outline'
+              size='sm'
+              className='h-7 gap-1 text-xs'
               onClick={() => window.open(audioUrl, '_blank')}
             >
               <ExternalLink className='h-3 w-3' />
@@ -112,6 +118,8 @@ function AudioClipCard({ clip }: { clip: AudioClip }) {
             </Button>
             <Button
               variant='outline'
+              size='sm'
+              className='h-7 gap-1 text-xs'
               onClick={() => {
                 navigator.clipboard.writeText(audioUrl)
                 toast.success(t('Copied'))
@@ -146,7 +154,9 @@ export function AudioPreviewDialog(props: AudioPreviewDialogProps) {
       onOpenChange={props.onOpenChange}
       title={
         <>
-          <Music className='h-5 w-5' />
+          <IconBadge tone='chart-4' size='sm'>
+            <Music />
+          </IconBadge>
           {t('Audio Preview')}
         </>
       }

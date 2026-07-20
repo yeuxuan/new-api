@@ -18,9 +18,9 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { parseCurrencyDisplayType } from '@/lib/currency'
 
+import { BonusQuotaSettingsSection } from '../general/bonus-quota-settings-section'
 import { CheckinSettingsSection } from '../general/checkin-settings-section'
 import { EmailBindSettingsSection } from '../general/email-bind-settings-section'
-import { BonusQuotaSettingsSection } from '../general/bonus-quota-settings-section'
 import { PricingSection } from '../general/pricing-section'
 import { QuotaSettingsSection } from '../general/quota-settings-section'
 import { PaymentSettingsSection } from '../integrations/payment-settings-section'
@@ -112,7 +112,7 @@ const BILLING_SECTIONS = [
         modelDefaults={getModelDefaults(settings)}
         groupDefaults={getGroupDefaults(settings)}
         toolPricesDefault={settings['tool_price_setting.prices']}
-        visibleTabs={['models', 'tool-prices', 'upstream-sync']}
+        visibleTabs={['models', 'unset-models', 'tool-prices', 'upstream-sync']}
       />
     ),
   },

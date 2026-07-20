@@ -67,7 +67,7 @@ func CreateCodexOAuthAuthorizationFlow() (*CodexOAuthAuthorizationFlow, error) {
 	if err != nil {
 		return nil, err
 	}
-	verifier, challenge, err := generatePKCEPair()
+	verifier, challenge, err := GenerateCodexOAuthPKCEPair()
 	if err != nil {
 		return nil, err
 	}
@@ -81,6 +81,16 @@ func CreateCodexOAuthAuthorizationFlow() (*CodexOAuthAuthorizationFlow, error) {
 		Challenge:    challenge,
 		AuthorizeURL: u,
 	}, nil
+}
+
+func GenerateCodexOAuthPKCEPair() (verifier string, challenge string, err error) {
+	return generatePKCEPair()
+}
+
+// BuildCodexOAuthAuthorizeURL rebuilds the provider URL with an application
+// managed one-time state token.
+func BuildCodexOAuthAuthorizeURL(state string, challenge string) (string, error) {
+	return buildCodexAuthorizeURL(state, challenge)
 }
 
 func refreshCodexOAuthToken(

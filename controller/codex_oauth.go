@@ -12,20 +12,22 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel/codex"
 	"github.com/QuantumNous/new-api/service"
 
-	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type codexOAuthCompleteRequest struct {
 	Input string `json:"input"`
 }
 
-func codexOAuthSessionKey(channelID int, field string) string {
-	return fmt.Sprintf("codex_oauth_%s_%d", field, channelID)
+type codexOAuthFlowPayload struct {
+	ChannelID int    `json:"channel_id"`
+	Verifier  string `json:"verifier"`
 }
 
 func parseCodexAuthorizationInput(input string) (code string, state string, err error) {
@@ -73,6 +75,11 @@ func StartCodexOAuthForChannel(c *gin.Context) {
 }
 
 func startCodexOAuthWithChannelID(c *gin.Context, channelID int) {
+	identity, ok := middleware.GetSessionAuthIdentity(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "dashboard session required"})
+		return
+	}
 	if channelID > 0 {
 		ch, err := model.GetChannelById(channelID, false)
 		if err != nil {
@@ -89,23 +96,43 @@ func startCodexOAuthWithChannelID(c *gin.Context, channelID int) {
 		}
 	}
 
-	flow, err := service.CreateCodexOAuthAuthorizationFlow()
+	verifier, challenge, err := service.GenerateCodexOAuthPKCEPair()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	payload, err := common.Marshal(codexOAuthFlowPayload{
+		ChannelID: channelID,
+		Verifier:  verifier,
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	state, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
+		Purpose:   model.AuthFlowPurposeOAuth,
+		Provider:  "codex",
+		Intent:    model.AuthFlowIntentBind,
+		UserId:    identity.UserID,
+		SessionId: identity.SessionID,
+		Payload:   string(payload),
+		ExpiresAt: time.Now().Add(10 * time.Minute),
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	authorizeURL, err := service.BuildCodexOAuthAuthorizeURL(state, challenge)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 
-	session := sessions.Default(c)
-	session.Set(codexOAuthSessionKey(channelID, "state"), flow.State)
-	session.Set(codexOAuthSessionKey(channelID, "verifier"), flow.Verifier)
-	session.Set(codexOAuthSessionKey(channelID, "created_at"), time.Now().Unix())
-	_ = session.Save()
-
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
 		"data": gin.H{
-			"authorize_url": flow.AuthorizeURL,
+			"authorize_url": authorizeURL,
 		},
 	})
 }
@@ -124,6 +151,11 @@ func CompleteCodexOAuthForChannel(c *gin.Context) {
 }
 
 func completeCodexOAuthWithChannelID(c *gin.Context, channelID int) {
+	identity, ok := middleware.GetSessionAuthIdentity(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "dashboard session required"})
+		return
+	}
 	req := codexOAuthCompleteRequest{}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiError(c, err)
@@ -163,22 +195,29 @@ func completeCodexOAuthWithChannelID(c *gin.Context, channelID int) {
 		channelProxy = ch.GetSetting().Proxy
 	}
 
-	session := sessions.Default(c)
-	expectedState, _ := session.Get(codexOAuthSessionKey(channelID, "state")).(string)
-	verifier, _ := session.Get(codexOAuthSessionKey(channelID, "verifier")).(string)
-	if strings.TrimSpace(expectedState) == "" || strings.TrimSpace(verifier) == "" {
+	flowMatch := model.AuthFlowMatch{
+		Purpose:   model.AuthFlowPurposeOAuth,
+		Provider:  "codex",
+		Intent:    model.AuthFlowIntentBind,
+		UserId:    identity.UserID,
+		SessionId: identity.SessionID,
+	}
+	pendingFlow, err := model.GetAuthFlow(state, flowMatch)
+	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "oauth flow not started or session expired"})
 		return
 	}
-	if state != expectedState {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "state mismatch"})
+	var flowPayload codexOAuthFlowPayload
+	if err := common.UnmarshalJsonStr(pendingFlow.Payload, &flowPayload); err != nil ||
+		flowPayload.ChannelID != channelID || strings.TrimSpace(flowPayload.Verifier) == "" {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "oauth flow does not match channel"})
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 	defer cancel()
 
-	tokenRes, err := service.ExchangeCodexAuthorizationCodeWithProxy(ctx, code, verifier, channelProxy)
+	tokenRes, err := service.ExchangeCodexAuthorizationCodeWithProxy(ctx, code, flowPayload.Verifier, channelProxy)
 	if err != nil {
 		common.SysError("failed to exchange codex authorization code: " + err.Error())
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "授权码交换失败，请重试"})
@@ -207,16 +246,25 @@ func completeCodexOAuthWithChannelID(c *gin.Context, channelID int) {
 		return
 	}
 
-	session.Delete(codexOAuthSessionKey(channelID, "state"))
-	session.Delete(codexOAuthSessionKey(channelID, "verifier"))
-	session.Delete(codexOAuthSessionKey(channelID, "created_at"))
-	_ = session.Save()
+	_, err = model.ConsumeAuthFlowWithAction(state, flowMatch, func(tx *gorm.DB, _ *model.AuthFlow) error {
+		if channelID == 0 {
+			return nil
+		}
+		result := tx.Model(&model.Channel{}).Where("id = ?", channelID).Update("key", string(encoded))
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 
 	if channelID > 0 {
-		if err := model.DB.Model(&model.Channel{}).Where("id = ?", channelID).Update("key", string(encoded)).Error; err != nil {
-			common.ApiError(c, err)
-			return
-		}
 		model.InitChannelCache()
 		service.ResetProxyClientCache()
 		c.JSON(http.StatusOK, gin.H{

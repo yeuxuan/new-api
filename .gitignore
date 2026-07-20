@@ -8,10 +8,8 @@ upload
 build
 *.db-journal
 logs
-web/default/dist
-web/classic/dist
-web/node_modules
 web/dist
+web/node_modules
 .env
 .env.*
 docker-compose.yml
@@ -38,7 +36,7 @@ plans
 
 electron/node_modules
 electron/dist
-data/
+/data/
 .gomodcache/
 .gocache-temp
 .gopath

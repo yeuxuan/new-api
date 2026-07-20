@@ -30,9 +30,31 @@ func GetTopUpInfo(c *gin.Context) {
 		payMethods = []map[string]string{}
 	}
 
-	// 如果启用了 iPayNow 聚合动态码支付，置于支付方法列表最前
-	enableIPayNow := isIPayNowTopUpEnabled()
-	if enableIPayNow {
+	// 如果启用了 Stripe 支付，添加到支付方法列表
+	if isStripeTopUpEnabled() {
+		// 检查是否已经包含 Stripe
+		hasStripe := false
+		for _, method := range payMethods {
+			if method["type"] == "stripe" {
+				hasStripe = true
+				break
+			}
+		}
+
+		if !hasStripe {
+			stripeMethod := map[string]string{
+				"name":      "Stripe",
+				"type":      "stripe",
+				"color":     "#635BFF",
+				"min_topup": strconv.Itoa(setting.StripeMinTopUp),
+			}
+			payMethods = append(payMethods, stripeMethod)
+		}
+	}
+
+	// iPayNow uses its own amount endpoint and minimum top-up rule. Keep it in
+	// the shared payment list so the active frontend can dispatch it explicitly.
+	if isIPayNowTopUpEnabled() {
 		hasIPayNow := false
 		for _, method := range payMethods {
 			if method["type"] == PaymentMethodIPayNow {
@@ -41,17 +63,16 @@ func GetTopUpInfo(c *gin.Context) {
 			}
 		}
 		if !hasIPayNow {
-			ipaynowMethod := map[string]string{
+			payMethods = append([]map[string]string{{
 				"name":      "微信/支付宝",
 				"type":      PaymentMethodIPayNow,
-				"color":     "rgba(var(--semi-green-5), 1)",
+				"color":     "#07C160",
 				"min_topup": strconv.Itoa(operation_setting.IPayNowMinTopUp),
-			}
-			payMethods = append([]map[string]string{ipaynowMethod}, payMethods...)
+			}}, payMethods...)
 		}
 	}
 
-	// Waffo Pancake displayed above the legacy Waffo gateway.
+	// Waffo Pancake is displayed above the standard Waffo gateway.
 	enableWaffoPancake := isWaffoPancakeTopUpEnabled()
 	if enableWaffoPancake {
 		hasWaffoPancake := false
@@ -66,7 +87,7 @@ func GetTopUpInfo(c *gin.Context) {
 			payMethods = append(payMethods, map[string]string{
 				"name":      "Waffo Pancake",
 				"type":      model.PaymentMethodWaffoPancake,
-				"color":     "rgba(var(--semi-orange-5), 1)",
+				"color":     "#F97316",
 				"min_topup": strconv.Itoa(setting.WaffoPancakeMinTopUp),
 			})
 		}
@@ -87,7 +108,7 @@ func GetTopUpInfo(c *gin.Context) {
 			waffoMethod := map[string]string{
 				"name":      "Waffo (Global Payment)",
 				"type":      model.PaymentMethodWaffo,
-				"color":     "rgba(var(--semi-blue-5), 1)",
+				"color":     "#3B82F6",
 				"min_topup": strconv.Itoa(setting.WaffoMinTopUp),
 			}
 			payMethods = append(payMethods, waffoMethod)
@@ -98,9 +119,9 @@ func GetTopUpInfo(c *gin.Context) {
 		"enable_online_topup":              isEpayTopUpEnabled(),
 		"enable_stripe_topup":              isStripeTopUpEnabled(),
 		"enable_creem_topup":               isCreemTopUpEnabled(),
-		"enable_ipaynow_topup":             enableIPayNow,
 		"enable_waffo_topup":               enableWaffo,
 		"enable_waffo_pancake_topup":       enableWaffoPancake,
+		"enable_ipaynow_topup":             isIPayNowTopUpEnabled(),
 		"enable_redemption":                complianceConfirmed,
 		"payment_compliance_confirmed":     complianceConfirmed,
 		"payment_compliance_terms_version": operation_setting.CurrentComplianceTermsVersion,
@@ -114,9 +135,9 @@ func GetTopUpInfo(c *gin.Context) {
 		"pay_methods":             payMethods,
 		"min_topup":               operation_setting.MinTopUp,
 		"stripe_min_topup":        setting.StripeMinTopUp,
-		"ipaynow_min_topup":       operation_setting.IPayNowMinTopUp,
 		"waffo_min_topup":         setting.WaffoMinTopUp,
 		"waffo_pancake_min_topup": setting.WaffoPancakeMinTopUp,
+		"ipaynow_min_topup":       operation_setting.IPayNowMinTopUp,
 		"amount_options":          operation_setting.GetPaymentSetting().AmountOptions,
 		"discount":                operation_setting.GetPaymentSetting().AmountDiscount,
 		"topup_link":              common.TopUpLink,
@@ -217,7 +238,7 @@ func RequestEpay(c *gin.Context) {
 	}
 
 	callBackAddress := service.GetCallbackAddress()
-	returnUrl, _ := url.Parse(paymentReturnPath("/console/log"))
+	returnUrl, _ := url.Parse(paymentReturnPath("/usage-logs"))
 	notifyUrl, _ := url.Parse(callBackAddress + "/api/user/epay/notify")
 	tradeNo := fmt.Sprintf("%s%d", common.GetRandomString(6), time.Now().Unix())
 	tradeNo = fmt.Sprintf("USR%dNO%s", id, tradeNo)
@@ -405,7 +426,7 @@ func EpayNotify(c *gin.Context) {
 				return
 			}
 			logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 充值成功 trade_no=%s user_id=%d client_ip=%s quota_to_add=%d money=%.2f topup=%q", topUp.TradeNo, topUp.UserId, c.ClientIP(), quotaToAdd, topUp.Money, common.GetJsonString(topUp)))
-			model.RecordTopupLogWithQuota(topUp.UserId, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%f", logger.LogQuota(quotaToAdd), topUp.Money), quotaToAdd, c.ClientIP(), topUp.PaymentMethod, "epay")
+			model.RecordTopupLog(topUp.UserId, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%f", logger.LogQuota(quotaToAdd), topUp.Money), c.ClientIP(), topUp.PaymentMethod, "epay")
 		}
 	} else {
 		logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 webhook 忽略事件 trade_no=%s callback_type=%s trade_status=%s client_ip=%s verify_info=%q", verifyInfo.ServiceTradeNo, verifyInfo.Type, verifyInfo.TradeStatus, c.ClientIP(), common.GetJsonString(verifyInfo)))
@@ -435,11 +456,7 @@ func RequestAmount(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
 		return
 	}
-	topupGroupRatio := common.GetTopupGroupRatio(group)
-	if topupGroupRatio == 0 {
-		topupGroupRatio = 1
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "success", "data": strconv.FormatFloat(payMoney, 'f', 2, 64), "group_ratio": topupGroupRatio})
+	c.JSON(http.StatusOK, gin.H{"message": "success", "data": strconv.FormatFloat(payMoney, 'f', 2, 64)})
 }
 
 func GetUserTopUps(c *gin.Context) {

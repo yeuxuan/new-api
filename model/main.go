@@ -261,13 +261,13 @@ func InitLogDB() (err error) {
 }
 
 func migrateDB() error {
+	if err := MigrateBonusQuotaGrantUniqueIndex(); err != nil {
+		return err
+	}
 	// Migrate price_amount column from float/double to decimal for existing tables
 	migrateSubscriptionPlanPriceAmount()
 	// Migrate model_limits column from varchar to text for existing tables
 	if err := migrateTokenModelLimitsToText(); err != nil {
-		return err
-	}
-	if err := MigrateBonusQuotaGrantUniqueIndex(); err != nil {
 		return err
 	}
 
@@ -275,6 +275,9 @@ func migrateDB() error {
 		&Channel{},
 		&Token{},
 		&User{},
+		&UserSession{},
+		&AuthFlow{},
+		&ExternalIdentityClaim{},
 		&PasskeyCredential{},
 		&Option{},
 		&Redemption{},
@@ -308,6 +311,12 @@ func migrateDB() error {
 	if err != nil {
 		return err
 	}
+	if err := InitializeUserAuthVersions(); err != nil {
+		return err
+	}
+	if err := InitializeExternalIdentityClaims(); err != nil {
+		return err
+	}
 	if err := EnsureBonusQuotaGrantUniqueIndex(); err != nil {
 		return err
 	}
@@ -337,6 +346,9 @@ func migrateDBFast() error {
 		{&Channel{}, "Channel"},
 		{&Token{}, "Token"},
 		{&User{}, "User"},
+		{&UserSession{}, "UserSession"},
+		{&AuthFlow{}, "AuthFlow"},
+		{&ExternalIdentityClaim{}, "ExternalIdentityClaim"},
 		{&PasskeyCredential{}, "PasskeyCredential"},
 		{&Option{}, "Option"},
 		{&Redemption{}, "Redemption"},
@@ -359,6 +371,7 @@ func migrateDBFast() error {
 		{&SubscriptionPreConsumeRecord{}, "SubscriptionPreConsumeRecord"},
 		{&CustomOAuthProvider{}, "CustomOAuthProvider"},
 		{&UserOAuthBinding{}, "UserOAuthBinding"},
+		{&ConversationLog{}, "ConversationLog"},
 		{&PerfMetric{}, "PerfMetric"},
 		{&SystemInstance{}, "SystemInstance"},
 		{&SystemTask{}, "SystemTask"},
@@ -387,6 +400,15 @@ func migrateDBFast() error {
 			return err
 		}
 	}
+	if err := InitializeUserAuthVersions(); err != nil {
+		return err
+	}
+	if err := InitializeExternalIdentityClaims(); err != nil {
+		return err
+	}
+	if err := EnsureBonusQuotaGrantUniqueIndex(); err != nil {
+		return err
+	}
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
 		if err := ensureSubscriptionPlanTableSQLite(); err != nil {
 			return err
@@ -395,9 +417,6 @@ func migrateDBFast() error {
 		if err := DB.AutoMigrate(&SubscriptionPlan{}); err != nil {
 			return err
 		}
-	}
-	if err := EnsureBonusQuotaGrantUniqueIndex(); err != nil {
-		return err
 	}
 	common.SysLog("database migrated")
 	return nil

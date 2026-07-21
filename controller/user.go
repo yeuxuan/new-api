@@ -1194,6 +1194,8 @@ func ManageUser(c *gin.Context) {
 				common.ApiError(c, err)
 				return
 			}
+			model.RecordLogWithQuota(user.Id, model.LogTypeManage,
+				fmt.Sprintf("管理员增加用户额度 %s", logger.LogQuota(req.Value)), req.Value)
 			recordManageAuditFor(c, user.Id, "user.quota_add", map[string]interface{}{
 				"quota": logger.LogQuota(req.Value),
 			})
@@ -1206,6 +1208,8 @@ func ManageUser(c *gin.Context) {
 				common.ApiError(c, err)
 				return
 			}
+			model.RecordLogWithQuota(user.Id, model.LogTypeManage,
+				fmt.Sprintf("管理员减少用户额度 %s", logger.LogQuota(req.Value)), -req.Value)
 			recordManageAuditFor(c, user.Id, "user.quota_subtract", map[string]interface{}{
 				"quota": logger.LogQuota(req.Value),
 			})
@@ -1215,6 +1219,8 @@ func ManageUser(c *gin.Context) {
 				common.ApiError(c, err)
 				return
 			}
+			model.RecordLogWithQuota(user.Id, model.LogTypeManage,
+				fmt.Sprintf("管理员覆盖用户额度从 %s 为 %s", logger.LogQuota(oldQuota), logger.LogQuota(req.Value)), req.Value-oldQuota)
 			recordManageAuditFor(c, user.Id, "user.quota_override", map[string]interface{}{
 				"from": logger.LogQuota(oldQuota),
 				"to":   logger.LogQuota(req.Value),
@@ -1315,6 +1321,10 @@ func EmailBind(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	isFirstBind := user.Email == ""
+	quotaAwarded := 0
+	var expiresAt int64
+
 	if err := model.BindEmailToUser(&user, email); err != nil {
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
 			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
@@ -1323,9 +1333,26 @@ func EmailBind(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+
+	if isFirstBind && operation_setting.IsEmailBindRewardEnabled() {
+		alreadyRewarded, checkErr := model.HasEmailBindBonusGrant(user.Id)
+		if checkErr == nil && !alreadyRewarded {
+			setting := operation_setting.GetEmailBindSetting()
+			expiresAt = operation_setting.CalcBonusQuotaExpiresAt(time.Now().Unix())
+			if _, grantErr := model.CreateBonusQuotaGrant(user.Id, model.BonusQuotaSourceEmailBind, "", setting.Quota, expiresAt); grantErr != nil {
+				common.SysLog(fmt.Sprintf("failed to create email bind bonus grant for user %d: %v", user.Id, grantErr))
+			} else {
+				quotaAwarded = setting.Quota
+				model.RecordLog(user.Id, model.LogTypeSystem, fmt.Sprintf("绑定邮箱赠送 %s", logger.LogQuota(quotaAwarded)))
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
+		"success":       true,
+		"message":       "",
+		"quota_awarded": quotaAwarded,
+		"expires_at":    expiresAt,
 	})
 	return
 }

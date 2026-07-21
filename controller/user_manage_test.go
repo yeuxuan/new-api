@@ -159,3 +159,47 @@ func TestManageUserDeleteReturnsImmediatelyAndUnknownActionFails(t *testing.T) {
 	assert.EqualValues(t, 1, unchanged.AuthVersion)
 	assert.Equal(t, common.UserStatusEnabled, unchanged.Status)
 }
+
+func TestManageUserQuotaAdjustmentRecordsTargetUserDelta(t *testing.T) {
+	tests := []struct {
+		name          string
+		mode          string
+		value         int
+		initialQuota  int
+		expectedQuota int
+		expectedDelta int
+	}{
+		{name: "add", mode: "add", value: 500, initialQuota: 1000, expectedQuota: 1500, expectedDelta: 500},
+		{name: "subtract", mode: "subtract", value: 200, initialQuota: 1000, expectedQuota: 800, expectedDelta: -200},
+		{name: "override", mode: "override", value: 1600, initialQuota: 1000, expectedQuota: 1600, expectedDelta: 600},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := setupManageUserTestDB(t)
+			user := model.User{
+				Username: "quota-adjust-" + tt.name, Password: "password",
+				Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
+				Group: "default", Quota: tt.initialQuota,
+			}
+			require.NoError(t, db.Create(&user).Error)
+
+			recorder := performManageUserRequest(t, fmt.Sprintf(
+				`{"id":%d,"action":"add_quota","mode":%q,"value":%d}`,
+				user.Id, tt.mode, tt.value,
+			))
+			assert.Equal(t, http.StatusOK, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), `"success":true`)
+
+			var updated model.User
+			require.NoError(t, db.First(&updated, user.Id).Error)
+			assert.Equal(t, tt.expectedQuota, updated.Quota)
+
+			var quotaLog model.Log
+			require.NoError(t, db.Where("user_id = ? AND quota <> 0", user.Id).First(&quotaLog).Error)
+			assert.Equal(t, model.LogTypeManage, quotaLog.Type)
+			assert.Equal(t, tt.expectedDelta, quotaLog.Quota)
+			assert.Equal(t, user.Username, quotaLog.Username)
+		})
+	}
+}

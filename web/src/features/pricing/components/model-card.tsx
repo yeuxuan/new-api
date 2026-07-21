@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Link } from '@tanstack/react-router'
 import { ChevronRight, Copy } from 'lucide-react'
 import { memo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -212,7 +213,13 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
           </div>
           <div className='min-w-0'>
             <h3 className='text-foreground truncate font-mono text-[15px] leading-tight font-bold'>
-              {props.model.model_name}
+              <Link
+                to='/pricing/$modelId'
+                params={{ modelId: props.model.model_name || '' }}
+                className='hover:underline hover:underline-offset-4'
+              >
+                {props.model.model_name}
+              </Link>
             </h3>
             <div className='mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm sm:mt-1 sm:gap-x-3'>
               {priceSummary}

@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
 import { PageTransition } from '@/components/page-transition'
+import { SeoMetadata } from '@/components/seo-metadata'
 
 import {
   LoadingSkeleton,
@@ -160,6 +161,13 @@ export function Pricing() {
 
   return (
     <PublicLayout showMainContainer={false}>
+      <SeoMetadata
+        pageTitle={t('Live AI Model Pricing & Health')}
+        description={t(
+          'Compare current AI model input, output, and cache pricing alongside live latency, throughput, and success-rate signals.'
+        )}
+        canonicalPath='/pricing'
+      />
       <div className='relative'>
         <div
           aria-hidden

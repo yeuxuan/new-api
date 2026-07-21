@@ -16,10 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export { CTA } from './sections/cta'
-export { FAQ } from './sections/faq'
-export { Features } from './sections/features'
-export { Hero } from './sections/hero'
-export { HowItWorks } from './sections/how-it-works'
-export { Stats } from './sections/stats'
-export { ModelIntelligence } from './sections/model-intelligence'
+import { createFileRoute } from '@tanstack/react-router'
+
+import { ClaudeCodeApi } from '@/features/seo/claude-code-api'
+
+export const Route = createFileRoute('/claude-code-api/')({
+  component: () => <ClaudeCodeApi language='en' />,
+})

@@ -118,6 +118,7 @@ if (!rootElement) {
   try {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
     const apply = (name: string) => {
+      if (document.documentElement.dataset.seoManaged === 'true') return
       document.title = name
       const metaTitle = document.querySelector(
         'meta[name="title"]'

@@ -22,11 +22,20 @@ import { useTranslation } from 'react-i18next'
 import { PublicLayout } from '@/components/layout'
 import { Footer } from '@/components/layout/components/footer'
 import { RichContent } from '@/components/rich-content'
+import { SeoMetadata } from '@/components/seo-metadata'
 import { useTheme } from '@/context/theme-provider'
 import { isLikelyHtml } from '@/lib/content-format'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { CTA, Features, Hero, HowItWorks, Stats } from './components'
+import {
+  CTA,
+  FAQ,
+  Features,
+  Hero,
+  HowItWorks,
+  ModelIntelligence,
+  Stats,
+} from './components'
 import { useHomePageContent } from './hooks'
 
 export function Home() {
@@ -122,10 +131,19 @@ export function Home() {
 
   return (
     <PublicLayout showMainContainer={false}>
+      <SeoMetadata
+        pageTitle={t('Live Multi-Protocol AI API Gateway')}
+        description={t(
+          'Compare live AI model pricing and health, then call Claude, OpenAI, Gemini, and Responses APIs through one multi-protocol gateway.'
+        )}
+        canonicalPath='/'
+      />
       <Hero isAuthenticated={isAuthenticated} />
       <Stats />
+      <ModelIntelligence />
       <Features />
       <HowItWorks />
+      <FAQ />
       <CTA isAuthenticated={isAuthenticated} />
       <Footer />
     </PublicLayout>

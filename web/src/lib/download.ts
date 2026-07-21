@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-
 /**
  * Trigger a browser download for binary data returned by an API call
  * (e.g. CSV export endpoints fetched with `responseType: 'blob'`).

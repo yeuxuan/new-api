@@ -267,6 +267,29 @@ export function Footer(props: FooterProps) {
             <p className='text-muted-foreground/60 mt-3 max-w-[200px] text-xs leading-relaxed'>
               {t('Powerful API Management Platform')}
             </p>
+            <nav
+              aria-label={t('Explore')}
+              className='mt-4 flex flex-col items-start gap-2 text-xs'
+            >
+              <Link
+                to='/pricing'
+                className='text-muted-foreground hover:text-foreground'
+              >
+                {t('Model pricing and health')}
+              </Link>
+              <Link
+                to='/claude-code-api'
+                className='text-muted-foreground hover:text-foreground'
+              >
+                {t('Claude Code API guide')}
+              </Link>
+              <Link
+                to='/about'
+                className='text-muted-foreground hover:text-foreground'
+              >
+                {t('About this gateway')}
+              </Link>
+            </nav>
           </div>
 
           {/* Links columns */}

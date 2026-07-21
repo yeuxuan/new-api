@@ -38,6 +38,7 @@ import { StaticDataTable } from '@/components/data-table'
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
 import { GroupBadge } from '@/components/group-badge'
 import { PublicLayout } from '@/components/layout'
+import { SeoMetadata } from '@/components/seo-metadata'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -1318,6 +1319,16 @@ export function ModelDetails() {
 
   return (
     <PublicLayout>
+      <SeoMetadata
+        pageTitle={t('{{model}} API Pricing & Health', {
+          model: model.model_name,
+        })}
+        description={t(
+          'View {{model}} API pricing, supported protocols, capabilities, latency, throughput, and recent success-rate data.',
+          { model: model.model_name }
+        )}
+        canonicalPath={`/pricing/${encodeURIComponent(model.model_name)}`}
+      />
       <div className='mx-auto max-w-5xl px-4 sm:px-6'>
         <Button
           variant='ghost'

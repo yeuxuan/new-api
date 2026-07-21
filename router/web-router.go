@@ -25,6 +25,8 @@ func SetWebRouter(router *gin.Engine, assets WebAssets) {
 	router.Use(gzip.Gzip(gzip.DefaultCompression))
 	router.Use(middleware.GlobalWebRateLimit())
 	router.Use(middleware.Cache())
+	router.GET("/robots.txt", serveRobots)
+	router.GET("/sitemap.xml", serveSitemap)
 	router.Use(static.Serve("/", frontendFS))
 	router.NoRoute(func(c *gin.Context) {
 		c.Set(middleware.RouteTagKey, "web")
@@ -33,6 +35,10 @@ func SetWebRouter(router *gin.Engine, assets WebAssets) {
 			return
 		}
 		c.Header("Cache-Control", "no-cache")
-		c.Data(http.StatusOK, "text/html; charset=utf-8", assets.IndexPage)
+		page := seoForPath(c.Request.URL.Path, siteBaseURL(c), common.SystemName)
+		if strings.HasPrefix(page.robots, "noindex") {
+			c.Header("X-Robots-Tag", page.robots)
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", renderSEOIndex(assets.IndexPage, page))
 	})
 }

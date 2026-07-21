@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Link } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
 
@@ -86,7 +87,14 @@ export function usePricingColumns(
           <div className='flex max-w-full min-w-0 items-center gap-2'>
             {modelIcon}
             <span className='truncate font-mono text-sm font-medium'>
-              {model.model_name}
+              <Link
+                to='/pricing/$modelId'
+                params={{ modelId: model.model_name || '' }}
+                className='hover:underline hover:underline-offset-4'
+                onClick={(event) => event.stopPropagation()}
+              >
+                {model.model_name}
+              </Link>
             </span>
           </div>
         )

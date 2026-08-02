@@ -54,6 +54,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 					close(clientClosed)
 					return
 				}
+				service.CaptureConversationRealtimeFrame(c, "client_to_upstream", message)
 
 				realtimeEvent := &dto.RealtimeEvent{}
 				err = common.Unmarshal(message, realtimeEvent)
@@ -114,6 +115,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 					close(targetClosed)
 					return
 				}
+				service.CaptureConversationRealtimeFrame(c, "upstream_to_client", message)
 				info.SetFirstResponseTime()
 				realtimeEvent := &dto.RealtimeEvent{}
 				err = common.Unmarshal(message, realtimeEvent)

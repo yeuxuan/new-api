@@ -599,7 +599,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	})
 
 	// 对话日志：统一在计费入口记录，避免各 relay handler 分散写库后漏掉重构链路。
-	if common.ConversationLogEnabled {
+	if common.ConversationLogEnabled && common.ConversationLogStoragePath == "" {
 		if messagesJSON, ok := marshalConversationLogMessages(relayInfo); ok {
 			responseContent := common.GetContextKeyString(ctx, constant.ContextKeyResponseContent)
 			model.EnqueueConversationLog(&model.ConversationLog{

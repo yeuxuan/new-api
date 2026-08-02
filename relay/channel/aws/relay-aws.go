@@ -127,6 +127,7 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 			return nil, types.NewError(errors.Wrap(err, "marshal nova request"), types.ErrorCodeBadResponseBody)
 		}
 		awsReq.Body = reqBody
+		service.CaptureConversationUpstreamBytes(c, info, "request", reqBody)
 		a.AwsReq = awsReq
 		return nil, nil
 	} else {
@@ -145,6 +146,7 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 			if err != nil {
 				return nil, types.NewError(errors.Wrap(err, "marshal aws request fail"), types.ErrorCodeBadRequestBody)
 			}
+			service.CaptureConversationUpstreamBytes(c, info, "request", awsReq.Body)
 			a.AwsReq = awsReq
 			return nil, nil
 		} else {
@@ -157,6 +159,7 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 			if err != nil {
 				return nil, types.NewError(errors.Wrap(err, "marshal aws request fail"), types.ErrorCodeBadRequestBody)
 			}
+			service.CaptureConversationUpstreamBytes(c, info, "request", awsReq.Body)
 			a.AwsReq = awsReq
 			return nil, nil
 		}
@@ -237,6 +240,7 @@ func awsHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (*types
 	if awsResp.ContentType != nil && *awsResp.ContentType != "" {
 		c.Writer.Header().Set("Content-Type", *awsResp.ContentType)
 	}
+	service.CaptureConversationUpstreamBytes(c, info, "response", awsResp.Body)
 
 	handlerErr := claude.HandleClaudeResponseData(c, info, claudeInfo, nil, awsResp.Body)
 	if handlerErr != nil {
@@ -270,6 +274,7 @@ func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (
 		switch v := event.(type) {
 		case *bedrockruntimeTypes.ResponseStreamMemberChunk:
 			info.SetFirstResponseTime()
+			service.CaptureConversationUpstreamBytes(c, info, "response", v.Value.Bytes)
 			respErr := claude.HandleStreamResponseData(c, info, claudeInfo, string(v.Value.Bytes))
 			if respErr != nil {
 				return respErr, nil
@@ -301,6 +306,7 @@ func handleNovaRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) 
 	}
 
 	// 解析Nova响应
+	service.CaptureConversationUpstreamBytes(c, info, "response", awsResp.Body)
 	var novaResp struct {
 		Output struct {
 			Message struct {

@@ -92,6 +92,10 @@ var MemoryCacheEnabled bool
 
 var LogConsumeEnabled = true
 var ConversationLogEnabled = false
+var ConversationLogStoragePath = ""
+var ConversationLogStorageSentinel = ""
+var ConversationLogBlobThreshold = 64 * 1024
+var ConversationLogMinFreeBytes int64 = 10 * 1024 * 1024 * 1024
 
 var TLSInsecureSkipVerify bool
 var InsecureTLSConfig = &tls.Config{InsecureSkipVerify: true}

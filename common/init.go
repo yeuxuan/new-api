@@ -87,6 +87,21 @@ func InitEnv() {
 	DebugEnabled = os.Getenv("DEBUG") == "true"
 	MemoryCacheEnabled = os.Getenv("MEMORY_CACHE_ENABLED") == "true"
 	ConversationLogEnabled = os.Getenv("CONVERSATION_LOG_ENABLED") == "true"
+	ConversationLogStoragePath = strings.TrimSpace(os.Getenv("CONVERSATION_LOG_STORAGE_PATH"))
+	ConversationLogStorageSentinel = strings.TrimSpace(os.Getenv("CONVERSATION_LOG_STORAGE_SENTINEL"))
+	ConversationLogBlobThreshold = GetEnvOrDefault("CONVERSATION_LOG_BLOB_THRESHOLD_BYTES", 64*1024)
+	if ConversationLogBlobThreshold < 1024 {
+		ConversationLogBlobThreshold = 1024
+	}
+	ConversationLogMinFreeBytes = 10 * 1024 * 1024 * 1024
+	if raw := strings.TrimSpace(os.Getenv("CONVERSATION_LOG_MIN_FREE_BYTES")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value < 1024*1024*1024 {
+			log.Printf("WARNING: CONVERSATION_LOG_MIN_FREE_BYTES must be an integer of at least 1 GiB; using 10 GiB")
+		} else {
+			ConversationLogMinFreeBytes = value
+		}
+	}
 	IsMasterNode = os.Getenv("NODE_TYPE") != "slave"
 	initNodeNameIdentity()
 	TLSInsecureSkipVerify = GetEnvOrDefaultBool("TLS_INSECURE_SKIP_VERIFY", false)

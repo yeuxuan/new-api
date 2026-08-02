@@ -79,6 +79,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		ws          *websocket.Conn
 	)
 
+	// Register archive finalization before the error renderer. Defers run in
+	// reverse order, so the rendered protocol error is captured before the
+	// immutable record is sealed.
+	defer func() {
+		if err := service.FinishConversationCapture(c, newAPIError); err != nil {
+			logger.LogError(c, "conversation archive finalize failed: "+err.Error())
+		}
+	}()
+
 	if relayFormat == types.RelayFormatOpenAIRealtime {
 		var err error
 		ws, err = upgrader.Upgrade(c.Writer, c.Request, nil)
@@ -95,7 +104,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
-				helper.WssError(c, ws, newAPIError.ToOpenAIError())
+				openAIError := newAPIError.ToOpenAIError()
+				errorEvent := &dto.RealtimeEvent{
+					Type:    dto.RealtimeEventTypeError,
+					EventId: helper.GetLocalRealtimeID(c),
+					Error:   &openAIError,
+				}
+				if data, err := common.Marshal(errorEvent); err == nil {
+					service.CaptureConversationRealtimeFrame(c, "upstream_to_client", data)
+				}
+				helper.WssError(c, ws, openAIError)
 			case types.RelayFormatClaude:
 				c.JSON(newAPIError.StatusCode, gin.H{
 					"type":  "error",
@@ -123,6 +141,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	relayInfo, err := relaycommon.GenRelayInfo(c, relayFormat, request, ws)
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
+		return
+	}
+	if _, err = service.BeginConversationCapture(c, relayInfo); err != nil {
+		newAPIError = types.NewErrorWithStatusCode(
+			err,
+			types.ErrorCodeDoRequestFailed,
+			http.StatusServiceUnavailable,
+			types.ErrOptionWithSkipRetry(),
+		)
 		return
 	}
 
@@ -193,6 +220,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.RetryIndex = retryParam.GetRetry()
+		relayInfo.ResetRequestConversionChain()
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
 			logger.LogError(c, channelErr.Error())

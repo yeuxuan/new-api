@@ -334,9 +334,17 @@ func InitResources() error {
 		return err
 	}
 
-	// Start conversation log async worker (after DB is ready)
+	// Initialize the filesystem archive when configured. The legacy database
+	// worker remains available only for installations that have not opted into
+	// external conversation storage.
 	if common.ConversationLogEnabled {
-		model.StartConversationLogWorker()
+		if common.ConversationLogStoragePath != "" {
+			if err = service.InitConversationArchive(); err != nil {
+				return err
+			}
+		} else {
+			model.StartConversationLogWorker()
+		}
 	}
 
 	// Initialize Redis

@@ -41,6 +41,19 @@ func TestRelayInfoGetFinalRequestRelayFormatNilReceiver(t *testing.T) {
 	require.Equal(t, types.RelayFormat(""), info.GetFinalRequestRelayFormat())
 }
 
+func TestRelayInfoResetRequestConversionChainStartsNewAttempt(t *testing.T) {
+	info := &RelayInfo{
+		RelayFormat:             types.RelayFormatOpenAI,
+		RequestConversionChain:  []types.RelayFormat{types.RelayFormatOpenAI, types.RelayFormatClaude},
+		FinalRequestRelayFormat: types.RelayFormatClaude,
+	}
+
+	info.ResetRequestConversionChain()
+
+	assert.Equal(t, []types.RelayFormat{types.RelayFormatOpenAI}, info.RequestConversionChain)
+	assert.Empty(t, info.FinalRequestRelayFormat)
+}
+
 func TestRelayInfoMetaTypedNilReceiver(t *testing.T) {
 	var info *RelayInfo
 	var meta convmeta.Meta = info

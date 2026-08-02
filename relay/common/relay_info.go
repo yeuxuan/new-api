@@ -577,14 +577,16 @@ func GenRelayInfo(c *gin.Context, relayFormat types.RelayFormat, request dto.Req
 		err = errors.New("request is not a OpenAIResponsesRequest")
 	case types.RelayFormatOpenAIResponsesCompaction:
 		if request, ok := request.(*dto.OpenAIResponsesCompactionRequest); ok {
-			return GenRelayInfoResponsesCompaction(c, request), nil
+			info = GenRelayInfoResponsesCompaction(c, request)
+			break
 		}
-		return nil, errors.New("request is not a OpenAIResponsesCompactionRequest")
+		err = errors.New("request is not a OpenAIResponsesCompactionRequest")
 	case types.RelayFormatOpenAIAlphaSearch:
 		if request, ok := request.(*dto.AlphaSearchRequest); ok {
-			return GenRelayInfoAlphaSearch(c, request), nil
+			info = GenRelayInfoAlphaSearch(c, request)
+			break
 		}
-		return nil, errors.New("request is not a AlphaSearchRequest")
+		err = errors.New("request is not a AlphaSearchRequest")
 	case types.RelayFormatTask:
 		info = genBaseRelayInfo(c, nil)
 		info.TaskRelayInfo = &TaskRelayInfo{}
@@ -617,6 +619,18 @@ func (info *RelayInfo) InitRequestConversionChain() {
 		return
 	}
 	info.RequestConversionChain = []types.RelayFormat{info.RelayFormat}
+}
+
+// ResetRequestConversionChain starts an independent protocol-conversion trace
+// for a new upstream retry attempt. Without this reset, conversions performed
+// by different channels are incorrectly merged into one chain.
+func (info *RelayInfo) ResetRequestConversionChain() {
+	if info == nil {
+		return
+	}
+	info.FinalRequestRelayFormat = ""
+	info.RequestConversionChain = nil
+	info.InitRequestConversionChain()
 }
 
 func (info *RelayInfo) AppendRequestConversion(format types.RelayFormat) {

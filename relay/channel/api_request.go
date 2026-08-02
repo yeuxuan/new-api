@@ -510,14 +510,17 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
+	service.CaptureConversationUpstreamRequest(c, info, req)
 	resp, err := client.Do(req)
 	if err != nil {
+		service.CaptureConversationUpstreamError(c, info, err)
 		logger.LogError(c, "do request failed: "+err.Error())
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 	}
 	if resp == nil {
 		return nil, errors.New("resp is nil")
 	}
+	service.CaptureConversationUpstreamResponse(c, info, resp)
 	if common2.DebugEnabled {
 		policy := service.NormalizeHTTPTransportPolicy(info.ChannelSetting)
 		logger.LogDebug(c, fmt.Sprintf(

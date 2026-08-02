@@ -12,7 +12,9 @@
 - OpenAI Realtime 的文本、工具调用、控制事件和音频转写；
 - `/pg/chat/completions` 等最终进入上述 relay 的兼容入口。
 
-不会归档：图片生成、图片编辑、视频任务、TTS/转录等独立音频接口、Embedding、Rerank、Moderation、异步媒体任务。Realtime 内的音频二进制也不保存，只记录剔除字段的位置、SHA-256 和大小；文本、工具调用、转写及事件顺序仍完整保留。会话输入中已经出现在客户端或实际上游请求里的图片、文件和 Data URI 会随原始字节保存，大字段进入内容寻址存储并去重。
+不会归档：图片生成、图片编辑、视频任务、TTS/转录等独立音频接口、Embedding、Rerank、Moderation、独立 `/v1/alpha/search` 搜索调用和异步媒体任务。Realtime 内的音频二进制，以及 Responses `image_generation_call` 产生的图片正文也不保存，只记录剔除字段或事件的 SHA-256 和大小；文本、工具调用、转写、状态及事件顺序仍保留。会话输入中已经出现在客户端或实际上游请求里的图片、文件和 Data URI 会随原始字节保存，大 payload 进入内容寻址存储并去重。
+
+远程图片或文件 URL 可能过期，当前初步归档不会主动下载第三方地址；遇到这种输入会写入 `external_attachment_not_pinned` 并标记 `complete=false`，避免后续清洗误认为附件已经完整保存。
 
 ## 存储格式
 
@@ -21,12 +23,13 @@
 ```text
 conversation-archive/
   .new-api-conversation-archive-volume
+  pending/<archive-id>-<random>.pending/
   records/YYYY/MM/DD/<archive-id>-<random>.json.gz
   blobs/sha256/<prefix>/<sha256>.gz
   migration/legacy-conversation-logs.checkpoint.json
 ```
 
-每条 record 是版本化 envelope，包含客户端原始请求、客户端最终响应、每次上游重试的实际请求与响应、协议转换链、状态、模型和完整性声明。大 JSON 字符串及大块二进制按 SHA-256 放入 `blobs`，恢复时会验证 record、每个 payload 和 blob 的大小及哈希，并逐字节重建原数据。
+捕获期间，请求和流式响应直接增量写入同一数据盘的 `pending`，不会把整段长会话积压在进程内存。为覆盖媒体字段恰好跨网络分片时的崩溃窗口，响应还会保留一份 recovery-only 原始暂存；正常完成时它不进入正式 record，并在 record 校验成功后随 pending 一起删除。若捕获中断，恢复记录会强制 `complete=false`，可能同时带有 `recovery_raw_*` 原始 payload，后续清洗必须优先使用它补齐尾部并再次执行媒体剔除。每条 record 是版本化 envelope，包含客户端原始请求、客户端最终响应、每次上游重试及供应商轮询/上传等辅助调用的实际请求与响应、协议转换链、状态、模型和完整性声明。请求 URL 会保留影响协议语义的普通查询参数，但 API key、token、签名和 secret 等查询值会被明确掩码；`Anthropic-Version`、`Anthropic-Beta`、`OpenAI-Beta` 等非凭证协议头会单独保留，认证头不会进入归档。大 payload 按 SHA-256 放入 `blobs`，恢复时会验证 record、每个 payload 和 blob 的大小及哈希，并逐字节重建原数据。
 
 `complete=false` 和 `missing` 是训练筛选条件，不得在导出时忽略。旧 `conversation_logs` 本身没有保存原始客户端请求、上游重试和失败响应，因此迁移后会明确标记为历史不完整，而不会伪装成新格式的完整记录。
 
@@ -34,13 +37,16 @@ conversation-archive/
 
 ```env
 CONVERSATION_LOG_ENABLED=true
+# 仅供 Docker Compose bind mount 使用：宿主机上的独立数据盘目录
+CONVERSATION_LOG_HOST_PATH=/root/data/disk/conversation-archive
+# 应用在容器内看到的归档目录
 CONVERSATION_LOG_STORAGE_PATH=/data/conversation-archive
 CONVERSATION_LOG_STORAGE_SENTINEL=.new-api-conversation-archive-volume
 CONVERSATION_LOG_BLOB_THRESHOLD_BYTES=65536
 CONVERSATION_LOG_MIN_FREE_BYTES=10737418240
 ```
 
-生产环境必须把 `CONVERSATION_LOG_STORAGE_PATH` 映射到独立数据盘，并预先在宿主机目录创建 sentinel 普通文件。sentinel 不存在时服务拒绝启动，防止挂载丢失后悄悄写回系统盘。可用空间低于安全预留值时，新会话会在访问上游前返回 503；这样会牺牲新请求可用性，但不会让数据库和系统盘随归档盘一起崩溃。
+生产环境必须把 `CONVERSATION_LOG_HOST_PATH` 设置为宿主机独立数据盘上的真实目录，并让 `CONVERSATION_LOG_STORAGE_PATH` 与 Compose 的容器内 `target` 保持一致。宿主机目录需要预先创建 sentinel 普通文件。服务启动和每一次写入前都会检查 sentinel；运行中挂载丢失后会立即停止归档，防止悄悄写回系统盘。归档根目录拒绝 `/` 等过宽路径和末级符号链接。Compose 使用 `create_host_path: false`，宿主机目录缺失时不会自动在系统盘创建替代目录。可用空间低于安全预留值时，新会话会在访问上游前返回 503；这样会牺牲新请求可用性，但不会让数据库和系统盘随归档盘一起崩溃。
 
 ## 历史迁移、校验与训练导出
 
@@ -53,12 +59,20 @@ CONVERSATION_LOG_MIN_FREE_BYTES=10737418240
 # 逐条恢复并核对数据库 manifest 中的 SHA-256
 /conversation-archive -mode verify -root /data/conversation-archive -batch-size 20
 
-# 导出跨协议、逐条可恢复的 gzip JSONL；payloads_base64 保存原始字节
+# 停止网关写入后，恢复进程中断留下的 pending（捕获中断会标记 complete=false），并重建缺失索引
+/conversation-archive -mode recover -root /data/conversation-archive
+
+# 仅根据正式文件重建缺失的数据库小索引（不改正文）
+/conversation-archive -mode reindex -root /data/conversation-archive
+
+# 停止网关写入后，导出跨协议、逐条可恢复的 gzip JSONL；payloads_base64 保存原始字节
 /conversation-archive -mode export -root /data/conversation-archive \
   -output /data/conversation-archive/exports/training-raw.jsonl.gz -batch-size 20
 ```
 
-迁移 checkpoint 每完成一条才原子推进；重新运行会先恢复并校验已经建立索引的记录。训练 JSONL 是协议中立的原始层，后续训练流水线可按 `protocol` 选择适配器，并按 `complete`、用户授权状态、时间、模型等字段筛选，而不必再次访问线上数据库。
+迁移记录使用稳定文件名，checkpoint 每完成一条才原子推进；重新运行会逐字节核对当前源行，既不会重复制造文件，也不会把源数据变化当作成功。所有归档工具命令由根目录维护锁串行化，每个 pending 另有跨进程排他锁；`recover` 遇到仍在写入的会话会拒绝处理，避免并发命令或活跃流互相覆盖、截断或误删。`verify` 同时检查未完成 pending、数据库 manifest 与不可变 record 的全部索引字段、没有数据库索引的正式文件、未被任何 record 引用的 blob，以及崩溃遗留的临时文件；它只报告问题，不自动删除。导出会先执行同等全量校验，再固定数据库 ID 高水位并逐条复核，避免在线增长造成无界导出或索引漂移；输出只能写到归档根目录下的 `exports/`，通过不可覆盖的原子发布拒绝同名文件，并在每批数据前复核剩余容量。
+
+导出的 JSONL 只是协议中立、可追溯的原始语料层，不是可直接训练的数据集。后续训练流水线仍需做授权筛选、去隐私、去重、质量过滤、跨协议标准化，并按 `complete`、`missing`、用户授权状态、时间和模型等字段筛选。
 
 ## 生产释放空间门槛
 

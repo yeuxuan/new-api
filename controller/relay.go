@@ -83,8 +83,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// reverse order, so the rendered protocol error is captured before the
 	// immutable record is sealed.
 	defer func() {
+		recovered := recover()
+		if recovered != nil {
+			service.MarkConversationCaptureIncomplete(c, "relay_panicked")
+		}
 		if err := service.FinishConversationCapture(c, newAPIError); err != nil {
 			logger.LogError(c, "conversation archive finalize failed: "+err.Error())
+		}
+		if recovered != nil {
+			panic(recovered)
 		}
 	}()
 

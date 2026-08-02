@@ -7,13 +7,13 @@ package model
 type ConversationArchive struct {
 	Id                   int64  `json:"id" gorm:"primarykey;autoIncrement"`
 	ArchiveId            string `json:"archive_id" gorm:"type:varchar(64);uniqueIndex"`
-	RequestId            string `json:"request_id" gorm:"type:varchar(64);index"`
+	RequestId            string `json:"request_id" gorm:"type:varchar(191);index"`
 	UserId               int    `json:"user_id" gorm:"index"`
-	Username             string `json:"username" gorm:"index"`
+	Username             string `json:"username" gorm:"type:varchar(191);index"`
 	TokenId              int    `json:"token_id" gorm:"index"`
 	TokenName            string `json:"token_name"`
 	ChannelId            int    `json:"channel_id" gorm:"index"`
-	OriginModelName      string `json:"origin_model_name" gorm:"index"`
+	OriginModelName      string `json:"origin_model_name" gorm:"type:varchar(191);index"`
 	UpstreamModelName    string `json:"upstream_model_name"`
 	ClientProtocol       string `json:"client_protocol" gorm:"type:varchar(64);index"`
 	UpstreamProtocol     string `json:"upstream_protocol" gorm:"type:varchar(64)"`

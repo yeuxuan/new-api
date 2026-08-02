@@ -99,11 +99,14 @@ func uploadDifyFile(c *gin.Context, info *relaycommon.RelayInfo, user string, me
 
 		// Send request
 		client := service.GetHttpClient()
+		operation := service.CaptureConversationAuxiliaryRequest(c, info, "dify_file_upload", req)
 		resp, err := client.Do(req)
 		if err != nil {
+			service.CaptureConversationAuxiliaryError(c, operation, err)
 			common.SysLog("failed to send request: " + err.Error())
 			return nil
 		}
+		service.CaptureConversationAuxiliaryResponse(c, operation, resp)
 		defer resp.Body.Close()
 
 		// Parse response

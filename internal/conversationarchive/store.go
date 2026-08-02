@@ -3,12 +3,12 @@ package conversationarchive
 import (
 	"bytes"
 	"compress/gzip"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -40,6 +40,7 @@ type Options struct {
 	PartitionLocation *time.Location
 	BlobThreshold     int
 	MinFreeBytes      int64
+	MountSentinel     string
 }
 
 // Completeness records whether every part of the conversation was captured.
@@ -78,8 +79,181 @@ type Store struct {
 	location      *time.Location
 	blobThreshold int
 	minFreeBytes  int64
+	mountSentinel string
 	rename        func(string, string) error
 	writeMu       sync.Mutex
+}
+
+// PendingPaths returns unfinished staging directories for operational checks.
+func (s *Store) PendingPaths() ([]string, error) {
+	if s == nil {
+		return nil, errors.New("conversation archive store is nil")
+	}
+	entries, err := filepath.Glob(filepath.Join(s.root, "pending", "*.pending"))
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		info, err := os.Lstat(entry)
+		if err != nil {
+			return nil, err
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("conversation archive pending path is not a directory: %s", entry)
+		}
+		relative, err := filepath.Rel(s.root, entry)
+		if err != nil {
+			return nil, err
+		}
+		paths = append(paths, filepath.ToSlash(relative))
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+// RecordPaths enumerates immutable envelopes without trusting the database
+// index, allowing orphan detection and index reconstruction.
+func (s *Store) RecordPaths() ([]string, error) {
+	if s == nil {
+		return nil, errors.New("conversation archive store is nil")
+	}
+	entries, err := filepath.Glob(filepath.Join(s.root, "records", "*", "*", "*", "*.json.gz"))
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		info, err := os.Lstat(entry)
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("conversation archive record is not a regular file: %s", entry)
+		}
+		relative, err := filepath.Rel(s.root, entry)
+		if err != nil {
+			return nil, err
+		}
+		paths = append(paths, filepath.ToSlash(relative))
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+// OrphanBlobPaths reports content-addressed blobs that are not referenced by
+// any immutable envelope. It is intentionally read-only: operators decide
+// whether a verified orphan is safe to remove.
+func (s *Store) OrphanBlobPaths() ([]string, error) {
+	recordPaths, err := s.RecordPaths()
+	if err != nil {
+		return nil, err
+	}
+	referenced := make(map[string]struct{})
+	for _, recordPath := range recordPaths {
+		absolutePath, err := s.secureRecordPath(recordPath)
+		if err != nil {
+			return nil, err
+		}
+		compressed, err := os.ReadFile(absolutePath)
+		if err != nil {
+			return nil, err
+		}
+		plain, err := gunzipBytes(compressed)
+		if err != nil {
+			return nil, fmt.Errorf("decompress conversation archive record %s: %w", recordPath, err)
+		}
+		var env envelope
+		if err := common.Unmarshal(plain, &env); err != nil {
+			return nil, fmt.Errorf("decode conversation archive record %s: %w", recordPath, err)
+		}
+		if env.Version != CurrentVersion {
+			return nil, fmt.Errorf("unsupported conversation archive envelope version %d", env.Version)
+		}
+		values := make([]storedValue, 0, len(env.Payloads)+len(env.Metadata))
+		for _, value := range env.Payloads {
+			values = append(values, value)
+		}
+		for _, value := range env.Metadata {
+			values = append(values, value)
+		}
+		for _, value := range values {
+			for _, chunk := range value.Chunks {
+				if chunk.Blob == nil {
+					continue
+				}
+				if !validDigest(chunk.Blob.SHA256) {
+					return nil, fmt.Errorf("record %s contains invalid blob reference", recordPath)
+				}
+				referenced[filepath.ToSlash(filepath.Join("blobs", "sha256", chunk.Blob.SHA256[:2], chunk.Blob.SHA256+".gz"))] = struct{}{}
+			}
+		}
+	}
+
+	blobs, err := filepath.Glob(filepath.Join(s.root, "blobs", "sha256", "*", "*.gz"))
+	if err != nil {
+		return nil, err
+	}
+	orphans := make([]string, 0)
+	for _, blob := range blobs {
+		info, err := os.Lstat(blob)
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("conversation archive blob is not a regular file: %s", blob)
+		}
+		relative, err := filepath.Rel(s.root, blob)
+		if err != nil {
+			return nil, err
+		}
+		relative = filepath.ToSlash(relative)
+		if _, found := referenced[relative]; !found {
+			orphans = append(orphans, relative)
+		}
+	}
+	sort.Strings(orphans)
+	return orphans, nil
+}
+
+// TransientPaths reports atomic-write leftovers from interrupted processes.
+// Active captures are reported separately through PendingPaths.
+func (s *Store) TransientPaths() ([]string, error) {
+	patterns := []struct {
+		pattern       string
+		directoryOnly bool
+	}{
+		{pattern: filepath.Join(s.root, "records", "*", "*", "*", ".conversation-archive-*.tmp")},
+		{pattern: filepath.Join(s.root, "blobs", "sha256", "*", ".conversation-blob-*.tmp")},
+		{pattern: filepath.Join(s.root, "blobs", "sha256", "*", ".conversation-archive-*.tmp")},
+		{pattern: filepath.Join(s.root, "exports", ".conversation-export-*.partial")},
+		{pattern: filepath.Join(s.root, "migration", ".checkpoint-*.partial")},
+		{pattern: filepath.Join(s.root, "pending", ".*.pending.*-*"), directoryOnly: true},
+		{pattern: filepath.Join(s.root, "pending", ".*.pending.lock")},
+	}
+	var paths []string
+	for _, candidate := range patterns {
+		matches, err := filepath.Glob(candidate.pattern)
+		if err != nil {
+			return nil, err
+		}
+		for _, match := range matches {
+			info, err := os.Lstat(match)
+			if err != nil {
+				return nil, err
+			}
+			if info.Mode()&os.ModeSymlink != 0 || (candidate.directoryOnly && !info.IsDir()) || (!candidate.directoryOnly && !info.Mode().IsRegular()) {
+				return nil, fmt.Errorf("conversation archive transient path has an unexpected type: %s", match)
+			}
+			relative, err := filepath.Rel(s.root, match)
+			if err != nil {
+				return nil, err
+			}
+			paths = append(paths, filepath.ToSlash(relative))
+		}
+	}
+	sort.Strings(paths)
+	return paths, nil
 }
 
 type envelope struct {
@@ -113,7 +287,7 @@ type blobRef struct {
 	StoredSize int64  `json:"stored_size"`
 }
 
-var recordIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+var recordIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 // New creates a filesystem-backed archive rooted at root.
 func New(root string, options Options) (*Store, error) {
@@ -124,15 +298,38 @@ func New(root string, options Options) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve conversation archive root: %w", err)
 	}
-	if err := os.MkdirAll(absRoot, 0o700); err != nil {
-		return nil, fmt.Errorf("create conversation archive root: %w", err)
+	if unsafeArchiveRoot(absRoot) {
+		return nil, fmt.Errorf("conversation archive root is too broad: %s", absRoot)
 	}
-	if err := os.Chmod(absRoot, 0o700); err != nil {
-		return nil, fmt.Errorf("secure conversation archive root: %w", err)
+	if err := validateSentinelName(options.MountSentinel); err != nil {
+		return nil, err
+	}
+	rootExists := false
+	if info, statErr := os.Lstat(absRoot); statErr == nil {
+		rootExists = true
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("conversation archive root must not be a symbolic link: %s", absRoot)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("conversation archive root is not a directory: %s", absRoot)
+		}
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return nil, fmt.Errorf("inspect conversation archive root: %w", statErr)
+	}
+	if !rootExists {
+		if options.MountSentinel != "" {
+			return nil, fmt.Errorf("conversation archive root must already exist when a mount sentinel is configured: %s", absRoot)
+		}
+		if err := os.MkdirAll(absRoot, 0o700); err != nil {
+			return nil, fmt.Errorf("create conversation archive root: %w", err)
+		}
 	}
 	canonicalRoot, err := filepath.EvalSymlinks(absRoot)
 	if err != nil {
 		return nil, fmt.Errorf("resolve conversation archive root symlinks: %w", err)
+	}
+	if err := os.Chmod(canonicalRoot, 0o700); err != nil {
+		return nil, fmt.Errorf("secure conversation archive root: %w", err)
 	}
 	location := options.PartitionLocation
 	if location == nil {
@@ -142,13 +339,18 @@ func New(root string, options Options) (*Store, error) {
 	if blobThreshold <= 0 {
 		blobThreshold = defaultLargeStringThreshold
 	}
-	return &Store{
+	store := &Store{
 		root:          canonicalRoot,
 		location:      location,
 		blobThreshold: blobThreshold,
 		minFreeBytes:  options.MinFreeBytes,
+		mountSentinel: options.MountSentinel,
 		rename:        os.Rename,
-	}, nil
+	}
+	if err := store.checkMountSentinel(); err != nil {
+		return nil, err
+	}
+	return store, nil
 }
 
 // CheckWritable verifies that the archive filesystem retains its configured
@@ -160,6 +362,9 @@ func (s *Store) CheckWritable(estimatedBytes int64) error {
 	}
 	if estimatedBytes < 0 {
 		return errors.New("conversation archive estimated bytes cannot be negative")
+	}
+	if err := s.checkMountSentinel(); err != nil {
+		return err
 	}
 	if s.minFreeBytes <= 0 {
 		return nil
@@ -174,23 +379,59 @@ func (s *Store) CheckWritable(estimatedBytes int64) error {
 	return nil
 }
 
+func (s *Store) checkMountSentinel() error {
+	if s.mountSentinel == "" {
+		return nil
+	}
+	info, err := os.Lstat(filepath.Join(s.root, s.mountSentinel))
+	if err != nil {
+		return fmt.Errorf("conversation archive mount sentinel is unavailable: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("conversation archive mount sentinel is not a regular file")
+	}
+	return nil
+}
+
+func validateSentinelName(name string) error {
+	if name == "" {
+		return nil
+	}
+	if filepath.Base(name) != name || name == "." || name == ".." || strings.ContainsAny(name, "\x00\r\n") {
+		return fmt.Errorf("invalid conversation archive sentinel %q", name)
+	}
+	return nil
+}
+
+func unsafeArchiveRoot(path string) bool {
+	clean := filepath.Clean(path)
+	volume := filepath.VolumeName(clean)
+	remainder := strings.TrimPrefix(clean, volume)
+	parts := strings.FieldsFunc(remainder, func(r rune) bool { return r == '/' || r == '\\' })
+	return filepath.Dir(clean) == clean || len(parts) < 2
+}
+
 // Write atomically persists one versioned envelope and any content-addressed
 // blobs. A failed record rename never exposes a partial record file.
 func (s *Store) Write(record Record) (Result, error) {
+	return s.write(record, false)
+}
+
+// WriteDeterministic uses a stable partition filename and returns an existing
+// identical record. It makes legacy migration resumable after an index failure.
+func (s *Store) WriteDeterministic(record Record) (Result, error) {
+	return s.write(record, true)
+}
+
+func (s *Store) write(record Record, deterministic bool) (Result, error) {
 	if s == nil {
 		return Result{}, errors.New("conversation archive store is nil")
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	if !recordIDPattern.MatchString(record.ID) || record.ID == "." || record.ID == ".." {
-		return Result{}, fmt.Errorf("invalid conversation archive record id %q", record.ID)
-	}
-	if record.RecordedAt.IsZero() {
-		return Result{}, errors.New("conversation archive recorded time is required")
-	}
-	if strings.TrimSpace(record.Protocol) == "" {
-		return Result{}, errors.New("conversation archive protocol is required")
+	if err := validateRecordIdentity(record); err != nil {
+		return Result{}, err
 	}
 	var estimatedBytes int64
 	for _, payload := range record.Payloads {
@@ -241,6 +482,10 @@ func (s *Store) Write(record Record) (Result, error) {
 	}
 	env.ContentSHA256 = contentDigest(record.Payloads, record.Metadata)
 
+	return s.writeEnvelope(record, env, referencedBlobs, deterministic)
+}
+
+func (s *Store) writeEnvelope(record Record, env envelope, referencedBlobs map[string]int64, deterministic bool) (Result, error) {
 	plainEnvelope, err := common.Marshal(env)
 	if err != nil {
 		return Result{}, fmt.Errorf("marshal conversation archive envelope: %w", err)
@@ -255,12 +500,35 @@ func (s *Store) Write(record Record) (Result, error) {
 	if err := s.ensureDir(recordDir); err != nil {
 		return Result{}, fmt.Errorf("create conversation archive partition: %w", err)
 	}
-	randomSuffix := make([]byte, 8)
-	if _, err := rand.Read(randomSuffix); err != nil {
-		return Result{}, fmt.Errorf("generate conversation archive filename: %w", err)
+	filename := record.ID + ".json.gz"
+	if !deterministic {
+		randomSuffix, err := randomRecordSuffix()
+		if err != nil {
+			return Result{}, fmt.Errorf("generate conversation archive filename: %w", err)
+		}
+		filename = record.ID + "-" + randomSuffix + ".json.gz"
 	}
-	filename := record.ID + "-" + hex.EncodeToString(randomSuffix) + ".json.gz"
 	absolutePath := filepath.Join(recordDir, filename)
+	if deterministic {
+		if _, err := os.Lstat(absolutePath); err == nil {
+			relativePath, relErr := filepath.Rel(s.root, absolutePath)
+			if relErr != nil {
+				return Result{}, relErr
+			}
+			existing, existingResult, restoreErr := s.Restore(relativePath)
+			if restoreErr != nil {
+				return Result{}, fmt.Errorf("verify deterministic conversation archive record: %w", restoreErr)
+			}
+			if existing.ID != record.ID || !existing.RecordedAt.Equal(record.RecordedAt) || existing.Protocol != record.Protocol ||
+				existing.Completeness.Complete != record.Completeness.Complete || !equalStrings(existing.Completeness.Missing, record.Completeness.Missing) ||
+				contentDigest(existing.Payloads, existing.Metadata) != env.ContentSHA256 {
+				return Result{}, fmt.Errorf("deterministic conversation archive record %s already exists with different content", record.ID)
+			}
+			return existingResult, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return Result{}, fmt.Errorf("inspect deterministic conversation archive record: %w", err)
+		}
+	}
 	if err := s.writeAtomic(absolutePath, compressedEnvelope); err != nil {
 		return Result{}, fmt.Errorf("write conversation archive record: %w", err)
 	}
@@ -280,6 +548,18 @@ func (s *Store) Write(record Record) (Result, error) {
 		StoredBytes:   storedBytes,
 		Integrity:     completenessStatus(record.Completeness),
 	}, nil
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 // Restore reads, verifies, and losslessly reconstructs a record. recordPath
@@ -474,15 +754,22 @@ func (s *Store) readBlob(ref blobRef) ([]byte, error) {
 }
 
 func (s *Store) verifyBlob(path, digest string, size int64) error {
-	compressed, err := os.ReadFile(path)
+	compressed, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("read existing conversation archive blob: %w", err)
 	}
-	data, err := gunzipBytes(compressed)
+	defer compressed.Close()
+	reader, err := gzip.NewReader(compressed)
 	if err != nil {
 		return fmt.Errorf("decompress existing conversation archive blob: %w", err)
 	}
-	if int64(len(data)) != size || digestHex(data) != digest {
+	defer reader.Close()
+	hasher := sha256.New()
+	actualSize, err := io.Copy(hasher, reader)
+	if err != nil {
+		return fmt.Errorf("read existing conversation archive blob: %w", err)
+	}
+	if actualSize != size || hex.EncodeToString(hasher.Sum(nil)) != digest {
 		return fmt.Errorf("existing conversation archive blob %s failed integrity verification", digest)
 	}
 	return nil
@@ -608,6 +895,19 @@ func validateFieldName(name string) error {
 	return nil
 }
 
+func validateRecordIdentity(record Record) error {
+	if !recordIDPattern.MatchString(record.ID) || record.ID == "." || record.ID == ".." {
+		return fmt.Errorf("invalid conversation archive record id %q", record.ID)
+	}
+	if record.RecordedAt.IsZero() {
+		return errors.New("conversation archive recorded time is required")
+	}
+	if strings.TrimSpace(record.Protocol) == "" {
+		return errors.New("conversation archive protocol is required")
+	}
+	return nil
+}
+
 func collectBlobSizes(stored storedValue, sizes map[string]int64) {
 	for _, chunk := range stored.Chunks {
 		if chunk.Blob != nil {
@@ -617,7 +917,7 @@ func collectBlobSizes(stored storedValue, sizes map[string]int64) {
 }
 
 func contentDigest(payloads map[string][]byte, metadata map[string]string) string {
-	hash := sha256.New()
+	hasher := newContentHash()
 	writeDomainMap := func(domain string, values map[string][]byte) {
 		keys := make([]string, 0, len(values))
 		for key := range values {
@@ -625,9 +925,8 @@ func contentDigest(payloads map[string][]byte, metadata map[string]string) strin
 		}
 		sort.Strings(keys)
 		for _, key := range keys {
-			_, _ = io.WriteString(hash, domain)
-			_, _ = io.WriteString(hash, fmt.Sprintf("\x00%d\x00%s\x00%d\x00", len(key), key, len(values[key])))
-			_, _ = hash.Write(values[key])
+			writeContentHeader(hasher, domain, key, int64(len(values[key])))
+			_, _ = hasher.Write(values[key])
 		}
 	}
 	writeDomainMap("payload", payloads)
@@ -636,7 +935,16 @@ func contentDigest(payloads map[string][]byte, metadata map[string]string) strin
 		metadataBytes[key] = []byte(value)
 	}
 	writeDomainMap("metadata", metadataBytes)
-	return hex.EncodeToString(hash.Sum(nil))
+	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+func newContentHash() hash.Hash {
+	return sha256.New()
+}
+
+func writeContentHeader(writer io.Writer, domain, key string, size int64) {
+	_, _ = io.WriteString(writer, domain)
+	_, _ = io.WriteString(writer, fmt.Sprintf("\x00%d\x00%s\x00%d\x00", len(key), key, size))
 }
 
 func completenessStatus(completeness Completeness) IntegrityStatus {

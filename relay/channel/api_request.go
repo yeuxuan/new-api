@@ -386,8 +386,20 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		targetHeader.Set(key, value)
 	}
 	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
-	targetConn, _, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
+	service.CaptureConversationUpstreamEndpoint(c, info, http.MethodGet, fullRequestURL)
+	targetConn, response, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
+	if response != nil {
+		service.CaptureConversationUpstreamStatus(c, info, response.StatusCode)
+	}
 	if err != nil {
+		service.CaptureConversationUpstreamError(c, info, err)
+		if response != nil {
+			service.CaptureConversationUpstreamResponse(c, info, response)
+			if response.Body != nil {
+				_, _ = io.Copy(io.Discard, response.Body)
+				_ = response.Body.Close()
+			}
+		}
 		return nil, fmt.Errorf("dial failed to %s: %w", common.SanitizeURLForLog(fullRequestURL), err)
 	}
 	// send request body

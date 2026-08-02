@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -206,9 +207,44 @@ func xunfeiMakeRequest(c *gin.Context, info *relaycommon.RelayInfo, textRequest 
 	d := websocket.Dialer{
 		HandshakeTimeout: 5 * time.Second,
 	}
+	service.CaptureConversationUpstreamEndpoint(c, info, http.MethodGet, authUrl)
 	conn, resp, err := d.Dial(authUrl, nil)
-	if err != nil || resp.StatusCode != 101 {
+	if resp != nil {
+		service.CaptureConversationUpstreamStatus(c, info, resp.StatusCode)
+	}
+	if err != nil {
+		service.CaptureConversationUpstreamError(c, info, err)
+		if resp != nil && resp.Body != nil {
+			body, readErr := io.ReadAll(resp.Body)
+			service.CaptureConversationUpstreamBytes(c, info, "response", body)
+			_ = resp.Body.Close()
+			if readErr != nil {
+				return nil, nil, fmt.Errorf("read websocket handshake error response: %w", readErr)
+			}
+		}
 		return nil, nil, err
+	}
+	if resp == nil || resp.StatusCode != http.StatusSwitchingProtocols {
+		if conn != nil {
+			_ = conn.Close()
+		}
+		statusCode := 0
+		if resp != nil {
+			statusCode = resp.StatusCode
+			if resp.Body != nil {
+				body, readErr := io.ReadAll(resp.Body)
+				service.CaptureConversationUpstreamBytes(c, info, "response", body)
+				_ = resp.Body.Close()
+				if readErr != nil {
+					unexpectedErr := fmt.Errorf("read unexpected websocket handshake response: %w", readErr)
+					service.CaptureConversationUpstreamError(c, info, unexpectedErr)
+					return nil, nil, unexpectedErr
+				}
+			}
+		}
+		unexpectedErr := fmt.Errorf("unexpected websocket handshake status %d", statusCode)
+		service.CaptureConversationUpstreamError(c, info, unexpectedErr)
+		return nil, nil, unexpectedErr
 	}
 
 	data := requestOpenAI2Xunfei(textRequest, appId, domain)

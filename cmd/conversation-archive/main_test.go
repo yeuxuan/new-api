@@ -140,6 +140,69 @@ func TestVerifyArchivesDetectsDatabaseManifestDrift(t *testing.T) {
 	require.ErrorContains(t, err, "database manifest does not match immutable record")
 }
 
+func TestVerifyOnlineArchivesAllowsActivePending(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.ConversationArchive{}))
+	previousDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = previousDB })
+
+	store, err := conversationarchive.New(filepath.Join(t.TempDir(), "archive"), conversationarchive.Options{})
+	require.NoError(t, err)
+	record := conversationarchive.Record{
+		ID: "online-verified", RecordedAt: time.Date(2026, 8, 2, 9, 45, 0, 0, time.UTC), Protocol: "openai",
+		Payloads:     map[string][]byte{"client_request": []byte("request"), "client_response": []byte("response")},
+		Metadata:     map[string]string{"request_id": "req-online-verified", "client_status": "200"},
+		Completeness: conversationarchive.Completeness{Complete: true},
+	}
+	result, err := store.Write(record)
+	require.NoError(t, err)
+	manifest := manifestFromRecord(record, result)
+	require.NoError(t, db.Create(&manifest).Error)
+	pending, err := store.BeginPending(conversationarchive.Record{
+		ID: "active-request", RecordedAt: time.Date(2026, 8, 2, 9, 46, 0, 0, time.UTC), Protocol: "openai",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = pending.Preserve(nil, []string{"test_cleanup"}) })
+
+	require.NoError(t, verifyOnlineArchives(options{batchSize: 5}, store))
+	require.ErrorContains(t, verifyArchives(options{batchSize: 5}, store), "unfinished conversation capture")
+}
+
+func TestVerifyArchiveManifestsStopsAtHighWater(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.ConversationArchive{}))
+	previousDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = previousDB })
+	store, err := conversationarchive.New(filepath.Join(t.TempDir(), "archive"), conversationarchive.Options{})
+	require.NoError(t, err)
+
+	writeManifest := func(id string, recordedAt time.Time) model.ConversationArchive {
+		record := conversationarchive.Record{
+			ID: id, RecordedAt: recordedAt, Protocol: "openai",
+			Payloads:     map[string][]byte{"client_request": []byte(id), "client_response": []byte("response")},
+			Metadata:     map[string]string{"request_id": "req-" + id, "client_status": "200"},
+			Completeness: conversationarchive.Completeness{Complete: true},
+		}
+		result, writeErr := store.Write(record)
+		require.NoError(t, writeErr)
+		manifest := manifestFromRecord(record, result)
+		require.NoError(t, db.Create(&manifest).Error)
+		return manifest
+	}
+	first := writeManifest("before-high-water", time.Date(2026, 8, 2, 10, 0, 0, 0, time.UTC))
+	writeManifest("after-high-water", time.Date(2026, 8, 2, 10, 1, 0, 0, time.UTC))
+
+	verified, indexedPaths, err := verifyArchiveManifests(options{batchSize: 1}, store, first.Id)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), verified)
+	assert.Contains(t, indexedPaths, filepath.ToSlash(filepath.Clean(first.RecordPath)))
+	assert.Len(t, indexedPaths, 1)
+}
+
 func TestManifestTreatsMissingPartsAsIncomplete(t *testing.T) {
 	record := conversationarchive.Record{
 		ID: "missing-tail", RecordedAt: time.Now(), Protocol: "openai",

@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +26,27 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+type closeUnblocksArchiveBody struct {
+	started chan struct{}
+	closed  chan struct{}
+	once    sync.Once
+}
+
+func (b *closeUnblocksArchiveBody) Read([]byte) (int, error) {
+	b.once.Do(func() { close(b.started) })
+	<-b.closed
+	return 0, errors.New("body closed")
+}
+
+func (b *closeUnblocksArchiveBody) Close() error {
+	select {
+	case <-b.closed:
+	default:
+		close(b.closed)
+	}
+	return nil
+}
 
 func TestGeneratedMediaFilterRedactsResponsesAndKeepsText(t *testing.T) {
 	payload := []byte(`{"output":[{"type":"message","content":[{"type":"output_text","text":"保留回答"}]},{"type":"image_generation_call","status":"completed","result":"QUJD"}]}`)
@@ -183,6 +206,47 @@ func TestAuxiliaryProviderOperationsAreCapturedSeparately(t *testing.T) {
 	assert.Equal(t, `["assistants=v2"]`, restored.Metadata[operation+"_header_openai_beta"])
 }
 
+func TestCaptureReadCloserCloseUnblocksConcurrentRead(t *testing.T) {
+	body := &closeUnblocksArchiveBody{
+		started: make(chan struct{}),
+		closed:  make(chan struct{}),
+	}
+	capture := &conversationCapture{}
+	reader := &captureReadCloser{
+		ReadCloser: body,
+		capture:    capture,
+		name:       "upstream_attempt_000_response",
+		expected:   -1,
+	}
+	readDone := make(chan error, 1)
+	go func() {
+		_, err := reader.Read(make([]byte, 1))
+		readDone <- err
+	}()
+
+	select {
+	case <-body.started:
+	case <-time.After(time.Second):
+		require.FailNow(t, "underlying read did not start")
+	}
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- reader.Close() }()
+	select {
+	case err := <-closeDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		require.FailNow(t, "Close was blocked behind the active Read")
+	}
+	select {
+	case err := <-readDone:
+		require.ErrorContains(t, err, "body closed")
+	case <-time.After(time.Second):
+		require.FailNow(t, "underlying Read was not unblocked by Close")
+	}
+	require.NoError(t, reader.Close())
+	assert.Contains(t, capture.missing, "upstream_attempt_000_response_not_fully_read")
+}
+
 func TestCustomTransportEndpointKeepsSemanticQueryAndMasksCredentials(t *testing.T) {
 	store, err := conversationarchive.New(filepath.Join(t.TempDir(), "archive"), conversationarchive.Options{})
 	require.NoError(t, err)
@@ -327,4 +391,55 @@ func TestConversationCaptureFinishWritesRestorableRecordBeforeSmallManifest(t *t
 	_, hasRecoveryCopy := restored.Payloads["recovery_raw_client_response"]
 	assert.False(t, hasRecoveryCopy)
 	assert.True(t, restored.Completeness.Complete)
+}
+
+func TestConversationCaptureFinishRecordsAbnormalStreamEnd(t *testing.T) {
+	root := t.TempDir()
+	store, err := conversationarchive.New(root, conversationarchive.Options{})
+	require.NoError(t, err)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.ConversationArchive{}))
+	previousDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = previousDB })
+
+	startedAt := time.Date(2026, 8, 2, 10, 15, 0, 0, time.UTC)
+	pending, err := store.BeginPending(conversationarchive.Record{
+		ID:         "stream-client-gone",
+		RecordedAt: startedAt,
+		Protocol:   string(types.RelayFormatOpenAIResponses),
+	})
+	require.NoError(t, err)
+	require.NoError(t, pending.Append("client_request", []byte(`{"input":"hello"}`)))
+	streamStatus := relaycommon.NewStreamStatus()
+	streamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, errors.New("context canceled"))
+	streamStatus.RecordError("recoverable malformed event")
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"input":"hello"}`))
+	capture := &conversationCapture{
+		pending: pending,
+		info: &relaycommon.RelayInfo{
+			RequestId:    "stream-client-gone",
+			RelayFormat:  types.RelayFormatOpenAIResponses,
+			StartTime:    startedAt,
+			IsStream:     true,
+			StreamStatus: streamStatus,
+		},
+		metadata:  make(map[string]string),
+		startedAt: startedAt,
+	}
+	capture.appendPayload("client_response", []byte("partial"))
+
+	require.NoError(t, capture.Finish(ctx, nil))
+	var manifest model.ConversationArchive
+	require.NoError(t, db.First(&manifest).Error)
+	assert.False(t, manifest.Complete)
+	restored, _, err := store.Restore(manifest.RecordPath)
+	require.NoError(t, err)
+	assert.Equal(t, "client_gone", restored.Metadata["stream_end_reason"])
+	assert.Equal(t, "context canceled", restored.Metadata["stream_end_error"])
+	assert.Equal(t, "1", restored.Metadata["stream_soft_error_count"])
+	assert.Contains(t, restored.Completeness.Missing, "stream_client_gone")
 }

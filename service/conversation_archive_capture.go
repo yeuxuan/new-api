@@ -317,40 +317,50 @@ func (c *conversationCapture) appendMissingLocked(reason string) {
 }
 
 type captureReadCloser struct {
-	mu sync.Mutex
+	readMu sync.Mutex
+	mu     sync.Mutex
 	io.ReadCloser
-	capture  *conversationCapture
-	name     string
-	expected int64
-	read     int64
-	complete bool
+	capture   *conversationCapture
+	name      string
+	expected  int64
+	read      int64
+	complete  bool
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func (r *captureReadCloser) Read(data []byte) (int, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	// A response body must allow Close to unblock a concurrent Read. Never hold
+	// the state mutex while calling the underlying transport body.
+	r.readMu.Lock()
 	n, err := r.ReadCloser.Read(data)
+	r.readMu.Unlock()
 	if n > 0 {
 		r.capture.appendPayload(r.name, data[:n])
-		r.read += int64(n)
 	}
+	r.mu.Lock()
+	r.read += int64(n)
 	if err == io.EOF || (r.expected >= 0 && r.read >= r.expected) {
 		r.complete = true
 	}
+	r.mu.Unlock()
 	return n, err
 }
 
 func (r *captureReadCloser) Close() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if !r.complete {
-		r.capture.appendMissing(r.name + "_not_fully_read")
-	}
-	err := r.ReadCloser.Close()
-	if err != nil {
-		r.capture.appendMissing(r.name + "_close_failed")
-	}
-	return err
+	r.closeOnce.Do(func() {
+		r.mu.Lock()
+		complete := r.complete
+		r.mu.Unlock()
+		if !complete {
+			r.capture.appendMissing(r.name + "_not_fully_read")
+		}
+		r.closeErr = r.ReadCloser.Close()
+		if r.closeErr != nil {
+			r.capture.appendMissing(r.name + "_close_failed")
+		}
+	})
+	return r.closeErr
 }
 
 // CaptureConversationUpstreamRequest wraps the actual body handed to the HTTP
@@ -743,6 +753,31 @@ func (c *conversationCapture) Finish(ctx *gin.Context, relayErr *types.NewAPIErr
 	metadata["completed_at"] = completedAt.UTC().Format(time.RFC3339Nano)
 	metadata["client_status"] = strconv.Itoa(ctx.Writer.Status())
 	metadata["training_consent"] = "unknown"
+	if info.IsStream && info.StreamStatus != nil {
+		endReason := info.StreamStatus.EndReason
+		if endReason != relaycommon.StreamEndReasonNone {
+			metadata["stream_end_reason"] = string(endReason)
+			if !info.StreamStatus.IsNormalEnd() {
+				missingReason := "stream_" + string(endReason)
+				found := false
+				for _, existing := range missing {
+					if existing == missingReason {
+						found = true
+						break
+					}
+				}
+				if !found {
+					missing = append(missing, missingReason)
+				}
+			}
+		}
+		if info.StreamStatus.EndError != nil {
+			metadata["stream_end_error"] = common.LocalLogPreview(info.StreamStatus.EndError.Error())
+		}
+		if errorCount := info.StreamStatus.TotalErrorCount(); errorCount > 0 {
+			metadata["stream_soft_error_count"] = strconv.Itoa(errorCount)
+		}
+	}
 	if mediaOmitted > 0 {
 		metadata["generated_media_omissions"] = generatedMediaMetadata(mediaOmitted)
 	}

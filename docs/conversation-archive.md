@@ -46,7 +46,7 @@ CONVERSATION_LOG_BLOB_THRESHOLD_BYTES=65536
 CONVERSATION_LOG_MIN_FREE_BYTES=10737418240
 ```
 
-生产环境必须把 `CONVERSATION_LOG_HOST_PATH` 设置为宿主机独立数据盘上的真实目录，并让 `CONVERSATION_LOG_STORAGE_PATH` 与 Compose 的容器内 `target` 保持一致。宿主机目录需要预先创建 sentinel 普通文件。服务启动和每一次写入前都会检查 sentinel；运行中挂载丢失后会立即停止归档，防止悄悄写回系统盘。归档根目录拒绝 `/` 等过宽路径和末级符号链接。Compose 使用 `create_host_path: false`，宿主机目录缺失时不会自动在系统盘创建替代目录。可用空间低于安全预留值时，新会话会在访问上游前返回 503；这样会牺牲新请求可用性，但不会让数据库和系统盘随归档盘一起崩溃。
+生产环境必须把 `CONVERSATION_LOG_HOST_PATH` 设置为宿主机独立数据盘上的真实目录；Compose 不提供系统盘 fallback，变量缺失会直接拒绝启动。`CONVERSATION_LOG_STORAGE_PATH` 同时控制 bind mount 的容器内 `target` 和应用配置，默认 `/data/conversation-archive`；sentinel 名称和空间阈值也可由同名环境变量覆盖。部署命令必须从 Compose 目录执行，或显式传入 `--env-file`，避免读取错误的环境文件。宿主机目录需要预先创建 sentinel 普通文件。服务启动和每一次写入前都会检查 sentinel；运行中挂载丢失后会立即停止归档，防止悄悄写回系统盘。归档根目录拒绝 `/` 等过宽路径和末级符号链接。Compose 使用 `create_host_path: false`，宿主机目录缺失时不会自动在系统盘创建替代目录。可用空间低于安全预留值时，新会话会在访问上游前返回 503；这样会牺牲新请求可用性，但不会让数据库和系统盘随归档盘一起崩溃。
 
 ## 历史迁移、校验与训练导出
 
@@ -59,6 +59,10 @@ CONVERSATION_LOG_MIN_FREE_BYTES=10737418240
 # 逐条恢复并核对数据库 manifest 中的 SHA-256
 /conversation-archive -mode verify -root /data/conversation-archive -batch-size 20
 
+# 网关持续有流量时，固定 conversation_archives 的 ID 高水位并校验该快照；
+# 活跃 pending 和高水位后的新记录只计数，不会被误报为损坏
+/conversation-archive -mode verify-online -root /data/conversation-archive -batch-size 100
+
 # 停止网关写入后，恢复进程中断留下的 pending（捕获中断会标记 complete=false），并重建缺失索引
 /conversation-archive -mode recover -root /data/conversation-archive
 
@@ -70,7 +74,9 @@ CONVERSATION_LOG_MIN_FREE_BYTES=10737418240
   -output /data/conversation-archive/exports/training-raw.jsonl.gz -batch-size 20
 ```
 
-迁移记录使用稳定文件名，checkpoint 每完成一条才原子推进；重新运行会逐字节核对当前源行，既不会重复制造文件，也不会把源数据变化当作成功。所有归档工具命令由根目录维护锁串行化，每个 pending 另有跨进程排他锁；`recover` 遇到仍在写入的会话会拒绝处理，避免并发命令或活跃流互相覆盖、截断或误删。`verify` 同时检查未完成 pending、数据库 manifest 与不可变 record 的全部索引字段、没有数据库索引的正式文件、未被任何 record 引用的 blob，以及崩溃遗留的临时文件；它只报告问题，不自动删除。导出会先执行同等全量校验，再固定数据库 ID 高水位并逐条复核，避免在线增长造成无界导出或索引漂移；输出只能写到归档根目录下的 `exports/`，通过不可覆盖的原子发布拒绝同名文件，并在每批数据前复核剩余容量。
+迁移记录使用稳定文件名，checkpoint 每完成一条才原子推进；重新运行会逐字节核对当前源行，既不会重复制造文件，也不会把源数据变化当作成功。所有归档工具命令由根目录维护锁串行化，每个 pending 另有跨进程排他锁；`recover` 遇到仍在写入的会话会拒绝处理，避免并发命令或活跃流互相覆盖、截断或误删。`verify-online` 适合生产持续写入期间的日常巡检：它先固定数据库 ID 高水位，再逐条恢复并核对该快照内 manifest、record、SHA-256 和所有引用 blob，同时报告开始校验时的活跃 pending 数量；它不会把高水位后的新记录或正在写入的 pending 当作损坏。严格的 `verify` 用于维护窗口，会额外要求 pending 清零，并检查没有索引的正式文件、未被任何 record 引用的 blob 和崩溃遗留临时文件；两种校验都只报告问题，不自动删除。导出会先执行同等全量严格校验，再固定数据库 ID 高水位并逐条复核，避免在线增长造成无界导出或索引漂移；输出只能写到归档根目录下的 `exports/`，通过不可覆盖的原子发布拒绝同名文件，并在每批数据前复核剩余容量。
+
+流式客户端在上游响应结束前断开时，网关会保存已实际读取的全部字节，并把记录标记为 `complete=false`，`missing` 中写入 `*_response_not_fully_read` 和 `stream_client_gone`，元数据保留流结束原因、错误摘要和软错误数。关闭响应体会并发打断阻塞读取，不会因归档锁导致请求清理卡死。这不是静默损坏；训练清洗必须默认排除 `complete=false`，只有人工确认用途后才能纳入。
 
 导出的 JSONL 只是协议中立、可追溯的原始语料层，不是可直接训练的数据集。后续训练流水线仍需做授权筛选、去隐私、去重、质量过滤、跨协议标准化，并按 `complete`、`missing`、用户授权状态、时间和模型等字段筛选。
 

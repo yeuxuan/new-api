@@ -51,7 +51,7 @@ type trainingExportRow struct {
 
 func main() {
 	var cfg options
-	flag.StringVar(&cfg.mode, "mode", "verify", "operation: migrate, recover, verify, reindex, or export")
+	flag.StringVar(&cfg.mode, "mode", "verify", "operation: migrate, recover, verify, verify-online, reindex, or export")
 	flag.StringVar(&cfg.root, "root", "", "conversation archive root; defaults to CONVERSATION_LOG_STORAGE_PATH")
 	flag.StringVar(&cfg.checkpoint, "checkpoint", "", "legacy migration checkpoint path")
 	flag.StringVar(&cfg.output, "output", "", "export .jsonl.gz output path")
@@ -110,6 +110,8 @@ func main() {
 		err = migrateLegacy(cfg, store)
 	case "verify":
 		err = verifyArchives(cfg, store)
+	case "verify-online":
+		err = verifyOnlineArchives(cfg, store)
 	case "recover":
 		var recovered []conversationarchive.Result
 		recovered, err = store.RecoverPending()
@@ -260,34 +262,15 @@ func verifyArchives(cfg options, store *conversationarchive.Store) error {
 	if len(pending) > 0 {
 		return fmt.Errorf("found %d unfinished conversation capture(s), first=%s", len(pending), pending[0])
 	}
-	var afterID int64
-	var verified int64
-	indexedPaths := make(map[string]struct{})
-	for {
-		var manifests []model.ConversationArchive
-		if err := model.DB.Where("id > ?", afterID).Order("id ASC").Limit(cfg.batchSize).Find(&manifests).Error; err != nil {
-			return fmt.Errorf("read archive manifests: %w", err)
-		}
-		if len(manifests) == 0 {
-			break
-		}
-		for _, manifest := range manifests {
-			record, result, err := store.Restore(manifest.RecordPath)
-			if err != nil {
-				return fmt.Errorf("restore archive %s: %w", manifest.ArchiveId, err)
-			}
-			if result.SHA256 != manifest.RecordSha256 {
-				return fmt.Errorf("archive %s checksum mismatch: manifest=%s restored=%s", manifest.ArchiveId, manifest.RecordSha256, result.SHA256)
-			}
-			expected := manifestFromRecord(record, result)
-			if !sameArchiveManifest(manifest, expected) {
-				return fmt.Errorf("archive %s database manifest does not match immutable record; manual review is required because reindex only rebuilds missing rows", manifest.ArchiveId)
-			}
-			afterID = manifest.Id
-			verified++
-			indexedPaths[filepath.ToSlash(filepath.Clean(manifest.RecordPath))] = struct{}{}
-		}
+	highWaterID, err := conversationArchiveHighWaterID()
+	if err != nil {
+		return err
 	}
+	verified, indexedPaths, err := verifyArchiveManifests(cfg, store, highWaterID)
+	if err != nil {
+		return err
+	}
+
 	recordPaths, err := store.RecordPaths()
 	if err != nil {
 		return fmt.Errorf("enumerate conversation archive records: %w", err)
@@ -313,6 +296,67 @@ func verifyArchives(cfg options, store *conversationarchive.Store) error {
 	}
 	fmt.Printf("verified archives=%d\n", verified)
 	return nil
+}
+
+// verifyOnlineArchives validates a fixed database high-water mark while the
+// gateway continues accepting traffic. It deliberately does not treat active
+// pending captures or newer immutable files as corruption; the strict verify
+// mode remains the maintenance-window check for global orphan/transient files.
+func verifyOnlineArchives(cfg options, store *conversationarchive.Store) error {
+	highWaterID, err := conversationArchiveHighWaterID()
+	if err != nil {
+		return err
+	}
+	pending, err := store.PendingPaths()
+	if err != nil {
+		return fmt.Errorf("inspect active archive captures: %w", err)
+	}
+	verified, _, err := verifyArchiveManifests(cfg, store, highWaterID)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("verified online archives=%d high_water_id=%d active_pending=%d\n", verified, highWaterID, len(pending))
+	return nil
+}
+
+func conversationArchiveHighWaterID() (int64, error) {
+	var highWaterID int64
+	if err := model.DB.Model(&model.ConversationArchive{}).Select("COALESCE(MAX(id), 0)").Scan(&highWaterID).Error; err != nil {
+		return 0, fmt.Errorf("snapshot conversation archive high-water id: %w", err)
+	}
+	return highWaterID, nil
+}
+
+func verifyArchiveManifests(cfg options, store *conversationarchive.Store, highWaterID int64) (int64, map[string]struct{}, error) {
+	var afterID int64
+	var verified int64
+	indexedPaths := make(map[string]struct{})
+	for {
+		var manifests []model.ConversationArchive
+		if err := model.DB.Where("id > ? AND id <= ?", afterID, highWaterID).Order("id ASC").Limit(cfg.batchSize).Find(&manifests).Error; err != nil {
+			return 0, nil, fmt.Errorf("read archive manifests: %w", err)
+		}
+		if len(manifests) == 0 {
+			break
+		}
+		for _, manifest := range manifests {
+			record, result, err := store.Restore(manifest.RecordPath)
+			if err != nil {
+				return 0, nil, fmt.Errorf("restore archive %s: %w", manifest.ArchiveId, err)
+			}
+			if result.SHA256 != manifest.RecordSha256 {
+				return 0, nil, fmt.Errorf("archive %s checksum mismatch: manifest=%s restored=%s", manifest.ArchiveId, manifest.RecordSha256, result.SHA256)
+			}
+			expected := manifestFromRecord(record, result)
+			if !sameArchiveManifest(manifest, expected) {
+				return 0, nil, fmt.Errorf("archive %s database manifest does not match immutable record; manual review is required because reindex only rebuilds missing rows", manifest.ArchiveId)
+			}
+			afterID = manifest.Id
+			verified++
+			indexedPaths[filepath.ToSlash(filepath.Clean(manifest.RecordPath))] = struct{}{}
+		}
+	}
+	return verified, indexedPaths, nil
 }
 
 func reindexArchives(store *conversationarchive.Store) error {

@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -179,6 +180,47 @@ func TestModelPriceHelperTieredRejectsPreConsumeOverflow(t *testing.T) {
 	require.ErrorAs(t, err, &clamp)
 	require.Equal(t, "QuotaRound", clamp.Op)
 	require.Equal(t, common.QuotaClampOverflow, clamp.Kind)
+}
+
+func TestModelPriceHelperPerCallTieredUsesRequestParameters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+	})
+
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":    `{"seedance-task-model":"tiered_expr"}`,
+		"billing_setting.billing_expr":    `{"seedance-task-model":"tier(\"base\", (param(\"duration\") == nil ? 0 : param(\"duration\")) * (param(\"resolution\") == \"720p\" ? 0.7 : 0.35) / 7.3 * 1000000)"}`,
+		"group_ratio_setting.group_ratio": `{"default":1}`,
+	}))
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/tasks", nil)
+	ctx.Set("group", "default")
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "seedance-task-model",
+		UserGroup:       "default",
+		UsingGroup:      "default",
+		BillingRequestInput: &billingexpr.RequestInput{
+			Body: []byte(`{"duration":4,"resolution":"720p"}`),
+		},
+	}
+
+	priceData, err := ModelPriceHelperPerCall(ctx, info)
+
+	require.NoError(t, err)
+	assert.Equal(t, 191781, priceData.Quota)
+	assert.Equal(t, priceData.Quota, priceData.QuotaToPreConsume)
+	require.NotNil(t, info.TieredBillingSnapshot)
+	assert.Equal(t, 0, info.TieredBillingSnapshot.EstimatedCompletionTokens)
+	assert.Equal(t, "base", info.TieredBillingSnapshot.EstimatedTier)
 }
 
 func TestModelPriceHelperRequestBillingRatiosOnlyApplyToFixedPrice(t *testing.T) {

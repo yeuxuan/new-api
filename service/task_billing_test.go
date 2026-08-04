@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/glebarez/sqlite"
@@ -214,6 +215,21 @@ func TestTaskBillingOtherFiltersHistoricalOtherRatios(t *testing.T) {
 	assert.NotContains(t, other, "negative")
 	assert.NotContains(t, other, "nan")
 	assert.NotContains(t, other, "inf")
+}
+
+func TestTaskBillingOtherIncludesTieredSnapshot(t *testing.T) {
+	task := makeTask(1, 1, 100, 0, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext.TieredBillingSnapshot = &billingexpr.BillingSnapshot{
+		BillingMode:   "tiered_expr",
+		ExprString:    `tier("base", p * 2)`,
+		EstimatedTier: "base",
+	}
+
+	other := taskBillingOther(task)
+
+	assert.Equal(t, "tiered_expr", other["billing_mode"])
+	assert.Equal(t, "base", other["matched_tier"])
+	assert.Equal(t, "dGllcigiYmFzZSIsIHAgKiAyKQ==", other["expr_b64"])
 }
 
 func TestTaskBillingContextPriceDataFiltersMultiplier(t *testing.T) {

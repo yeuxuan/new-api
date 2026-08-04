@@ -51,6 +51,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		other["is_model_mapped"] = true
 		other["upstream_model_name"] = info.UpstreamModelName
 	}
+	InjectTieredBillingInfo(other, info, nil)
 	attachQuotaSaturation(c, info, other)
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 		ChannelId: info.ChannelId,
@@ -131,6 +132,9 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 			for k, v := range priceData.OtherRatios() {
 				other[k] = v
 			}
+		}
+		if snap := bc.TieredBillingSnapshot; snap != nil {
+			injectTieredBillingSnapshot(other, snap, snap.EstimatedTier)
 		}
 	}
 	props := task.Properties

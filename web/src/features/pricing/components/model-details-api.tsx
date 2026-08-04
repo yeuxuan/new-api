@@ -20,6 +20,7 @@ import {
   ChevronRight,
   Gauge,
   KeyRound,
+  ListChecks,
   ScrollText,
   Sigma,
   Zap,
@@ -47,6 +48,10 @@ import {
   type SupportedParameter,
 } from '../lib/mock-stats'
 import { replaceModelInPath } from '../lib/model-helpers'
+import {
+  buildVideoTaskSample,
+  getSeedanceVideoDocumentation,
+} from '../lib/video-api-docs'
 import type { PricingModel } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -109,7 +114,7 @@ function buildChatSample(lang: Lang, ctx: SampleContext): string {
       `curl ${url} \\`,
       `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
       `  -H "Content-Type: application/json" \\`,
-      `  -d '${bodyJson.replace(/\n/g, '\n     ')}'`,
+      `  -d '${bodyJson.replaceAll('\n', '\n     ')}'`,
     ].join('\n')
   }
 
@@ -177,7 +182,7 @@ function buildAnthropicSample(lang: Lang, ctx: SampleContext): string {
       `  -H "x-api-key: $${ctx.apiKeyEnv}" \\`,
       `  -H "anthropic-version: 2023-06-01" \\`,
       `  -H "Content-Type: application/json" \\`,
-      `  -d '${body.replace(/\n/g, '\n     ')}'`,
+      `  -d '${body.replaceAll('\n', '\n     ')}'`,
     ].join('\n')
   }
   if (lang === 'python') {
@@ -249,7 +254,7 @@ function buildGeminiSample(lang: Lang, ctx: SampleContext): string {
     return [
       `curl '${url}' \\`,
       `  -H 'Content-Type: application/json' \\`,
-      `  -d '${body.replace(/\n/g, '\n     ')}'`,
+      `  -d '${body.replaceAll('\n', '\n     ')}'`,
     ].join('\n')
   }
   if (lang === 'python') {
@@ -299,7 +304,7 @@ function buildEmbeddingSample(lang: Lang, ctx: SampleContext): string {
       `curl ${url} \\`,
       `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
       `  -H "Content-Type: application/json" \\`,
-      `  -d '${body.replace(/\n/g, '\n     ')}'`,
+      `  -d '${body.replaceAll('\n', '\n     ')}'`,
     ].join('\n')
   }
   if (lang === 'python') {
@@ -365,7 +370,7 @@ function buildImageSample(lang: Lang, ctx: SampleContext): string {
       `curl ${url} \\`,
       `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
       `  -H "Content-Type: application/json" \\`,
-      `  -d '${body.replace(/\n/g, '\n     ')}'`,
+      `  -d '${body.replaceAll('\n', '\n     ')}'`,
     ].join('\n')
   }
   if (lang === 'python') {
@@ -430,9 +435,19 @@ function buildSample(
 ): string {
   if (endpointType === 'anthropic') return buildAnthropicSample(lang, ctx)
   if (endpointType === 'gemini') return buildGeminiSample(lang, ctx)
-  if (endpointType === 'embeddings' || endpointType === 'jina-rerank')
+  if (endpointType === 'embeddings' || endpointType === 'jina-rerank') {
     return buildEmbeddingSample(lang, ctx)
+  }
   if (endpointType === 'image-generation') return buildImageSample(lang, ctx)
+  if (endpointType === 'openai-video') {
+    return buildVideoTaskSample(
+      lang,
+      ctx.baseUrl,
+      ctx.apiKeyEnv,
+      ctx.modelName,
+      ctx.endpointPath
+    )
+  }
   return buildChatSample(lang, ctx)
 }
 
@@ -624,6 +639,64 @@ function SupportedParametersSection(props: { model: PricingModel }) {
   )
 }
 
+function VideoTaskWorkflowSection(props: { model: PricingModel }) {
+  const { t } = useTranslation()
+  const pollingSeconds =
+    getSeedanceVideoDocumentation(props.model.model_name)?.pollingSeconds ?? 10
+  const steps = [
+    {
+      method: 'POST',
+      path: '/v1/tasks',
+      label: t('Create a video task'),
+    },
+    {
+      method: 'GET',
+      path: '/v1/tasks/{task_id}',
+      label: t('Poll task status every {{seconds}} seconds', {
+        seconds: pollingSeconds,
+      }),
+    },
+    {
+      method: 'GET',
+      path: '/v1/videos/{task_id}/content',
+      label: t('Download the completed video'),
+    },
+  ]
+
+  return (
+    <section>
+      <SectionTitle icon={ListChecks}>{t('Async task workflow')}</SectionTitle>
+      <div className='border-border/60 divide-border/60 overflow-hidden rounded-lg border'>
+        {steps.map((step, index) => (
+          <div
+            key={step.path}
+            className='bg-muted/10 flex flex-wrap items-center gap-2 border-b px-3 py-2.5 last:border-b-0'
+          >
+            <span className='text-muted-foreground w-4 text-xs tabular-nums'>
+              {index + 1}
+            </span>
+            <Badge
+              variant='secondary'
+              className='w-14 justify-center font-mono'
+            >
+              {step.method}
+            </Badge>
+            <code className='font-mono text-xs'>{step.path}</code>
+            <span className='text-muted-foreground ml-auto text-xs'>
+              {step.label}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className='text-muted-foreground mt-2 text-xs'>
+        {t(
+          'Keep polling while the task is queued or in progress; stop when it is completed or failed.'
+        )}
+      </p>
+    </section>
+  )
+}
+
 function ParamRangeCell(props: { param: SupportedParameter }) {
   const { defaultValue, range, enumValues } = props.param
   if (defaultValue !== undefined) {
@@ -636,6 +709,14 @@ function ParamRangeCell(props: { param: SupportedParameter }) {
         {range && (
           <span className='text-muted-foreground text-sm'>{range}</span>
         )}
+        {enumValues?.map((value) => (
+          <code
+            key={value}
+            className='bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-sm'
+          >
+            {value}
+          </code>
+        ))}
       </div>
     )
   }
@@ -762,9 +843,13 @@ export function ModelDetailsApi(props: {
   model: PricingModel
   endpointMap: Record<string, { path?: string; method?: string }>
 }) {
+  const hasVideoTaskEndpoint =
+    props.model.supported_endpoint_types?.includes('openai-video') ?? false
+
   return (
     <div className='space-y-6'>
       <CodeSamplesSection model={props.model} endpointMap={props.endpointMap} />
+      {hasVideoTaskEndpoint && <VideoTaskWorkflowSection model={props.model} />}
       <AuthSection />
       <SupportedParametersSection model={props.model} />
       <RateLimitsSection model={props.model} />

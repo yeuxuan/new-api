@@ -23,6 +23,7 @@ import {
   randomIntInRange,
   seededRandom,
 } from './seed'
+import { getSeedanceVideoDocumentation } from './video-api-docs'
 
 // ----------------------------------------------------------------------------
 // Mock model statistics
@@ -315,8 +316,7 @@ export function buildGroupPerformance(model: PricingModel): GroupPerformance[] {
   const spec = PROFILE_SPECS[profile]
   const baseSeed = hashStringToSeed(model.model_name)
 
-  return targets
-    .slice()
+  return [...targets]
     .sort((a, b) => a.localeCompare(b))
     .map<GroupPerformance>((group) => {
       const rand = seededRandom(baseSeed ^ hashStringToSeed(group))
@@ -772,6 +772,8 @@ type ApiCategory = 'reasoning' | 'embedding' | 'image' | 'video' | 'chat'
  * need to distinguish them so the request-parameter table is accurate.
  */
 function apiCategoryOf(model: PricingModel): ApiCategory {
+  if (model.supported_endpoint_types?.includes('openai-video')) return 'video'
+
   const profile = PROFILE_BY_NAME(model.model_name)
   if (profile === 'embedding' || profile === 'reasoning') return profile
   if (profile === 'image') {
@@ -794,7 +796,12 @@ export function buildSupportedParameters(
   if (cat === 'reasoning') return REASONING_PARAMS
   if (cat === 'embedding') return EMBEDDING_PARAMS
   if (cat === 'image') return IMAGE_PARAMS
-  if (cat === 'video') return VIDEO_PARAMS
+  if (cat === 'video') {
+    return (
+      getSeedanceVideoDocumentation(model.model_name)?.parameters ??
+      VIDEO_PARAMS
+    )
+  }
   return COMMON_CHAT_PARAMS
 }
 
@@ -813,12 +820,20 @@ export function buildRateLimits(model: PricingModel): RateLimit[] {
   const baseSeed = hashStringToSeed(`${model.model_name}:rl`)
   const isHeavy = cat === 'image' || cat === 'video'
   const isLight = cat === 'embedding'
-  const baseRpm = isHeavy ? 60 : isLight ? 5_000 : 500
-  const baseTpm = isHeavy ? 0 : isLight ? 1_000_000 : 200_000
-  const baseRpd = isHeavy ? 1_000 : isLight ? 100_000 : 10_000
+  let baseRpm = 500
+  let baseTpm = 200_000
+  let baseRpd = 10_000
+  if (isHeavy) {
+    baseRpm = 60
+    baseTpm = 0
+    baseRpd = 1_000
+  } else if (isLight) {
+    baseRpm = 5_000
+    baseTpm = 1_000_000
+    baseRpd = 100_000
+  }
 
-  return targets
-    .slice()
+  return [...targets]
     .sort((a, b) => a.localeCompare(b))
     .map((group) => {
       const rand = seededRandom(baseSeed ^ hashStringToSeed(group))
@@ -836,7 +851,8 @@ export function buildRateLimits(model: PricingModel): RateLimit[] {
 export function formatRateLimit(value: number): string {
   if (value <= 0) return '—'
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000)
+  if (value >= 1_000) {
     return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`
+  }
   return value.toLocaleString()
 }

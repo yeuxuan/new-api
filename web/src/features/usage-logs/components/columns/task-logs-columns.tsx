@@ -90,6 +90,83 @@ function AudioPreviewCell({ log }: { log: TaskLog }) {
   )
 }
 
+type TaskDetailsCellProps = {
+  log: TaskLog
+}
+
+export function TaskDetailsCell(props: TaskDetailsCellProps) {
+  const { t } = useTranslation()
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const log = props.log
+  const failReason = log.fail_reason?.trim() ?? ''
+  const status = log.status
+
+  const isSunoSuccess =
+    log.platform === 'suno' && status === TASK_STATUS.SUCCESS
+  if (isSunoSuccess) {
+    const data = parseTaskData(log.data)
+    if (
+      data.some(
+        (c) =>
+          c && typeof c === 'object' && (c as Record<string, unknown>).audio_url
+      )
+    ) {
+      return <AudioPreviewCell log={log} />
+    }
+  }
+
+  const isVideoTask =
+    log.action === TASK_ACTIONS.GENERATE ||
+    log.action === TASK_ACTIONS.TEXT_GENERATE ||
+    log.action === TASK_ACTIONS.FIRST_TAIL_GENERATE ||
+    log.action === TASK_ACTIONS.REFERENCE_GENERATE ||
+    log.action === TASK_ACTIONS.REMIX_GENERATE
+  const isSuccess = status === TASK_STATUS.SUCCESS
+  const hasLegacyResultUrl =
+    failReason.startsWith('http') || failReason.startsWith('data:')
+  const resultUrl =
+    log.result_url?.trim() || (hasLegacyResultUrl ? failReason : '')
+
+  if (isSuccess && isVideoTask && resultUrl && log.task_id) {
+    const videoUrl = `/v1/videos/${encodeURIComponent(log.task_id)}/content`
+    return (
+      <a
+        href={videoUrl}
+        target='_blank'
+        rel='noopener noreferrer'
+        aria-label={t('View result')}
+        className='text-foreground text-xs font-medium hover:underline'
+      >
+        {t('View result')}
+      </a>
+    )
+  }
+
+  if (!failReason) {
+    return <span className='text-muted-foreground/60 text-xs'>-</span>
+  }
+
+  return (
+    <>
+      <button
+        type='button'
+        className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
+        onClick={() => setDialogOpen(true)}
+        title={t('Click to view full error message')}
+      >
+        <span className='truncate leading-snug text-red-600 group-hover:underline dark:text-red-400'>
+          {failReason}
+        </span>
+      </button>
+      <FailReasonDialog
+        failReason={failReason}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+      />
+    </>
+  )
+}
+
 export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
   const { t } = useTranslation()
   const columns: ColumnDef<TaskLog>[] = [
@@ -216,75 +293,7 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
     {
       accessorKey: 'fail_reason',
       header: t('Details'),
-      cell: function DetailsCell({ row }) {
-        const log = row.original
-        const failReason = row.getValue('fail_reason') as string
-        const status = log.status
-        const [dialogOpen, setDialogOpen] = useState(false)
-
-        const isSunoSuccess =
-          log.platform === 'suno' && status === TASK_STATUS.SUCCESS
-        if (isSunoSuccess) {
-          const data = parseTaskData(log.data)
-          if (
-            data.some(
-              (c) =>
-                c &&
-                typeof c === 'object' &&
-                (c as Record<string, unknown>).audio_url
-            )
-          ) {
-            return <AudioPreviewCell log={log} />
-          }
-        }
-
-        const isVideoTask =
-          log.action === TASK_ACTIONS.GENERATE ||
-          log.action === TASK_ACTIONS.TEXT_GENERATE ||
-          log.action === TASK_ACTIONS.FIRST_TAIL_GENERATE ||
-          log.action === TASK_ACTIONS.REFERENCE_GENERATE ||
-          log.action === TASK_ACTIONS.REMIX_GENERATE
-        const isSuccess = status === TASK_STATUS.SUCCESS
-        const isUrl = failReason?.startsWith('http')
-
-        if (isSuccess && isVideoTask && isUrl) {
-          const videoUrl = `/v1/videos/${log.task_id}/content`
-          return (
-            <a
-              href={videoUrl}
-              target='_blank'
-              rel='noopener noreferrer'
-              className='text-foreground text-xs hover:underline'
-            >
-              {t('Click to preview video')}
-            </a>
-          )
-        }
-
-        if (!failReason) {
-          return <span className='text-muted-foreground/60 text-xs'>-</span>
-        }
-
-        return (
-          <>
-            <button
-              type='button'
-              className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
-              onClick={() => setDialogOpen(true)}
-              title={t('Click to view full error message')}
-            >
-              <span className='truncate leading-snug text-red-600 group-hover:underline dark:text-red-400'>
-                {failReason}
-              </span>
-            </button>
-            <FailReasonDialog
-              failReason={failReason}
-              open={dialogOpen}
-              onOpenChange={setDialogOpen}
-            />
-          </>
-        )
-      },
+      cell: ({ row }) => <TaskDetailsCell log={row.original} />,
       size: 200,
       maxSize: 220,
     }

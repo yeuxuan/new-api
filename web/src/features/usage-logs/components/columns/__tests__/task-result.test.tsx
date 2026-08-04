@@ -51,6 +51,8 @@ const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
+const { api } = await import('@/lib/http-client')
+const { useAuthStore } = await import('@/stores/auth-store')
 const { TaskDetailsCell } = await import('../task-logs-columns')
 
 const i18n = createInstance()
@@ -112,25 +114,82 @@ describe('task log result details', () => {
     domWindow.close()
   })
 
-  test('shows the authenticated result link when a completed video task has result_url', async () => {
+  test('fetches a completed video result with dashboard authentication before opening it', async () => {
+    useAuthStore.getState().auth.setBundle({
+      access_token: 'dashboard-session-token',
+      token_type: 'Bearer',
+      access_expires_at: 2_000_000_000,
+      user: { id: 1, username: 'root', role: 100 },
+      session: {
+        sid: 'test-session',
+        current: true,
+        login_method: 'password',
+        ip: '127.0.0.1',
+        user_agent: 'test',
+        created_at: 1,
+        last_active_at: 1,
+        expires_at: 2_000_000_000,
+      },
+    })
+
+    let requestUrl = ''
+    let requestAuthorization = ''
+    let responseType = ''
+    const originalAdapter = api.defaults.adapter
+    api.defaults.adapter = async (config) => {
+      requestUrl = config.url ?? ''
+      requestAuthorization = String(config.headers.Authorization ?? '')
+      responseType = config.responseType ?? ''
+      return {
+        data: new Blob(['video'], { type: 'video/mp4' }),
+        status: 200,
+        statusText: 'OK',
+        headers: { 'content-type': 'video/mp4' },
+        config,
+      }
+    }
+
+    const popup = {
+      closed: false,
+      location: { href: '' },
+      opener: window,
+      close() {
+        this.closed = true
+      },
+    }
+    const originalOpen = window.open
+    window.open = () => popup as unknown as ReturnType<typeof window.open>
+    const originalCreateObjectURL = URL.createObjectURL
+    URL.createObjectURL = () => 'blob:authenticated-video-result'
+
     const rendered = await renderDetails(
       createTaskLog({ result_url: 'https://upstream.example/result.mp4' })
     )
 
-    const link = rendered.container.querySelector('a')
-    assert.ok(link)
-    assert.equal(link.textContent, 'View result')
-    assert.equal(
-      link.getAttribute('href'),
-      '/v1/videos/task_result%2Fwith%20space/content'
-    )
-    assert.equal(link.getAttribute('target'), '_blank')
+    const button = rendered.container.querySelector('button')
+    assert.ok(button)
+    assert.equal(button.textContent, 'View result')
+
+    await act(async () => {
+      button.click()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    assert.equal(requestUrl, '/v1/videos/task_result%2Fwith%20space/content')
+    assert.equal(requestAuthorization, 'Bearer dashboard-session-token')
+    assert.equal(responseType, 'blob')
+    assert.equal(popup.opener, null)
+    assert.equal(popup.location.href, 'blob:authenticated-video-result')
     assert.equal(
       rendered.container.textContent?.includes('upstream.example'),
       false
     )
 
     await unmountDetails(rendered)
+    api.defaults.adapter = originalAdapter
+    window.open = originalOpen
+    URL.createObjectURL = originalCreateObjectURL
+    useAuthStore.getState().auth.reset()
   })
 
   test('does not show a result link before a video result is available', async () => {
@@ -138,7 +197,7 @@ describe('task log result details', () => {
       createTaskLog({ status: 'IN_PROGRESS' })
     )
 
-    assert.equal(rendered.container.querySelector('a'), null)
+    assert.equal(rendered.container.querySelector('button'), null)
     assert.equal(rendered.container.textContent, '-')
 
     await unmountDetails(rendered)

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { ColumnDef } from '@tanstack/react-table'
-import { Music } from 'lucide-react'
+import { LoaderCircle, Music } from 'lucide-react'
 /* eslint-disable react-refresh/only-export-components */
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -26,6 +26,7 @@ import { StatusBadge } from '@/components/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatTimestampToDate } from '@/lib/format'
+import { api } from '@/lib/http-client'
 import { cn } from '@/lib/utils'
 
 import { TASK_ACTIONS, TASK_STATUS } from '../../constants'
@@ -97,6 +98,7 @@ type TaskDetailsCellProps = {
 export function TaskDetailsCell(props: TaskDetailsCellProps) {
   const { t } = useTranslation()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [openingResult, setOpeningResult] = useState(false)
   const log = props.log
   const failReason = log.fail_reason?.trim() ?? ''
   const status = log.status
@@ -130,15 +132,38 @@ export function TaskDetailsCell(props: TaskDetailsCellProps) {
   if (isSuccess && isVideoTask && resultUrl && log.task_id) {
     const videoUrl = `/v1/videos/${encodeURIComponent(log.task_id)}/content`
     return (
-      <a
-        href={videoUrl}
-        target='_blank'
-        rel='noopener noreferrer'
+      <button
+        type='button'
+        disabled={openingResult}
         aria-label={t('View result')}
-        className='text-foreground text-xs font-medium hover:underline'
+        className='text-foreground inline-flex items-center gap-1 text-xs font-medium hover:underline disabled:cursor-wait disabled:opacity-70'
+        onClick={async (event) => {
+          event.stopPropagation()
+          if (openingResult) return
+
+          setOpeningResult(true)
+          const resultWindow = window.open('', '_blank')
+          if (resultWindow) resultWindow.opener = null
+
+          try {
+            const response = await api.get(videoUrl, { responseType: 'blob' })
+            const objectUrl = URL.createObjectURL(response.data)
+            if (resultWindow && !resultWindow.closed) {
+              resultWindow.location.href = objectUrl
+            } else {
+              window.location.assign(objectUrl)
+            }
+            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 300_000)
+          } catch {
+            if (resultWindow && !resultWindow.closed) resultWindow.close()
+          } finally {
+            setOpeningResult(false)
+          }
+        }}
       >
-        {t('View result')}
-      </a>
+        {openingResult && <LoaderCircle className='size-3 animate-spin' />}
+        {t(openingResult ? 'Loading...' : 'View result')}
+      </button>
     )
   }
 

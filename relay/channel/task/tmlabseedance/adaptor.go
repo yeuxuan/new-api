@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -192,6 +193,11 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		return taskErr
 	}
 	sanitizeRequestForFormat(&request, profile.format)
+	billingBody, err := common.Marshal(request)
+	if err != nil {
+		return service.TaskErrorWrapperLocal(errors.Wrap(err, "marshal normalized TMLab Seedance billing request failed"), "billing_request_failed", http.StatusInternalServerError)
+	}
+	info.BillingRequestInput = &billingexpr.RequestInput{Body: billingBody}
 
 	c.Set(taskRequestContextKey, request)
 	return nil

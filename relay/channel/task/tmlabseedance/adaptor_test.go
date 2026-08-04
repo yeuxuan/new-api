@@ -99,6 +99,23 @@ func TestValidateAndBuildStableRequest(t *testing.T) {
 	assert.Equal(t, 8, *request.Duration)
 }
 
+func TestBillingInputUsesNormalizedTMLabRequest(t *testing.T) {
+	_, _, info := validateRequest(t, `{
+		"model":"seedance-2.0-fast",
+		"prompt":"cinematic forest",
+		"seconds":"4",
+		"size":"1280x720"
+	}`)
+
+	require.NotNil(t, info.BillingRequestInput)
+	var billingRequest submitRequest
+	require.NoError(t, common.Unmarshal(info.BillingRequestInput.Body, &billingRequest))
+	require.NotNil(t, billingRequest.Duration)
+	assert.Equal(t, 4, *billingRequest.Duration)
+	assert.Equal(t, "720p", billingRequest.Resolution)
+	assert.Equal(t, "16:9", billingRequest.Ratio)
+}
+
 func TestValidateOpenAIVideoFieldsForTMLab(t *testing.T) {
 	body := `{
 		"model":"[V2]seedance-2.0",

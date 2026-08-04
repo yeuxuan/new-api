@@ -5433,6 +5433,8 @@
     "What should I check when Claude Code returns an error?": "Что проверить при ошибке Claude Code?",
     "Why this page belongs next to the live catalog": "Почему руководство находится рядом с живым каталогом",
     "Yes. The setup keeps the official Claude Code client and points it to the gateway with supported environment variables. No patched client is required.": "Да. Используется официальный клиент, а поддерживаемые переменные окружения меняют только адрес API.",
-    "Yes. Use the supported Anthropic base URL and token environment variables. The Claude Code API guide includes the setup and troubleshooting details.": "Да, через поддерживаемые Anthropic URL и токен; руководство содержит диагностику."
+    "Yes. Use the supported Anthropic base URL and token environment variables. The Claude Code API guide includes the setup and troubleshooting details.": "Да, через поддерживаемые Anthropic URL и токен; руководство содержит диагностику.",
+    "Channel testing is disabled because a test would create a billable asynchronous video task. Verify this channel with a real video generation request.": "Тестирование канала отключено, поскольку тест создаст платную асинхронную задачу генерации видео. Проверьте канал с помощью реального запроса на генерацию видео.",
+    "TMLab Seedance": "TMLab Seedance"
   }
 }

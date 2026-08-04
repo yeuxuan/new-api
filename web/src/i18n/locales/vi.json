@@ -5433,6 +5433,8 @@
     "What should I check when Claude Code returns an error?": "Cần kiểm tra gì khi Claude Code báo lỗi?",
     "Why this page belongs next to the live catalog": "Vì sao hướng dẫn này nằm cạnh catalog trực tiếp",
     "Yes. The setup keeps the official Claude Code client and points it to the gateway with supported environment variables. No patched client is required.": "Có. Client chính thức được giữ nguyên; biến môi trường được hỗ trợ chỉ thay đổi đích API.",
-    "Yes. Use the supported Anthropic base URL and token environment variables. The Claude Code API guide includes the setup and troubleshooting details.": "Có. Dùng URL Anthropic và token được hỗ trợ; hướng dẫn cũng có cách khắc phục lỗi."
+    "Yes. Use the supported Anthropic base URL and token environment variables. The Claude Code API guide includes the setup and troubleshooting details.": "Có. Dùng URL Anthropic và token được hỗ trợ; hướng dẫn cũng có cách khắc phục lỗi.",
+    "Channel testing is disabled because a test would create a billable asynchronous video task. Verify this channel with a real video generation request.": "Tính năng kiểm tra kênh đã bị tắt vì thao tác kiểm tra sẽ tạo một tác vụ video bất đồng bộ có tính phí. Hãy xác minh kênh bằng một yêu cầu tạo video thực tế.",
+    "TMLab Seedance": "TMLab Seedance"
   }
 }

@@ -189,6 +189,22 @@ export const CHANNEL_OPTIONS = [
     color: 'blue',
     label: 'ChatGPT Subscription (Codex)',
   },
+  {
+    value: 61,
+    color: 'blue',
+    label: 'TMLab Seedance',
+  },
+];
+
+export const TMLAB_SEEDANCE_MODELS = [
+  '[V2]seedance-2.0',
+  'seedance-2.0-mini',
+  'seedance-2.0-fast',
+  'seedance-2.0-pro',
+  'seedance-2.0-pro-720p',
+  'seedance-2.0-fast(431)',
+  'seedance-2.0-pro(431)',
+  'seedance-2.5',
 ];
 
 // Channel types that support upstream model list fetching in UI.

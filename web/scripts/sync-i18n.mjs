@@ -86,6 +86,7 @@ const BRAND_AND_LITERAL_KEYS = new Set([
   'SunoAPI',
   'Telegram',
   'Tencent',
+  'TMLab Seedance',
   'TTFT P50',
   'TTFT P95',
   'TTFT P99',

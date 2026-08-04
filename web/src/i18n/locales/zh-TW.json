@@ -5433,6 +5433,8 @@
     "What should I check when Claude Code returns an error?": "What should I check when Claude Code returns an error?",
     "Why this page belongs next to the live catalog": "Why this page belongs next to the live catalog",
     "Yes. The setup keeps the official Claude Code client and points it to the gateway with supported environment variables. No patched client is required.": "Yes. The setup keeps the official Claude Code client and points it to the gateway with supported environment variables. No patched client is required.",
-    "Yes. Use the supported Anthropic base URL and token environment variables. The Claude Code API guide includes the setup and troubleshooting details.": "Yes. Use the supported Anthropic base URL and token environment variables. The Claude Code API guide includes the setup and troubleshooting details."
+    "Yes. Use the supported Anthropic base URL and token environment variables. The Claude Code API guide includes the setup and troubleshooting details.": "Yes. Use the supported Anthropic base URL and token environment variables. The Claude Code API guide includes the setup and troubleshooting details.",
+    "Channel testing is disabled because a test would create a billable asynchronous video task. Verify this channel with a real video generation request.": "渠道測試已停用，因為測試會建立產生費用的非同步影片任務。請使用真實的影片生成請求驗證此渠道。",
+    "TMLab Seedance": "TMLab Seedance"
   }
 }

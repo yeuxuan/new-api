@@ -609,13 +609,8 @@ func RelayTask(c *gin.Context) {
 		logger.LogInfo(c, retryLogStr)
 	}
 
-	// ── 成功：结算 + 日志 + 插入任务 ──
+	// ── 成功：先持久化任务，再结算、记录日志并返回 ──
 	if taskErr == nil {
-		if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
-			common.SysError("settle task billing error: " + settleErr.Error())
-		}
-		service.LogTaskConsumption(c, relayInfo)
-
 		task := model.InitTask(result.Platform, relayInfo)
 		task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
 		task.PrivateData.BillingSource = relayInfo.BillingSource
@@ -634,7 +629,37 @@ func RelayTask(c *gin.Context) {
 		task.Data = result.TaskData
 		task.Action = relayInfo.Action
 		if insertErr := task.Insert(); insertErr != nil {
-			common.SysError("insert task error: " + insertErr.Error())
+			common.SysError(fmt.Sprintf(
+				"insert task error (platform=%s, channel=%d, public_task_id=%s, upstream_task_id=%s): %s",
+				result.Platform,
+				relayInfo.ChannelId,
+				task.TaskID,
+				result.UpstreamTaskID,
+				insertErr.Error(),
+			))
+			if c.Writer.Written() {
+				// Legacy task adaptors may already have written their success body.
+				// Preserve their existing billing behavior instead of appending a
+				// second, malformed error response to an already-started response.
+				if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
+					common.SysError("settle task billing error: " + settleErr.Error())
+				}
+				service.LogTaskConsumption(c, relayInfo)
+			} else {
+				taskErr = service.TaskErrorWrapperLocal(insertErr, "insert_task_failed", http.StatusInternalServerError)
+			}
+		} else {
+			if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
+				common.SysError("settle task billing error: " + settleErr.Error())
+			}
+			service.LogTaskConsumption(c, relayInfo)
+			if len(relayInfo.PendingResponse) > 0 {
+				statusCode := relayInfo.PendingResponseStatusCode
+				if statusCode == 0 {
+					statusCode = http.StatusOK
+				}
+				c.Data(statusCode, "application/json", relayInfo.PendingResponse)
+			}
 		}
 	}
 
@@ -671,6 +696,12 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskEr
 		return true
 	}
 	if taskErr.StatusCode/100 == 5 {
+		// TMLab task submission is non-idempotent and exposes no idempotency key.
+		// A timeout/5xx may happen after the paid upstream task was accepted, so
+		// retrying could create and charge a duplicate video.
+		if common.GetContextKeyInt(c, constant.ContextKeyChannelType) == constant.ChannelTypeTMLabSeedance {
+			return false
+		}
 		// 超时不重试
 		if operation_setting.IsAlwaysSkipRetryStatusCode(taskErr.StatusCode) {
 			return false

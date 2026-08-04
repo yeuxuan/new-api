@@ -179,7 +179,8 @@ func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) 
 	privateData := TaskPrivateData{}
 	if relayInfo != nil && relayInfo.ChannelMeta != nil {
 		if relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeGemini ||
-			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeVertexAi {
+			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeVertexAi ||
+			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeTMLabSeedance {
 			privateData.Key = relayInfo.ChannelMeta.ApiKey
 		}
 		if relayInfo.UpstreamModelName != "" {
@@ -371,6 +372,7 @@ func (Task *Task) Insert() error {
 
 type taskSnapshot struct {
 	Status     TaskStatus
+	UpdatedAt  int64
 	Progress   string
 	StartTime  int64
 	FinishTime int64
@@ -381,6 +383,7 @@ type taskSnapshot struct {
 
 func (s taskSnapshot) Equal(other taskSnapshot) bool {
 	return s.Status == other.Status &&
+		s.UpdatedAt == other.UpdatedAt &&
 		s.Progress == other.Progress &&
 		s.StartTime == other.StartTime &&
 		s.FinishTime == other.FinishTime &&
@@ -392,6 +395,7 @@ func (s taskSnapshot) Equal(other taskSnapshot) bool {
 func (t *Task) Snapshot() taskSnapshot {
 	return taskSnapshot{
 		Status:     t.Status,
+		UpdatedAt:  t.UpdatedAt,
 		Progress:   t.Progress,
 		StartTime:  t.StartTime,
 		FinishTime: t.FinishTime,

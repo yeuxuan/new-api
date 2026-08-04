@@ -54,6 +54,11 @@ func Distribute() func(c *gin.Context) {
 				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorChannelDisabled))
 				return
 			}
+			if c.Request.Method == http.MethodPost && c.Request.URL.Path == "/v1/tasks" &&
+				!channelSupportsRequestPath(channel, c.Request.URL.Path, modelRequest.Model) {
+				abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidChannelId))
+				return
+			}
 		} else {
 			// Select a channel for the user
 			// check token model mapping
@@ -171,11 +176,15 @@ func Distribute() func(c *gin.Context) {
 }
 
 // channelSupportsRequestPath reports whether a channel can serve the request path.
-// Only Advanced Custom (type 58) channels are path-checked; all other channel types
-// always pass. A type-58 channel is usable only when one of its routes matches.
+// The native task submission route is exclusive to TMLab Seedance. Advanced
+// Custom (type 58) channels are otherwise usable only when a configured route
+// matches the path and model; all remaining channel types pass.
 func channelSupportsRequestPath(channel *model.Channel, requestPath string, requestModel string) bool {
 	if channel == nil {
 		return false
+	}
+	if requestPath == "/v1/tasks" {
+		return channel.Type == constant.ChannelTypeTMLabSeedance
 	}
 	if channel.Type != constant.ChannelTypeAdvancedCustom {
 		return true
@@ -303,6 +312,23 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		//  -F "model=sora-2" \
 		//  -F "prompt=A calico cat playing a piano on stage"
 		//	-F input_reference="@image.jpg"
+		relayMode := relayconstant.RelayModeUnknown
+		if c.Request.Method == http.MethodPost {
+			relayMode = relayconstant.RelayModeVideoSubmit
+			req, err := getModelFromRequest(c)
+			if err != nil {
+				return nil, false, err
+			}
+			if req != nil {
+				modelRequest.Model = req.Model
+			}
+		} else if c.Request.Method == http.MethodGet {
+			relayMode = relayconstant.RelayModeVideoFetchByID
+			shouldSelectChannel = false
+			modelRequest.Model = getTaskOriginModelName(c)
+		}
+		c.Set("relay_mode", relayMode)
+	} else if strings.HasPrefix(c.Request.URL.Path, "/v1/tasks") {
 		relayMode := relayconstant.RelayModeUnknown
 		if c.Request.Method == http.MethodPost {
 			relayMode = relayconstant.RelayModeVideoSubmit

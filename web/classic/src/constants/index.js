@@ -21,6 +21,7 @@ export {
   CHANNEL_OPTIONS,
   MODEL_FETCHABLE_CHANNEL_TYPES,
   MODEL_TABLE_PAGE_SIZE,
+  TMLAB_SEEDANCE_MODELS,
 } from './channel.constants';
 export { userConstants } from './user.constants';
 export { toastConstants } from './toast.constants';

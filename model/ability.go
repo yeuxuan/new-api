@@ -147,14 +147,15 @@ func GetChannel(group string, model string, retry int, requestPath string) (*Cha
 }
 
 // filterAbilitiesByRequestPathAndModel restricts candidates by request path and
-// model for the DB (non-memory-cache) selection path. Only Advanced Custom
-// (type 58) channels are path-checked: kept only when one of their routes matches
-// requestPath and model; all other channel types always pass. When requestPath is
-// empty, filtering is skipped.
+// model for the DB (non-memory-cache) selection path. The native /v1/tasks route
+// is limited to TMLab Seedance; Advanced Custom channels are kept only when one
+// of their routes matches requestPath and model. When requestPath is empty,
+// filtering is skipped.
 func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath string, model string) []Ability {
 	if requestPath == "" || len(abilities) == 0 {
 		return abilities
 	}
+	isNativeTaskRoute := requestPath == "/v1/tasks"
 
 	channelIds := make([]int, 0, len(abilities))
 	seen := make(map[int]struct{}, len(abilities))
@@ -168,12 +169,17 @@ func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath strin
 
 	var channels []*Channel
 	if err := DB.Where("id IN ?", channelIds).Find(&channels).Error; err != nil {
+		if isNativeTaskRoute {
+			return nil
+		}
 		// On error, fall back to unfiltered candidates to avoid blocking selection
 		return abilities
 	}
 
+	channelTypes := make(map[int]int, len(channels))
 	advancedConfigs := make(map[int]*dto.AdvancedCustomConfig)
 	for _, channel := range channels {
+		channelTypes[channel.Id] = channel.Type
 		if channel.Type == constant.ChannelTypeAdvancedCustom {
 			advancedConfigs[channel.Id] = channel.GetOtherSettings().AdvancedCustom
 		}
@@ -181,6 +187,9 @@ func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath strin
 
 	filtered := make([]Ability, 0, len(abilities))
 	for _, ability := range abilities {
+		if isNativeTaskRoute && channelTypes[ability.ChannelId] != constant.ChannelTypeTMLabSeedance {
+			continue
+		}
 		config, isAdvancedCustom := advancedConfigs[ability.ChannelId]
 		if !isAdvancedCustom {
 			filtered = append(filtered, ability)

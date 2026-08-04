@@ -839,6 +839,10 @@ type TaskRelayInfo struct {
 	// PublicTaskID 是提交时预生成的 task_xxxx 格式公开 ID，
 	// 供 DoResponse 在返回给客户端时使用（避免暴露上游真实 ID）。
 	PublicTaskID string
+	// PendingResponse is used by task adaptors that must delay the downstream
+	// response until the upstream task has been persisted successfully.
+	PendingResponse           []byte
+	PendingResponseStatusCode int
 
 	ConsumeQuota bool
 

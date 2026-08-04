@@ -3767,6 +3767,7 @@
     "例如：1，表示最低充值 1 个单位": "Par exemple : 1 signifie une recharge minimale de 1 unité",
     "更新 iPayNow 设置": "Mettre à jour les paramètres iPayNow",
     "开始日期": "Date de début",
-    "结束日期": "Date de fin"
+    "结束日期": "Date de fin",
+    "Channel testing is disabled because a test would create a billable asynchronous video task. Verify this channel with a real video generation request.": "Le test du canal est désactivé, car il créerait une tâche vidéo asynchrone facturable. Vérifiez ce canal avec une véritable requête de génération vidéo."
   }
 }

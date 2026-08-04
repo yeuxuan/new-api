@@ -3760,6 +3760,7 @@
     "例如：1，表示最低充值 1 个单位": "例如：1，表示最低儲值 1 個單位",
     "更新 iPayNow 设置": "更新 iPayNow 設定",
     "开始日期": "開始日期",
-    "结束日期": "結束日期"
+    "结束日期": "結束日期",
+    "Channel testing is disabled because a test would create a billable asynchronous video task. Verify this channel with a real video generation request.": "渠道測試已停用，因為測試會建立產生費用的非同步影片任務。請使用真實的影片生成請求驗證此渠道。"
   }
 }

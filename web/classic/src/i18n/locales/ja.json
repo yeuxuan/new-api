@@ -3736,6 +3736,7 @@
     "例如：1，表示最低充值 1 个单位": "例：1は最小チャージが1単位であることを示します",
     "更新 iPayNow 设置": "iPayNow設定を更新",
     "开始日期": "開始日",
-    "结束日期": "終了日"
+    "结束日期": "終了日",
+    "Channel testing is disabled because a test would create a billable asynchronous video task. Verify this channel with a real video generation request.": "テストでは課金対象の非同期動画タスクが作成されるため、チャンネルテストは無効です。実際の動画生成リクエストでこのチャンネルを検証してください。"
   }
 }

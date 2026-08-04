@@ -142,10 +142,12 @@ import {
   CHANNEL_STATUS_LABELS,
   CHANNEL_TYPE_OPTIONS,
   CHANNEL_TYPE_WARNINGS,
+  CHANNEL_TYPE_TMLAB_SEEDANCE,
   ERROR_MESSAGES,
   FIELD_DESCRIPTIONS,
   FIELD_PLACEHOLDERS,
   MODEL_FETCHABLE_TYPES,
+  TMLAB_SEEDANCE_MODELS,
 } from '../../constants'
 import { useChannelMutateForm } from '../../hooks/use-channel-mutate-form'
 import {
@@ -901,6 +903,9 @@ export function ChannelMutateDrawer({
 
   // Get basic models for the current channel type
   const basicModels = useMemo(() => {
+    if (currentType === CHANNEL_TYPE_TMLAB_SEEDANCE) {
+      return [...TMLAB_SEEDANCE_MODELS]
+    }
     if (!allModelsList.length) return []
     // Filter models based on common patterns for specific types
     if (currentType === 1) {
@@ -979,7 +984,13 @@ export function ChannelMutateDrawer({
   )
   const advancedHaveErrors =
     hasAdvancedSettingsErrors(formErrors) || Boolean(formErrors.advanced_custom)
-  const providerRequiresBaseUrl = [3, 8, 36, 45].includes(currentType)
+  const providerRequiresBaseUrl = [
+    3,
+    8,
+    36,
+    45,
+    CHANNEL_TYPE_TMLAB_SEEDANCE,
+  ].includes(currentType)
   const providerRequiresOther = [3, 18, 21, 39, 41, 49].includes(currentType)
   const identityComplete = Boolean(currentName?.trim() && currentType > 0)
   const credentialsComplete = Boolean(
@@ -1288,6 +1299,13 @@ export function ChannelMutateDrawer({
       const currentBaseUrlValue = form.getValues('base_url')
       if (!currentBaseUrlValue || currentBaseUrlValue === '') {
         form.setValue('base_url', 'https://ark.cn-beijing.volces.com')
+      }
+    }
+
+    if (currentType === CHANNEL_TYPE_TMLAB_SEEDANCE) {
+      const currentBaseUrlValue = form.getValues('base_url')
+      if (!currentBaseUrlValue || currentBaseUrlValue === '') {
+        form.setValue('base_url', 'https://api.tmlab.store')
       }
     }
 
@@ -4270,9 +4288,7 @@ export function ChannelMutateDrawer({
                                         <SelectValue />
                                       </SelectTrigger>
                                     </FormControl>
-                                    <SelectContent
-                                      alignItemWithTrigger={false}
-                                    >
+                                    <SelectContent alignItemWithTrigger={false}>
                                       <SelectGroup>
                                         <SelectItem value='auto'>
                                           {t('Auto')}

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -85,6 +87,30 @@ func TestValidateChannelRequiresNewAPIBaseURL(t *testing.T) {
 	}
 }
 
+func TestValidateChannelRequiresTMLabBaseURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL *string
+		wantErr bool
+	}{
+		{name: "missing", wantErr: true},
+		{name: "blank", baseURL: common.GetPointer("  "), wantErr: true},
+		{name: "configured", baseURL: common.GetPointer("https://api.tmlab.store")},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			channel := &model.Channel{Type: constant.ChannelTypeTMLabSeedance, BaseURL: test.baseURL}
+			err := validateChannel(channel, false)
+			if test.wantErr {
+				require.ErrorContains(t, err, "TMLab Seedance channel base URL cannot be empty")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestNewAPIChannelRegistration(t *testing.T) {
 	apiType, ok := common.ChannelType2APIType(constant.ChannelTypeNewAPI)
 
@@ -128,6 +154,29 @@ func TestMultiprotocolGatewayEndpointTypes(t *testing.T) {
 
 	assert.Equal(t, want, common.GetEndpointTypesByChannelType(constant.ChannelTypeNewAPI, "gpt-5"))
 	assert.Equal(t, want, common.GetEndpointTypesByChannelType(constant.ChannelTypeSub2API, "gpt-5"))
+	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAIVideo}, common.GetEndpointTypesByChannelType(constant.ChannelTypeTMLabSeedance, "seedance-2.0-fast"))
+}
+
+func TestAutomaticChannelSelectionSkipsBillableTMLabTest(t *testing.T) {
+	channels := []*model.Channel{
+		{Id: 1, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled},
+		{Id: 2, Type: constant.ChannelTypeTMLabSeedance, Status: common.ChannelStatusEnabled},
+	}
+
+	selected := selectChannelsForAutomaticTest(channels, operation_setting.ChannelTestModeScheduledAll)
+	require.Len(t, selected, 1)
+	assert.Equal(t, constant.ChannelTypeOpenAI, selected[0].Type)
+}
+
+func TestTMLabTaskSubmissionDoesNotRetryAmbiguousServerError(t *testing.T) {
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	common.SetContextKey(ctx, constant.ContextKeyChannelType, constant.ChannelTypeTMLabSeedance)
+	taskErr := &taskdto.TaskError{
+		StatusCode: http.StatusBadGateway,
+		Error:      errors.New("upstream connection reset"),
+	}
+
+	assert.False(t, shouldRetryTaskRelay(ctx, 1, taskErr, 1))
 }
 
 func TestCopyChannelRejectsInvalidLegacyProxySettings(t *testing.T) {

@@ -80,6 +80,18 @@ func init() {
 			OwnedBy: minimax.ChannelName,
 		})
 	}
+	tmlabSeedanceAdaptor := relay.GetTaskAdaptor(constant.TaskPlatform(fmt.Sprint(constant.ChannelTypeTMLabSeedance)))
+	tmlabSeedanceAdaptor.Init(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
+		ChannelType: constant.ChannelTypeTMLabSeedance,
+	}})
+	for _, modelName := range tmlabSeedanceAdaptor.GetModelList() {
+		openAIModels = append(openAIModels, dto.OpenAIModels{
+			Id:      modelName,
+			Object:  "model",
+			Created: 1626777600,
+			OwnedBy: tmlabSeedanceAdaptor.GetChannelName(),
+		})
+	}
 	for modelName, _ := range constant.MidjourneyModel2Action {
 		openAIModels = append(openAIModels, dto.OpenAIModels{
 			Id:      modelName,
@@ -105,6 +117,7 @@ func init() {
 		adaptor.Init(meta)
 		channelId2Models[i] = adaptor.GetModelList()
 	}
+	channelId2Models[constant.ChannelTypeTMLabSeedance] = tmlabSeedanceAdaptor.GetModelList()
 	openAIModels = lo.UniqBy(openAIModels, func(m dto.OpenAIModels) string {
 		return m.Id
 	})

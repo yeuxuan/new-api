@@ -78,16 +78,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		ctx = context.Background()
 	}
 	tik := time.Now()
-	var unsupportedTestChannelTypes = []int{
-		constant.ChannelTypeMidjourney,
-		constant.ChannelTypeMidjourneyPlus,
-		constant.ChannelTypeSunoAPI,
-		constant.ChannelTypeKling,
-		constant.ChannelTypeJimeng,
-		constant.ChannelTypeDoubaoVideo,
-		constant.ChannelTypeVidu,
-	}
-	if lo.Contains(unsupportedTestChannelTypes, channel.Type) {
+	if !channelTestSupported(channel.Type) {
 		channelTypeName := constant.GetChannelTypeName(channel.Type)
 		return testResult{
 			localErr: fmt.Errorf("%s channel test is not supported", channelTypeName),
@@ -515,6 +506,22 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		context:     c,
 		localErr:    nil,
 		newAPIError: nil,
+	}
+}
+
+func channelTestSupported(channelType int) bool {
+	switch channelType {
+	case constant.ChannelTypeMidjourney,
+		constant.ChannelTypeMidjourneyPlus,
+		constant.ChannelTypeSunoAPI,
+		constant.ChannelTypeKling,
+		constant.ChannelTypeJimeng,
+		constant.ChannelTypeDoubaoVideo,
+		constant.ChannelTypeVidu,
+		constant.ChannelTypeTMLabSeedance:
+		return false
+	default:
+		return true
 	}
 }
 
@@ -1019,6 +1026,9 @@ func selectChannelsForAutomaticTest(channels []*model.Channel, mode string) []*m
 	selected := make([]*model.Channel, 0, len(channels))
 	for _, channel := range channels {
 		if channel.Status == common.ChannelStatusManuallyDisabled {
+			continue
+		}
+		if !channelTestSupported(channel.Type) {
 			continue
 		}
 		if mode == operation_setting.ChannelTestModePassiveRecovery && channel.Status != common.ChannelStatusAutoDisabled {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -32,6 +33,43 @@ type taskPollingFetchAdaptor struct {
 
 type sunoFailurePollingAdaptor struct {
 	failReason string
+}
+
+type httpStatusPollingAdaptor struct {
+	statusCode int
+	body       string
+	parsed     bool
+	fetched    int
+	interval   time.Duration
+	sanitized  bool
+}
+
+func (a *httpStatusPollingAdaptor) Init(_ *relaycommon.RelayInfo) {}
+
+func (a *httpStatusPollingAdaptor) FetchTask(_ string, _ string, _ map[string]any, _ string) (*http.Response, error) {
+	a.fetched++
+	return &http.Response{
+		StatusCode: a.statusCode,
+		Body:       io.NopCloser(strings.NewReader(a.body)),
+	}, nil
+}
+
+func (a *httpStatusPollingAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
+	a.parsed = true
+	return &relaycommon.TaskInfo{Status: model.TaskStatusInProgress}, nil
+}
+
+func (a *httpStatusPollingAdaptor) AdjustBillingOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) int {
+	return 0
+}
+
+func (a *httpStatusPollingAdaptor) PollingInterval(_ *model.Task) time.Duration {
+	return a.interval
+}
+
+func (a *httpStatusPollingAdaptor) SanitizeTaskResponse(responseBody []byte, _ string) []byte {
+	a.sanitized = true
+	return responseBody
 }
 
 func (a *sunoFailurePollingAdaptor) Init(_ *relaycommon.RelayInfo) {}
@@ -193,6 +231,110 @@ func TestUpdateVideoTasksDefaultSleepWaitsBetweenTasks(t *testing.T) {
 
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Equal(t, 1, adaptor.fetchCount())
+}
+
+func TestUpdateVideoSingleTaskClassifiesHTTPStatusBeforeProviderParsing(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		wantErr    bool
+		wantStatus model.TaskStatus
+		sanitized  bool
+	}{
+		{name: "rate limit remains pending", statusCode: http.StatusTooManyRequests, wantStatus: model.TaskStatusInProgress},
+		{name: "client error fails task", statusCode: http.StatusUnauthorized, wantStatus: model.TaskStatusFailure, sanitized: true},
+		{name: "server error remains pending", statusCode: http.StatusBadGateway, wantErr: true, wantStatus: model.TaskStatusInProgress},
+	}
+
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			truncate(t)
+			channelID := 600 + index
+			seedTaskPollingChannel(t, channelID, true)
+			task := seedPollingTask(t, channelID, "task_http_status", "upstream_http_status")
+			adaptor := &httpStatusPollingAdaptor{
+				statusCode: test.statusCode,
+				body:       `{"error":{"message":"upstream rejected request"}}`,
+			}
+			channel, err := model.GetChannelById(channelID, true)
+			require.NoError(t, err)
+
+			err = updateVideoSingleTask(context.Background(), adaptor, channel, task.GetUpstreamTaskID(), map[string]*model.Task{
+				task.GetUpstreamTaskID(): task,
+			})
+			if test.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.False(t, adaptor.parsed)
+			assert.Equal(t, test.sanitized, adaptor.sanitized)
+
+			var reloaded model.Task
+			require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+			assert.EqualValues(t, test.wantStatus, reloaded.Status)
+		})
+	}
+}
+
+func TestUpdateVideoSingleTaskPersistsSuccessfulPollTimeForInterval(t *testing.T) {
+	truncate(t)
+	const channelID = 650
+	seedTaskPollingChannel(t, channelID, true)
+	task := seedPollingTask(t, channelID, "task_interval", "upstream_interval")
+	originalUpdatedAt := time.Now().Add(-time.Minute).Unix()
+	task.Data = []byte(`{"status":"processing"}`)
+	require.NoError(t, model.DB.Model(task).UpdateColumns(map[string]any{
+		"updated_at": originalUpdatedAt,
+		"data":       task.Data,
+	}).Error)
+	task.UpdatedAt = originalUpdatedAt
+
+	adaptor := &httpStatusPollingAdaptor{
+		statusCode: http.StatusOK,
+		body:       `{"status":"processing"}`,
+		interval:   30 * time.Second,
+	}
+	channel, err := model.GetChannelById(channelID, true)
+	require.NoError(t, err)
+	tasks := map[string]*model.Task{task.GetUpstreamTaskID(): task}
+
+	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, task.GetUpstreamTaskID(), tasks))
+	assert.Equal(t, 1, adaptor.fetched)
+	assert.Greater(t, task.UpdatedAt, originalUpdatedAt)
+
+	require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, task.GetUpstreamTaskID(), tasks))
+	assert.Equal(t, 1, adaptor.fetched, "second poll inside interval must be skipped")
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.Equal(t, task.UpdatedAt, reloaded.UpdatedAt)
+}
+
+func TestUpdateVideoTasksRefundsWhenChannelNoLongerExists(t *testing.T) {
+	truncate(t)
+
+	const userID, missingChannelID, initialQuota, taskQuota = 701, 799, 10_000, 1_500
+	seedUser(t, userID, initialQuota)
+	task := makeTask(userID, missingChannelID, taskQuota, 0, BillingSourceWallet, 0)
+	task.TaskID = "task_missing_channel"
+	task.Platform = constant.TaskPlatform("61")
+	task.Status = model.TaskStatusInProgress
+	task.Progress = "30%"
+	task.PrivateData.UpstreamTaskID = "upstream_missing_channel"
+	require.NoError(t, model.DB.Create(task).Error)
+
+	err := updateVideoTasks(context.Background(), task.Platform, missingChannelID, []string{task.GetUpstreamTaskID()}, map[string]*model.Task{
+		task.GetUpstreamTaskID(): task,
+	})
+	require.ErrorContains(t, err, "CacheGetChannel failed")
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusFailure, reloaded.Status)
+	assert.Zero(t, reloaded.Quota)
+	assert.Equal(t, initialQuota+taskQuota, getUserQuota(t, userID))
+	assert.Equal(t, int64(1), countLogs(t))
 }
 
 func TestUpdateVideoTasksCanSkipPollingSleepPerChannel(t *testing.T) {

@@ -82,3 +82,9 @@ type TaskAdaptor interface {
 type OpenAIVideoConverter interface {
 	ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error)
 }
+
+// NativeTaskConverter converts a persisted task to the provider-compatible
+// response exposed by /v1/tasks/:task_id.
+type NativeTaskConverter interface {
+	ConvertToNativeTask(originTask *model.Task) ([]byte, error)
+}

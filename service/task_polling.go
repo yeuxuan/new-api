@@ -34,6 +34,14 @@ type TaskPollingAdaptor interface {
 	AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int
 }
 
+type taskPollingIntervalProvider interface {
+	PollingInterval(task *model.Task) time.Duration
+}
+
+type taskPollingResponseSanitizer interface {
+	SanitizeTaskResponse(responseBody []byte, publicTaskID string) []byte
+}
+
 // GetTaskAdaptorFunc 由 main 包注入，用于获取指定平台的任务适配器。
 // 打破 service -> relay -> relay/channel -> service 的循环依赖。
 var GetTaskAdaptorFunc func(platform constant.TaskPlatform) TaskPollingAdaptor
@@ -389,20 +397,24 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 	}
 	cacheGetChannel, err := model.CacheGetChannel(channelId)
 	if err != nil {
-		// Collect DB primary key IDs for bulk update (taskIds are upstream IDs, not task_id column values)
-		var failedIDs []int64
+		reason := fmt.Sprintf("Failed to get channel info, channel ID: %d", channelId)
 		for _, upstreamID := range taskIds {
-			if t, ok := taskM[upstreamID]; ok {
-				failedIDs = append(failedIDs, t.ID)
+			task, ok := taskM[upstreamID]
+			if !ok || task == nil {
+				continue
 			}
-		}
-		errUpdate := model.TaskBulkUpdateByID(failedIDs, map[string]any{
-			"fail_reason": fmt.Sprintf("Failed to get channel info, channel ID: %d", channelId),
-			"status":      "FAILURE",
-			"progress":    "100%",
-		})
-		if errUpdate != nil {
-			common.SysLog(fmt.Sprintf("UpdateVideoTask error: %v", errUpdate))
+			fromStatus := task.Status
+			task.Status = model.TaskStatusFailure
+			task.Progress = taskcommon.ProgressComplete
+			task.FailReason = reason
+			updated, updateErr := task.UpdateWithStatus(fromStatus)
+			if updateErr != nil {
+				common.SysLog(fmt.Sprintf("UpdateVideoTask error: %v", updateErr))
+				continue
+			}
+			if updated && task.Quota != 0 {
+				RefundTaskQuota(ctx, task, reason)
+			}
 		}
 		return fmt.Errorf("CacheGetChannel failed: %w", err)
 	}
@@ -453,6 +465,12 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		logger.LogError(ctx, fmt.Sprintf("Task %s not found in taskM", taskId))
 		return fmt.Errorf("task %s not found", taskId)
 	}
+	if intervalProvider, ok := adaptor.(taskPollingIntervalProvider); ok {
+		interval := intervalProvider.PollingInterval(task)
+		if interval > 0 && time.Since(time.Unix(task.UpdatedAt, 0)) < interval {
+			return nil
+		}
+	}
 	key := ch.Key
 
 	privateData := task.PrivateData
@@ -477,26 +495,53 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	snap := task.Snapshot()
 
 	taskResult := &relaycommon.TaskInfo{}
-	// try parse as New API response format
-	var responseItems taskdto.TaskResponse[model.Task]
-	if err = common.Unmarshal(responseBody, &responseItems); err == nil && responseItems.IsSuccess() {
-		logger.LogDebug(ctx, "updateVideoSingleTask parsed as new api response format: %+v", responseItems)
-		t := responseItems.Data
-		taskResult.TaskID = t.TaskID
-		taskResult.Status = string(t.Status)
-		taskResult.Url = t.GetResultURL()
-		taskResult.Progress = t.Progress
-		taskResult.Reason = t.FailReason
-		task.Data = t.Data
-	} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
-		return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil
+	}
+	if resp.StatusCode >= http.StatusInternalServerError {
+		return fmt.Errorf("upstream temporarily returned HTTP %d for task %s", resp.StatusCode, taskId)
+	}
+	if resp.StatusCode >= http.StatusBadRequest {
+		reason := fmt.Sprintf("upstream returned HTTP %d", resp.StatusCode)
+		var errorResponse dto.GeneralErrorResponse
+		if unmarshalErr := common.Unmarshal(responseBody, &errorResponse); unmarshalErr == nil {
+			if openAIError := errorResponse.TryToOpenAIError(); openAIError != nil && openAIError.Message != "" {
+				reason = openAIError.Message
+			}
+		}
+		taskResult = relaycommon.FailTaskInfo(reason)
+	} else {
+		// try parse as New API response format
+		var responseItems taskdto.TaskResponse[model.Task]
+		if err = common.Unmarshal(responseBody, &responseItems); err == nil && responseItems.IsSuccess() {
+			logger.LogDebug(ctx, "updateVideoSingleTask parsed as new api response format: %+v", responseItems)
+			t := responseItems.Data
+			taskResult.TaskID = t.TaskID
+			taskResult.Status = string(t.Status)
+			taskResult.Url = t.GetResultURL()
+			taskResult.Progress = t.Progress
+			taskResult.Reason = t.FailReason
+			task.Data = t.Data
+		} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
+			return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
+		}
 	}
 
-	task.Data = redactVideoResponseBody(responseBody)
+	storedResponseBody := redactVideoResponseBody(responseBody)
+	if sanitizer, ok := adaptor.(taskPollingResponseSanitizer); ok {
+		storedResponseBody = sanitizer.SanitizeTaskResponse(storedResponseBody, task.TaskID)
+	}
+	task.Data = storedResponseBody
 
 	logger.LogDebug(ctx, "updateVideoSingleTask taskResult: %+v", taskResult)
 
 	now := time.Now().Unix()
+	if _, ok := adaptor.(taskPollingIntervalProvider); ok {
+		// Persist the successful poll time even when the upstream state did not
+		// change, otherwise model-specific intervals degrade to every scheduler
+		// tick after an unchanged response.
+		task.UpdatedAt = now
+	}
 	if taskResult.Status == "" {
 		//taskResult = relaycommon.FailTaskInfo("upstream returned empty status")
 		errorResult := &dto.GeneralErrorResponse{}

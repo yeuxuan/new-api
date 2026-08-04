@@ -27,7 +27,11 @@ import {
   verifyJSON,
 } from '../../../../helpers';
 import { useIsMobile } from '../../../../hooks/common/useIsMobile';
-import { CHANNEL_OPTIONS, MODEL_FETCHABLE_CHANNEL_TYPES } from '../../../../constants';
+import {
+  CHANNEL_OPTIONS,
+  MODEL_FETCHABLE_CHANNEL_TYPES,
+  TMLAB_SEEDANCE_MODELS,
+} from '../../../../constants';
 import {
   SideSheet,
   Space,
@@ -674,6 +678,13 @@ const EditChannelModal = (props) => {
             base_url: 'https://ark.cn-beijing.volces.com',
           }));
           break;
+        case 61:
+          localModels = [...TMLAB_SEEDANCE_MODELS];
+          setInputs((prevInputs) => ({
+            ...prevInputs,
+            base_url: 'https://api.tmlab.store',
+          }));
+          break;
         default:
           localModels = getChannelModels(value);
           break;
@@ -973,6 +984,13 @@ const EditChannelModal = (props) => {
       ) {
         data.base_url = 'https://ark.cn-beijing.volces.com';
       }
+      if (
+        data.type === 61 &&
+        (!data.base_url ||
+          (typeof data.base_url === 'string' && data.base_url.trim() === ''))
+      ) {
+        data.base_url = 'https://api.tmlab.store';
+      }
 
       initialBaseUrlRef.current = data.base_url || '';
       setInputs(data);
@@ -986,7 +1004,11 @@ const EditChannelModal = (props) => {
       }
       // 同步企业账户状态
       setIsEnterpriseAccount(data.is_enterprise_account || false);
-      setBasicModels(getChannelModels(data.type));
+      setBasicModels(
+        data.type === 61
+          ? [...TMLAB_SEEDANCE_MODELS]
+          : getChannelModels(data.type),
+      );
       // 同步更新channelSettings状态显示
       setChannelSettings({
         force_format: data.force_format,
@@ -1309,7 +1331,10 @@ const EditChannelModal = (props) => {
       if (formApiRef.current) {
         formApiRef.current.setValues(originInputs);
       }
-      let localModels = getChannelModels(inputs.type);
+      let localModels =
+        inputs.type === 61
+          ? [...TMLAB_SEEDANCE_MODELS]
+          : getChannelModels(inputs.type);
       setBasicModels(localModels);
       setInputs((inputs) => ({ ...inputs, models: localModels }));
     }
@@ -1655,7 +1680,7 @@ const EditChannelModal = (props) => {
       return;
     }
     if (
-      localInputs.type === 45 &&
+      [45, 61].includes(localInputs.type) &&
       (!localInputs.base_url || localInputs.base_url.trim() === '')
     ) {
       showInfo(t('请输入API地址！'));
@@ -2626,6 +2651,17 @@ const EditChannelModal = (props) => {
                       onChange={(value) => handleInputChange('type', value)}
                       disabled={isIonetLocked}
                     />
+
+                    {inputs.type === 61 && (
+                      <Banner
+                        type='warning'
+                        closeIcon={null}
+                        className='mb-4 rounded-xl'
+                        description={t(
+                          'Channel testing is disabled because a test would create a billable asynchronous video task. Verify this channel with a real video generation request.',
+                        )}
+                      />
+                    )}
 
                     {inputs.type === 57 && (
                       <Banner

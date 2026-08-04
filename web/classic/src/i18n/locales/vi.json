@@ -4299,6 +4299,7 @@
     "例如：1，表示最低充值 1 个单位": "Ví dụ: 1 nghĩa là mức nạp tối thiểu là 1 đơn vị",
     "更新 iPayNow 设置": "Cập nhật cài đặt iPayNow",
     "开始日期": "Ngày bắt đầu",
-    "结束日期": "Ngày kết thúc"
+    "结束日期": "Ngày kết thúc",
+    "Channel testing is disabled because a test would create a billable asynchronous video task. Verify this channel with a real video generation request.": "Tính năng kiểm tra kênh đã bị tắt vì thao tác kiểm tra sẽ tạo một tác vụ video bất đồng bộ có tính phí. Hãy xác minh kênh bằng một yêu cầu tạo video thực tế."
   }
 }

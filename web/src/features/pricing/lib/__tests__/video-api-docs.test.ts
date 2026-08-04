@@ -102,6 +102,7 @@ describe('Seedance API documentation', () => {
 
       assert.match(sample, /\/v1\/tasks/)
       assert.match(sample, /task_id|taskId/)
+      assert.match(sample, /\bid\b/)
       assert.match(sample, /\/v1\/videos\/.*\/content/)
       assert.match(sample, /seedance-2\.0-pro-720p/)
       assert.doesNotMatch(sample, /messages|chat\/completions/)

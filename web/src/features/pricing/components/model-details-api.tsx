@@ -709,14 +709,16 @@ function ParamRangeCell(props: { param: SupportedParameter }) {
         {range && (
           <span className='text-muted-foreground text-sm'>{range}</span>
         )}
-        {enumValues?.map((value) => (
-          <code
-            key={value}
-            className='bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-sm'
-          >
-            {value}
-          </code>
-        ))}
+        {enumValues
+          ?.filter((value) => value !== String(defaultValue))
+          .map((value) => (
+            <code
+              key={value}
+              className='bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-sm'
+            >
+              {value}
+            </code>
+          ))}
       </div>
     )
   }

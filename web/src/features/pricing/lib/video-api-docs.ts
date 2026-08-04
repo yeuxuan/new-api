@@ -343,7 +343,8 @@ export function buildVideoTaskSample(
       `  -H "Authorization: Bearer $${apiKeyEnv}" \\`,
       `  -H 'Content-Type: application/json' \\`,
       `  -d '${bodyJson.replaceAll('\n', '\n     ')}')`,
-      `TASK_ID=$(printf '%s' "$TASK_RESPONSE" | jq -r '.task_id')`,
+      `TASK_ID=$(printf '%s' "$TASK_RESPONSE" | jq -r '.task_id // .id // empty')`,
+      `if [ -z "$TASK_ID" ]; then printf '%s\\n' "$TASK_RESPONSE" >&2; exit 1; fi`,
       '',
       'while true; do',
       `  TASK=$(curl -sS '${taskUrl}/'"$TASK_ID" \\`,
@@ -376,7 +377,8 @@ export function buildVideoTaskSample(
       '',
       `task = requests.post(f"{base_url}${endpointPath}", headers=headers, json=payload)`,
       'task.raise_for_status()',
-      'task_id = task.json()["task_id"]',
+      'created = task.json()',
+      'task_id = created.get("task_id") or created["id"]',
       '',
       'while True:',
       '    task = requests.get(f"{base_url}/v1/tasks/{task_id}", headers=headers)',
@@ -401,7 +403,7 @@ export function buildVideoTaskSample(
   const typed = lang === 'typescript'
   const envAccess = `process.env.${apiKeyEnv}`
   const taskType = typed
-    ? ' as { task_id: string; status?: string; error?: unknown }'
+    ? ' as { task_id?: string; id?: string; status?: string; error?: unknown }'
     : ''
   return [
     `import { writeFile } from 'node:fs/promises'`,
@@ -419,7 +421,8 @@ export function buildVideoTaskSample(
     `})`,
     `if (!createResponse.ok) throw new Error(await createResponse.text())`,
     `const created = (await createResponse.json())${taskType}`,
-    `const taskId = created.task_id`,
+    `const taskId = created.task_id ?? created.id`,
+    `if (!taskId) throw new Error('Task response did not include task_id or id')`,
     '',
     'while (true) {',
     `  const response = await fetch(\`${'${baseUrl}'}/v1/tasks/${'${taskId}'}\`, { headers })`,

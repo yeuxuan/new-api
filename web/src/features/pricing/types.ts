@@ -99,6 +99,14 @@ export type PricingData = {
   auto_groups: string[]
 }
 
+export type ModelAPIDocumentData = {
+  success: boolean
+  message?: string
+  data?: {
+    api_document: string
+  }
+}
+
 export type TokenUnit = 'M' | 'K'
 export type PriceType =
   | 'input'

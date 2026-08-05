@@ -19,7 +19,15 @@ For commercial licensing, please contact support@quantumnous.com
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, Loader2 } from 'lucide-react'
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+} from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -83,14 +91,26 @@ import { safeJsonParse } from '@/features/system-settings/utils/json-parser'
 
 import { createModel, updateModel, getModel, getVendors } from '../../api'
 import { getNameRuleOptions, ENDPOINT_TEMPLATES } from '../../constants'
-import { modelsQueryKeys, vendorsQueryKeys, parseModelTags } from '../../lib'
+import {
+  invalidateModelCatalogQueries,
+  modelsQueryKeys,
+  vendorsQueryKeys,
+  parseModelTags,
+} from '../../lib'
 import type { Model } from '../../types'
+
+const Markdown = lazy(() =>
+  import('@/components/ui/markdown').then((module) => ({
+    default: module.Markdown,
+  }))
+)
 
 // Extended schema for ratio configuration (internal form state only)
 const extendedModelFormSchema = z.object({
   id: z.number().optional(),
   model_name: z.string().min(1, 'Model name is required'),
   description: z.string(),
+  api_document: z.string(),
   icon: z.string(),
   tags: z.array(z.string()),
   vendor_id: z.number().optional(),
@@ -361,6 +381,7 @@ export function ModelMutateDrawer({
     defaultValues: {
       model_name: '',
       description: '',
+      api_document: '',
       icon: '',
       tags: [],
       vendor_id: undefined,
@@ -429,6 +450,7 @@ export function ModelMutateDrawer({
         id: model.id,
         model_name: model.model_name,
         description: model.description || '',
+        api_document: model.api_document || '',
         icon: model.icon || '',
         tags: parseModelTags(model.tags),
         vendor_id: model.vendor_id,
@@ -454,6 +476,7 @@ export function ModelMutateDrawer({
       form.reset({
         model_name: modelName,
         description: '',
+        api_document: '',
         icon: '',
         tags: [],
         vendor_id: undefined,
@@ -691,8 +714,8 @@ export function ModelMutateDrawer({
               ? 'Model updated successfully'
               : 'Model created successfully'
           )
-          queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
-          queryClient.invalidateQueries({ queryKey: ['system-options'] })
+          invalidateModelCatalogQueries(queryClient, currentModelId)
+          void queryClient.invalidateQueries({ queryKey: ['system-options'] })
           onOpenChange(false)
         } else {
           toast.error(response.message || 'Operation failed')
@@ -787,6 +810,60 @@ export function ModelMutateDrawer({
                         {...field}
                       />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='api_document'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('API Documentation (Markdown)')}</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder={t(
+                          'Write a clear API guide with request examples, parameters, task polling, responses, and common errors...'
+                        )}
+                        rows={16}
+                        className='font-mono text-sm leading-relaxed'
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'This Markdown is shown directly in the model marketplace API tab. Update it here without changing or rebuilding the frontend.'
+                      )}
+                    </FormDescription>
+                    {field.value.trim() && (
+                      <Collapsible>
+                        <CollapsibleTrigger
+                          render={
+                            <Button
+                              type='button'
+                              variant='outline'
+                              size='sm'
+                              className='w-full'
+                            />
+                          }
+                        >
+                          {t('Preview Markdown')}
+                          <ChevronDown className='ml-2 size-4' />
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className='bg-muted/10 mt-2 max-h-96 overflow-auto rounded-md border p-4'>
+                            <Suspense
+                              fallback={
+                                <div className='bg-muted/30 h-32 animate-pulse rounded-md' />
+                              }
+                            >
+                              <Markdown>{field.value}</Markdown>
+                            </Suspense>
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}

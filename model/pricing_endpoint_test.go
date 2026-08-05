@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -160,6 +161,172 @@ func TestPricingModelMetadataEndpointsCanProvideEndpointWithoutChannelInference(
 	byModel := pricingEndpointTypesByModel(t)
 
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, byModel["metadata-only-model"])
+}
+
+func TestGetModelAPIDocumentReturnsEnabledModelDocumentation(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+
+	const apiDocument = "# Documented model\n\nUse `POST /v1/tasks` to create a task."
+	require.NoError(t, DB.Create(&Model{
+		ModelName:   "documented-model",
+		APIDocument: apiDocument,
+		Status:      1,
+		NameRule:    NameRuleExact,
+	}).Error)
+
+	storedDocument, err := GetModelAPIDocument("documented-model")
+	require.NoError(t, err)
+	assert.Equal(t, apiDocument, storedDocument)
+
+	missingDocument, err := GetModelAPIDocument("missing-model")
+	require.NoError(t, err)
+	assert.Empty(t, missingDocument)
+}
+
+func TestGetModelAPIDocumentUsesMostSpecificMatchingRule(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+
+	for _, modelMeta := range []Model{
+		{ModelName: "seedance-", APIDocument: "prefix", Status: 1, NameRule: NameRulePrefix},
+		{ModelName: "seedance-2.0-", APIDocument: "specific-prefix", Status: 1, NameRule: NameRulePrefix},
+		{ModelName: "-pro", APIDocument: "suffix", Status: 1, NameRule: NameRuleSuffix},
+	} {
+		require.NoError(t, DB.Create(&modelMeta).Error)
+	}
+
+	apiDocument, err := GetModelAPIDocument("seedance-2.0-pro")
+	require.NoError(t, err)
+	assert.Equal(t, "specific-prefix", apiDocument)
+}
+
+func TestPricingMetadataAndAPIDocumentUseSameMatchingRule(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+
+	insertPricingEndpointChannel(t, 105, constant.ChannelTypeOpenAI, dto.ChannelOtherSettings{})
+	insertPricingEndpointAbility(t, 105, "seedance-2.0-pro")
+	for _, modelMeta := range []Model{
+		{
+			ModelName:   "seedance-",
+			Description: "broad description",
+			APIDocument: "broad document",
+			Status:      1,
+			NameRule:    NameRulePrefix,
+		},
+		{
+			ModelName:   "seedance-2.0-",
+			Description: "specific description",
+			APIDocument: "specific document",
+			Status:      1,
+			NameRule:    NameRulePrefix,
+		},
+	} {
+		require.NoError(t, DB.Create(&modelMeta).Error)
+	}
+
+	InitChannelCache()
+	var pricingModel *Pricing
+	for _, pricing := range GetPricing() {
+		if pricing.ModelName == "seedance-2.0-pro" {
+			pricingCopy := pricing
+			pricingModel = &pricingCopy
+			break
+		}
+	}
+	require.NotNil(t, pricingModel)
+	assert.Equal(t, "specific description", pricingModel.Description)
+
+	apiDocument, err := GetModelAPIDocument("seedance-2.0-pro")
+	require.NoError(t, err)
+	assert.Equal(t, "specific document", apiDocument)
+}
+
+func TestGetModelAPIDocumentDoesNotBypassExactDisabledModel(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+
+	require.NoError(t, DB.Create(&Model{
+		ModelName:   "seedance-",
+		APIDocument: "prefix",
+		Status:      1,
+		NameRule:    NameRulePrefix,
+	}).Error)
+	disabledModel := Model{
+		ModelName:   "seedance-disabled",
+		APIDocument: "exact",
+		Status:      0,
+		NameRule:    NameRuleExact,
+	}
+	require.NoError(t, disabledModel.Insert())
+
+	apiDocument, err := GetModelAPIDocument("seedance-disabled")
+	require.NoError(t, err)
+	assert.Empty(t, apiDocument)
+}
+
+func TestModelAPIDocumentRejectsContentBeyondPortableTextLimit(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+
+	modelMeta := &Model{
+		ModelName:   "oversized-document-model",
+		APIDocument: strings.Repeat("a", MaxModelAPIDocumentBytes+1),
+		Status:      1,
+		NameRule:    NameRuleExact,
+	}
+	require.Error(t, modelMeta.Insert())
+
+	modelMeta.APIDocument = "# Valid documentation"
+	require.NoError(t, modelMeta.Insert())
+	modelMeta.APIDocument = strings.Repeat("b", MaxModelAPIDocumentBytes+1)
+	require.Error(t, modelMeta.Update())
+
+	var stored Model
+	require.NoError(t, DB.First(&stored, modelMeta.Id).Error)
+	assert.Equal(t, "# Valid documentation", stored.APIDocument)
+}
+
+func TestModelUpdateCanReplaceAndClearAPIDocument(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+
+	modelMeta := &Model{
+		ModelName:   "editable-document-model",
+		APIDocument: "# Old documentation",
+		Status:      1,
+		NameRule:    NameRuleExact,
+	}
+	require.NoError(t, modelMeta.Insert())
+
+	modelMeta.APIDocument = "# Updated documentation"
+	require.NoError(t, modelMeta.Update())
+
+	var stored Model
+	require.NoError(t, DB.First(&stored, modelMeta.Id).Error)
+	assert.Equal(t, "# Updated documentation", stored.APIDocument)
+
+	modelMeta.APIDocument = ""
+	require.NoError(t, modelMeta.Update())
+	require.NoError(t, DB.First(&stored, modelMeta.Id).Error)
+	assert.Empty(t, stored.APIDocument)
+}
+
+func TestModelUpdateWithoutAPIDocumentPreservesStoredDocument(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+
+	modelMeta := &Model{
+		ModelName:   "backward-compatible-model",
+		Description: "old description",
+		APIDocument: "# Existing documentation",
+		Status:      1,
+		NameRule:    NameRuleExact,
+	}
+	require.NoError(t, modelMeta.Insert())
+
+	modelMeta.Description = "new description"
+	modelMeta.APIDocument = ""
+	require.NoError(t, modelMeta.UpdateWithoutAPIDocument())
+
+	var stored Model
+	require.NoError(t, DB.First(&stored, modelMeta.Id).Error)
+	assert.Equal(t, "new description", stored.Description)
+	assert.Equal(t, "# Existing documentation", stored.APIDocument)
 }
 
 func TestPricingAdvancedCustomMissingConfigFallsBackToChannelType(t *testing.T) {

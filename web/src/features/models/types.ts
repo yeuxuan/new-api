@@ -37,6 +37,7 @@ export interface Model {
   id: number
   model_name: string
   description?: string
+  api_document?: string
   icon?: string
   tags?: string
   vendor_id?: number
@@ -231,6 +232,7 @@ export const modelFormSchema = z.object({
   id: z.number().optional(),
   model_name: z.string().min(1, 'Model name is required'),
   description: z.string().default(''),
+  api_document: z.string().default(''),
   icon: z.string().default(''),
   tags: z.array(z.string()).default([]),
   vendor_id: z.number().optional(),

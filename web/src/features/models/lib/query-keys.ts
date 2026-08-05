@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { QueryClient } from '@tanstack/react-query'
+
 import type { GetModelsParams, SearchModelsParams } from '../types'
 
 /**
@@ -28,6 +30,21 @@ export const modelsQueryKeys = {
     [...modelsQueryKeys.lists(), filters] as const,
   detail: (id: number) => [...modelsQueryKeys.all, 'detail', id] as const,
   missing: () => [...modelsQueryKeys.all, 'missing'] as const,
+}
+
+export function invalidateModelCatalogQueries(
+  queryClient?: QueryClient,
+  modelId?: number
+): void {
+  if (!queryClient) return
+
+  void queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
+  void queryClient.invalidateQueries({ queryKey: ['pricing'] })
+  if (modelId) {
+    void queryClient.invalidateQueries({
+      queryKey: modelsQueryKeys.detail(modelId),
+    })
+  }
 }
 
 /**

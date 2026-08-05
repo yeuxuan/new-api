@@ -1,6 +1,8 @@
 package model
 
 import (
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -16,6 +18,8 @@ const (
 	NameRuleSuffix
 )
 
+const MaxModelAPIDocumentBytes = 60 * 1024
+
 type BoundChannel struct {
 	Name string `json:"name"`
 	Type int    `json:"type"`
@@ -25,6 +29,7 @@ type Model struct {
 	Id           int            `json:"id"`
 	ModelName    string         `json:"model_name" gorm:"size:128;not null;uniqueIndex:uk_model_name_delete_at,priority:1"`
 	Description  string         `json:"description,omitempty" gorm:"type:text"`
+	APIDocument  string         `json:"api_document,omitempty" gorm:"type:text"`
 	Icon         string         `json:"icon,omitempty" gorm:"type:varchar(128)"`
 	Tags         string         `json:"tags,omitempty" gorm:"type:varchar(255)"`
 	VendorID     int            `json:"vendor_id,omitempty" gorm:"index"`
@@ -45,6 +50,10 @@ type Model struct {
 }
 
 func (mi *Model) Insert() error {
+	if len(mi.APIDocument) > MaxModelAPIDocumentBytes {
+		return fmt.Errorf("API 文档不能超过 %d KiB", MaxModelAPIDocumentBytes/1024)
+	}
+
 	now := common.GetTimestamp()
 	mi.CreatedTime = now
 	mi.UpdatedTime = now
@@ -74,12 +83,118 @@ func IsModelNameDuplicated(id int, name string) (bool, error) {
 	return cnt > 0, err
 }
 
+func GetModelAPIDocument(modelName string) (string, error) {
+	var exact struct {
+		Status      int
+		APIDocument string
+	}
+	err := DB.Model(&Model{}).Select("status", "api_document").
+		Where("model_name = ? AND name_rule = ?", modelName, NameRuleExact).
+		Take(&exact).Error
+	if err == nil {
+		if exact.Status != 1 {
+			return "", nil
+		}
+		return exact.APIDocument, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", err
+	}
+
+	var rules []*Model
+	if err := DB.Select("id", "model_name", "status", "name_rule").
+		Where("name_rule <> ?", NameRuleExact).
+		Find(&rules).Error; err != nil {
+		return "", err
+	}
+
+	matchedRule := getPreferredModelRule(modelName, rules)
+	if matchedRule == nil || matchedRule.Status != 1 {
+		return "", nil
+	}
+
+	var document struct {
+		APIDocument string
+	}
+	if err := DB.Model(&Model{}).Select("api_document").First(&document, matchedRule.Id).Error; err != nil {
+		return "", err
+	}
+	return document.APIDocument, nil
+}
+
 func (mi *Model) Update() error {
+	return mi.update(true)
+}
+
+func (mi *Model) UpdateWithoutAPIDocument() error {
+	return mi.update(false)
+}
+
+func (mi *Model) update(includeAPIDocument bool) error {
+	if includeAPIDocument && len(mi.APIDocument) > MaxModelAPIDocumentBytes {
+		return fmt.Errorf("API 文档不能超过 %d KiB", MaxModelAPIDocumentBytes/1024)
+	}
+
 	mi.UpdatedTime = common.GetTimestamp()
+	fields := []string{"model_name", "description", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "name_rule", "updated_time"}
+	if includeAPIDocument {
+		fields = append(fields, "api_document")
+	}
 	// 使用 Select 强制更新所有字段，包括零值
 	return DB.Model(&Model{}).Where("id = ?", mi.Id).
-		Select("model_name", "description", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "name_rule", "updated_time").
+		Select(fields).
 		Updates(mi).Error
+}
+
+func getPreferredModelRule(modelName string, rules []*Model) *Model {
+	var best *Model
+	for _, rule := range rules {
+		if rule == nil || !modelRuleMatches(rule.NameRule, rule.ModelName, modelName) {
+			continue
+		}
+		if best == nil || modelRulePrecedes(rule, best) {
+			best = rule
+		}
+	}
+	return best
+}
+
+func modelRuleMatches(ruleType int, pattern string, modelName string) bool {
+	switch ruleType {
+	case NameRulePrefix:
+		return strings.HasPrefix(modelName, pattern)
+	case NameRuleSuffix:
+		return strings.HasSuffix(modelName, pattern)
+	case NameRuleContains:
+		return strings.Contains(modelName, pattern)
+	default:
+		return false
+	}
+}
+
+func modelRulePrecedes(candidate *Model, current *Model) bool {
+	candidatePriority := modelRulePriority(candidate.NameRule)
+	currentPriority := modelRulePriority(current.NameRule)
+	if candidatePriority != currentPriority {
+		return candidatePriority < currentPriority
+	}
+	if len(candidate.ModelName) != len(current.ModelName) {
+		return len(candidate.ModelName) > len(current.ModelName)
+	}
+	return candidate.Id < current.Id
+}
+
+func modelRulePriority(ruleType int) int {
+	switch ruleType {
+	case NameRulePrefix:
+		return 0
+	case NameRuleSuffix:
+		return 1
+	case NameRuleContains:
+		return 2
+	default:
+		return 3
+	}
 }
 
 func (mi *Model) Delete() error {
@@ -193,7 +308,9 @@ func GetPreferredModelOwnerChannelTypes(modelNames []string, groups []string) (m
 
 func SearchModels(keyword string, vendor string, status string, syncOfficial string, offset int, limit int) ([]*Model, int64, error) {
 	var models []*Model
-	db := DB.Model(&Model{})
+	// List views do not need the potentially large Markdown document. The
+	// single-model endpoint loads it when the admin opens the edit drawer.
+	db := DB.Model(&Model{}).Omit("api_document")
 	if keyword != "" {
 		like := "%" + keyword + "%"
 		db = db.Where("model_name LIKE ? OR description LIKE ? OR tags LIKE ?", like, like, like)

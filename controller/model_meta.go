@@ -2,6 +2,7 @@ package controller
 
 import (
 	"encoding/json"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -118,8 +119,13 @@ func CreateModelMeta(c *gin.Context) {
 func UpdateModelMeta(c *gin.Context) {
 	statusOnly := c.Query("status_only") == "true"
 
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	var m model.Model
-	if err := c.ShouldBindJSON(&m); err != nil {
+	if err := common.Unmarshal(body, &m); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -135,6 +141,13 @@ func UpdateModelMeta(c *gin.Context) {
 			return
 		}
 	} else {
+		var fields map[string]json.RawMessage
+		if err := common.Unmarshal(body, &fields); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		_, updateAPIDocument := fields["api_document"]
+
 		// 名称冲突检查
 		if dup, err := model.IsModelNameDuplicated(m.Id, m.ModelName); err != nil {
 			common.ApiError(c, err)
@@ -144,7 +157,13 @@ func UpdateModelMeta(c *gin.Context) {
 			return
 		}
 
-		if err := m.Update(); err != nil {
+		var err error
+		if updateAPIDocument {
+			err = m.Update()
+		} else {
+			err = m.UpdateWithoutAPIDocument()
+		}
+		if err != nil {
 			common.ApiError(c, err)
 			return
 		}

@@ -16,12 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type QueryClient } from '@tanstack/react-query'
+import type { QueryClient } from '@tanstack/react-query'
 import i18next from 'i18next'
 import { toast } from 'sonner'
 
 import { updateModelStatus, deleteModel as deleteModelAPI } from '../api'
-import { modelsQueryKeys } from './query-keys'
+import { invalidateModelCatalogQueries } from './query-keys'
 
 // ============================================================================
 // Model Status Actions
@@ -39,7 +39,7 @@ export async function handleEnableModel(
     const response = await updateModelStatus(id, 1)
     if (response.success) {
       toast.success(i18next.t('Model enabled successfully'))
-      queryClient?.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
+      invalidateModelCatalogQueries(queryClient, id)
       onSuccess?.()
     } else {
       toast.error(response.message || i18next.t('Failed to enable model'))
@@ -63,7 +63,7 @@ export async function handleDisableModel(
     const response = await updateModelStatus(id, 0)
     if (response.success) {
       toast.success(i18next.t('Model disabled successfully'))
-      queryClient?.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
+      invalidateModelCatalogQueries(queryClient, id)
       onSuccess?.()
     } else {
       toast.error(response.message || i18next.t('Failed to disable model'))
@@ -107,7 +107,7 @@ export async function handleDeleteModel(
     const response = await deleteModelAPI(id)
     if (response.success) {
       toast.success(i18next.t('Model deleted successfully'))
-      queryClient?.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
+      invalidateModelCatalogQueries(queryClient, id)
       onSuccess?.()
     } else {
       toast.error(response.message || i18next.t('Failed to delete model'))
@@ -155,7 +155,7 @@ export async function handleBatchDeleteModels(
           count: successCount,
         })
       )
-      queryClient?.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
+      invalidateModelCatalogQueries(queryClient)
       onSuccess?.(successCount)
     }
 
@@ -207,7 +207,7 @@ export async function handleBatchEnableModels(
           count: successCount,
         })
       )
-      queryClient?.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
+      invalidateModelCatalogQueries(queryClient)
       onSuccess?.()
     }
 
@@ -255,7 +255,7 @@ export async function handleBatchDisableModels(
           count: successCount,
         })
       )
-      queryClient?.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
+      invalidateModelCatalogQueries(queryClient)
       onSuccess?.()
     }
 

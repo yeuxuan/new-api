@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import {
   ChevronRight,
   Gauge,
@@ -25,7 +26,7 @@ import {
   Sigma,
   Zap,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { BundledLanguage } from 'shiki/bundle/web'
 
@@ -37,10 +38,14 @@ import {
   StaticDataTable,
   staticDataTableClassNames as tableStyles,
 } from '@/components/data-table'
+import { Alert, AlertAction, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useStatus } from '@/hooks/use-status'
 
+import { getModelAPIDocument } from '../api'
 import {
   buildRateLimits,
   buildSupportedParameters,
@@ -53,6 +58,12 @@ import {
   getSeedanceVideoDocumentation,
 } from '../lib/video-api-docs'
 import type { PricingModel } from '../types'
+
+const Markdown = lazy(() =>
+  import('@/components/ui/markdown').then((module) => ({
+    default: module.Markdown,
+  }))
+)
 
 // ---------------------------------------------------------------------------
 // Code-sample registry
@@ -860,13 +871,64 @@ export function ModelDetailsApi(props: {
   model: PricingModel
   endpointMap: Record<string, { path?: string; method?: string }>
 }) {
+  const { t } = useTranslation()
+  const apiDocumentQuery = useQuery({
+    queryKey: ['pricing', 'model-api-document', props.model.model_name],
+    queryFn: () => getModelAPIDocument(props.model.model_name),
+    staleTime: 0,
+  })
+  const apiDocument = apiDocumentQuery.data?.data?.api_document?.trim()
   const hasVideoTaskEndpoint =
     props.model.supported_endpoint_types?.includes('openai-video') ?? false
   const acceptsAnthropicKey =
     props.model.supported_endpoint_types?.includes('anthropic') ?? false
 
+  if (apiDocumentQuery.isLoading) {
+    return (
+      <div className='bg-card/60 space-y-3 rounded-xl border p-4 shadow-sm sm:p-6'>
+        <Skeleton className='h-7 w-2/5' />
+        <Skeleton className='h-4 w-full' />
+        <Skeleton className='h-4 w-4/5' />
+        <Skeleton className='h-40 w-full' />
+      </div>
+    )
+  }
+
+  if (apiDocument) {
+    return (
+      <article className='bg-card/60 rounded-xl border p-4 shadow-sm sm:p-6'>
+        <Suspense
+          fallback={
+            <div className='space-y-3'>
+              <Skeleton className='h-7 w-2/5' />
+              <Skeleton className='h-4 w-full' />
+              <Skeleton className='h-40 w-full' />
+            </div>
+          }
+        >
+          <Markdown>{apiDocument}</Markdown>
+        </Suspense>
+      </article>
+    )
+  }
+
   return (
     <div className='space-y-6'>
+      {apiDocumentQuery.isError && (
+        <Alert variant='destructive'>
+          <AlertDescription>{t('Failed to load')}</AlertDescription>
+          <AlertAction>
+            <Button
+              type='button'
+              variant='outline'
+              size='xs'
+              onClick={() => void apiDocumentQuery.refetch()}
+            >
+              {t('Retry')}
+            </Button>
+          </AlertAction>
+        </Alert>
+      )}
       <CodeSamplesSection model={props.model} endpointMap={props.endpointMap} />
       {hasVideoTaskEndpoint && <VideoTaskWorkflowSection model={props.model} />}
       <AuthSection acceptsAnthropicKey={acceptsAnthropicKey} />

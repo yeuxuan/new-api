@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"strings"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -74,6 +76,22 @@ func GetPricing(c *gin.Context) {
 		"auto_groups":        service.GetUserAutoGroup(group),
 		"pricing_version":    "a42d372ccf0b5dd13ecf71203521f9d2",
 	})
+}
+
+func GetModelAPIDocument(c *gin.Context) {
+	modelName := strings.TrimSpace(c.Query("model_name"))
+	if modelName == "" {
+		common.ApiErrorMsg(c, "模型名称不能为空")
+		return
+	}
+
+	apiDocument, err := model.GetModelAPIDocument(modelName)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	common.ApiSuccess(c, gin.H{"api_document": apiDocument})
 }
 
 func ResetModelRatio(c *gin.Context) {

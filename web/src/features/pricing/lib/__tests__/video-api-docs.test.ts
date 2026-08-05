@@ -103,13 +103,46 @@ describe('Seedance API documentation', () => {
       assert.match(sample, /\/v1\/tasks/)
       assert.match(sample, /task_id|taskId/)
       assert.match(sample, /\bid\b/)
-      assert.match(sample, /\/v1\/videos\/.*\/content/)
+      assert.match(sample, /metadata.*url|metadata\?\.url/)
+      assert.doesNotMatch(sample, /\/v1\/videos\/.*\/content/)
       assert.match(sample, /seedance-2\.0-pro-720p/)
       assert.doesNotMatch(sample, /messages|chat\/completions/)
     }
   })
 
-  test('uses the longer polling interval required by 431 models', () => {
+  test('matches the V2 task status, result field, and polling contract', () => {
+    const documentation = getSeedanceVideoDocumentation('[V2]seedance-2.0')
+    const sample = buildVideoTaskSample(
+      'python',
+      'https://api.example.com',
+      'NEW_API_KEY',
+      '[V2]seedance-2.0',
+      '/v1/tasks'
+    )
+
+    assert.deepEqual(documentation?.statuses, {
+      queued: 'queued',
+      inProgress: 'in_progress',
+      success: 'completed',
+      failure: 'failed',
+    })
+    assert.deepEqual(documentation?.resultFields, ['metadata.url'])
+    assert.equal(documentation?.pollingSeconds, 5)
+    assert.equal(
+      documentation?.parameters.find(
+        (parameter) => parameter.name === 'duration'
+      )?.required,
+      true
+    )
+    assert.match(sample, /time\.sleep\(5\)/)
+    assert.match(sample, /\(result\.get\("metadata"\) or \{\}\)\.get\("url"\)/)
+    assert.doesNotMatch(
+      sample,
+      /["'](?:success|failure|result_url|video_url)["']/
+    )
+  })
+
+  test('uses each provider dialect for status, result, and polling', () => {
     const sample = buildVideoTaskSample(
       'python',
       'https://api.example.com',
@@ -119,9 +152,29 @@ describe('Seedance API documentation', () => {
     )
 
     assert.match(sample, /time\.sleep\(30\)/)
+    assert.match(sample, /"success"/)
+    assert.match(sample, /"failure"/)
+    assert.match(sample, /result\.get\("result_url"\)/)
     assert.equal(
       getSeedanceVideoDocumentation('seedance-2.0-fast(431)')?.body.duration,
       10
+    )
+
+    assert.equal(
+      getSeedanceVideoDocumentation('seedance-2.0-fast')?.pollingSeconds,
+      10
+    )
+    assert.deepEqual(
+      getSeedanceVideoDocumentation('seedance-2.0-fast')?.resultFields,
+      ['result_url', 'metadata.url']
+    )
+    assert.equal(
+      getSeedanceVideoDocumentation('seedance-2.0-pro-720p')?.pollingSeconds,
+      5
+    )
+    assert.deepEqual(
+      getSeedanceVideoDocumentation('seedance-2.5')?.resultFields,
+      ['metadata.url']
     )
   })
 })

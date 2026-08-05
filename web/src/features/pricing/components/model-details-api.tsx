@@ -641,8 +641,13 @@ function SupportedParametersSection(props: { model: PricingModel }) {
 
 function VideoTaskWorkflowSection(props: { model: PricingModel }) {
   const { t } = useTranslation()
-  const pollingSeconds =
-    getSeedanceVideoDocumentation(props.model.model_name)?.pollingSeconds ?? 10
+  const documentation = getSeedanceVideoDocumentation(props.model.model_name)
+  const pollingSeconds = documentation?.pollingSeconds ?? 10
+  const queuedStatus = documentation?.statuses.queued ?? 'queued'
+  const inProgressStatus = documentation?.statuses.inProgress ?? 'in_progress'
+  const successStatus = documentation?.statuses.success ?? 'completed'
+  const failureStatus = documentation?.statuses.failure ?? 'failed'
+  const resultFields = documentation?.resultFields ?? ['metadata.url']
   const steps = [
     {
       method: 'POST',
@@ -657,9 +662,9 @@ function VideoTaskWorkflowSection(props: { model: PricingModel }) {
       }),
     },
     {
-      method: 'GET',
-      path: '/v1/videos/{task_id}/content',
-      label: t('Download the completed video'),
+      method: 'RESULT',
+      path: resultFields.join(' / '),
+      label: t('Read the generated video URL'),
     },
   ]
 
@@ -689,9 +694,14 @@ function VideoTaskWorkflowSection(props: { model: PricingModel }) {
         ))}
       </div>
       <p className='text-muted-foreground mt-2 text-xs'>
-        {t(
-          'Keep polling while the task is queued or in progress; stop when it is completed or failed.'
-        )}
+        {t('Keep polling until the task reaches {{success}} or {{failure}}.', {
+          success: successStatus,
+          failure: failureStatus,
+        })}{' '}
+        <code className='font-mono'>
+          {queuedStatus} → {inProgressStatus} → {successStatus} /{' '}
+          {failureStatus}
+        </code>
       </p>
     </section>
   )
@@ -807,7 +817,7 @@ function RateLimitsSection(props: { model: PricingModel }) {
 // Authentication preview
 // ---------------------------------------------------------------------------
 
-function AuthSection() {
+function AuthSection(props: { acceptsAnthropicKey: boolean }) {
   const { t } = useTranslation()
   return (
     <section>
@@ -819,12 +829,17 @@ function AuthSection() {
             {t('All requests must include')}{' '}
             <code className='bg-muted rounded px-1 py-0.5 font-mono text-[11px]'>
               Authorization: Bearer &lt;TOKEN&gt;
-            </code>{' '}
-            {t('header. Anthropic-formatted endpoints accept the')}{' '}
-            <code className='bg-muted rounded px-1 py-0.5 font-mono text-[11px]'>
-              x-api-key
-            </code>{' '}
-            {t('header instead.')}
+            </code>
+            {props.acceptsAnthropicKey && (
+              <>
+                {' '}
+                {t('header. Anthropic-formatted endpoints accept the')}{' '}
+                <code className='bg-muted rounded px-1 py-0.5 font-mono text-[11px]'>
+                  x-api-key
+                </code>{' '}
+                {t('header instead.')}
+              </>
+            )}
           </p>
           <p className='text-muted-foreground'>
             {t(
@@ -847,12 +862,14 @@ export function ModelDetailsApi(props: {
 }) {
   const hasVideoTaskEndpoint =
     props.model.supported_endpoint_types?.includes('openai-video') ?? false
+  const acceptsAnthropicKey =
+    props.model.supported_endpoint_types?.includes('anthropic') ?? false
 
   return (
     <div className='space-y-6'>
       <CodeSamplesSection model={props.model} endpointMap={props.endpointMap} />
       {hasVideoTaskEndpoint && <VideoTaskWorkflowSection model={props.model} />}
-      <AuthSection />
+      <AuthSection acceptsAnthropicKey={acceptsAnthropicKey} />
       <SupportedParametersSection model={props.model} />
       <RateLimitsSection model={props.model} />
     </div>

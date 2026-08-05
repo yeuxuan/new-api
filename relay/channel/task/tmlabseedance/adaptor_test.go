@@ -72,7 +72,23 @@ func TestModelListContainsAllTMLabSeedanceModels(t *testing.T) {
 func TestPollingIntervalFollowsTMLabModelGuidance(t *testing.T) {
 	adaptor := &TaskAdaptor{}
 	assert.Equal(t, 30*time.Second, adaptor.PollingInterval(&model.Task{Properties: model.Properties{UpstreamModelName: ModelSeedanceFast431}}))
+	assert.Equal(t, 5*time.Second, adaptor.PollingInterval(&model.Task{Properties: model.Properties{UpstreamModelName: ModelSeedanceV2}}))
+	assert.Equal(t, 5*time.Second, adaptor.PollingInterval(&model.Task{Properties: model.Properties{UpstreamModelName: ModelSeedancePro720P}}))
 	assert.Equal(t, 10*time.Second, adaptor.PollingInterval(&model.Task{Properties: model.Properties{UpstreamModelName: ModelSeedanceFast}}))
+}
+
+func TestNativeTaskFallbackStatusesStayWithinDocumentedContract(t *testing.T) {
+	assert.Equal(t, "queued", nativeTaskStatus(model.TaskStatusUnknown, ModelSeedanceV2))
+	assert.Equal(t, "queued", nativeTaskStatus(model.TaskStatusQueued, ModelSeedanceV2))
+	assert.Equal(t, "in_progress", nativeTaskStatus(model.TaskStatusInProgress, ModelSeedanceV2))
+	assert.Equal(t, "completed", nativeTaskStatus(model.TaskStatusSuccess, ModelSeedanceV2))
+	assert.Equal(t, "failed", nativeTaskStatus(model.TaskStatusFailure, ModelSeedanceV2))
+
+	assert.Equal(t, "QUEUED", nativeTaskStatus(model.TaskStatusUnknown, ModelSeedanceFast431))
+	assert.Equal(t, "QUEUED", nativeTaskStatus(model.TaskStatusQueued, ModelSeedanceFast431))
+	assert.Equal(t, "IN_PROGRESS", nativeTaskStatus(model.TaskStatusInProgress, ModelSeedanceFast431))
+	assert.Equal(t, "SUCCESS", nativeTaskStatus(model.TaskStatusSuccess, ModelSeedanceFast431))
+	assert.Equal(t, "FAILURE", nativeTaskStatus(model.TaskStatusFailure, ModelSeedanceFast431))
 }
 
 func TestValidateAndBuildStableRequest(t *testing.T) {

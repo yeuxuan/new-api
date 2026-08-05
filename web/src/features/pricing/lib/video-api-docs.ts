@@ -24,10 +24,33 @@ export type VideoSampleLanguage =
   | 'typescript'
   | 'javascript'
 
-type VideoModelDocumentation = {
+export type VideoTaskStatusContract = {
+  queued: string
+  inProgress: string
+  success: string
+  failure: string
+}
+
+export type VideoModelDocumentation = {
   body: Record<string, unknown>
   parameters: SupportedParameter[]
   pollingSeconds: number
+  statuses: VideoTaskStatusContract
+  resultFields: string[]
+}
+
+const LOWERCASE_TASK_STATUSES: VideoTaskStatusContract = {
+  queued: 'queued',
+  inProgress: 'in_progress',
+  success: 'completed',
+  failure: 'failed',
+}
+
+const UPPERCASE_431_STATUSES: VideoTaskStatusContract = {
+  queued: 'QUEUED',
+  inProgress: 'IN_PROGRESS',
+  success: 'SUCCESS',
+  failure: 'FAILURE',
 }
 
 const MODEL_PARAMETER: SupportedParameter = {
@@ -52,6 +75,7 @@ const DURATION_PARAMETER = (
 ): SupportedParameter => ({
   name,
   type: 'integer',
+  required: true,
   ...(defaultValue === undefined ? {} : { defaultValue }),
   ...(enumValues ? { enumValues } : { range }),
   descriptionKey: 'Video duration in seconds',
@@ -82,7 +106,7 @@ const RESOLUTION_PARAMETER = (
 
 const STABLE_PARAMETERS: SupportedParameter[] = [
   MODEL_PARAMETER,
-  PROMPT_PARAMETER,
+  { ...PROMPT_PARAMETER, range: '<= 3000 chars' },
   {
     name: 'mode_type',
     type: 'enum',
@@ -213,7 +237,7 @@ const build431Parameters = (
 const PARAMETERS_25: SupportedParameter[] = [
   MODEL_PARAMETER,
   PROMPT_PARAMETER,
-  DURATION_PARAMETER('duration_sec', '>= 1', 5),
+  DURATION_PARAMETER('duration_sec', '1 ~ 3600', 5),
   RATIO_PARAMETER('ratio', ['16:9', '9:16', '4:3', '3:4'], '16:9'),
   RESOLUTION_PARAMETER(['480p', '720p'], '720p'),
   {
@@ -243,7 +267,9 @@ const SEEDANCE_DOCUMENTATION: Record<string, VideoModelDocumentation> = {
       resolution: '720P',
     },
     parameters: V2_PARAMETERS,
-    pollingSeconds: 10,
+    pollingSeconds: 5,
+    statuses: LOWERCASE_TASK_STATUSES,
+    resultFields: ['metadata.url'],
   },
   'seedance-2.0-mini': stableDocumentation('seedance-2.0-mini'),
   'seedance-2.0-fast': stableDocumentation('seedance-2.0-fast'),
@@ -257,7 +283,9 @@ const SEEDANCE_DOCUMENTATION: Record<string, VideoModelDocumentation> = {
       resolution: '720p',
     },
     parameters: PRO_720P_PARAMETERS,
-    pollingSeconds: 10,
+    pollingSeconds: 5,
+    statuses: LOWERCASE_TASK_STATUSES,
+    resultFields: ['metadata.url', 'result_url'],
   },
   'seedance-2.0-fast(431)': {
     body: {
@@ -271,6 +299,8 @@ const SEEDANCE_DOCUMENTATION: Record<string, VideoModelDocumentation> = {
       DURATION_PARAMETER('duration', '', 10, ['10', '15'])
     ),
     pollingSeconds: 30,
+    statuses: UPPERCASE_431_STATUSES,
+    resultFields: ['result_url', 'video_url', 'metadata.url'],
   },
   'seedance-2.0-pro(431)': {
     body: {
@@ -282,6 +312,8 @@ const SEEDANCE_DOCUMENTATION: Record<string, VideoModelDocumentation> = {
     },
     parameters: build431Parameters(DURATION_PARAMETER('duration', '4 ~ 15', 5)),
     pollingSeconds: 30,
+    statuses: UPPERCASE_431_STATUSES,
+    resultFields: ['result_url', 'video_url', 'metadata.url'],
   },
   'seedance-2.5': {
     body: {
@@ -293,6 +325,8 @@ const SEEDANCE_DOCUMENTATION: Record<string, VideoModelDocumentation> = {
     },
     parameters: PARAMETERS_25,
     pollingSeconds: 10,
+    statuses: LOWERCASE_TASK_STATUSES,
+    resultFields: ['metadata.url'],
   },
 }
 
@@ -309,7 +343,43 @@ function stableDocumentation(model: string): VideoModelDocumentation {
     },
     parameters: STABLE_PARAMETERS,
     pollingSeconds: 10,
+    statuses: LOWERCASE_TASK_STATUSES,
+    resultFields: ['result_url', 'metadata.url'],
   }
+}
+
+function shellStatusMatch(statuses: string[]): string {
+  return statuses
+    .map((status) => `[ "$STATUS" = '${status.toLowerCase()}' ]`)
+    .join(' || ')
+}
+
+function shellResultExpression(resultFields: string[]): string {
+  return `${resultFields.map((field) => `.${field}`).join(' // ')} // empty`
+}
+
+function pythonResultExpression(resultFields: string[]): string {
+  const accessors: Record<string, string> = {
+    'metadata.url': '(result.get("metadata") or {}).get("url")',
+    result_url: 'result.get("result_url")',
+    video_url: 'result.get("video_url")',
+  }
+  return resultFields
+    .map((field) => accessors[field])
+    .filter(Boolean)
+    .join(' or ')
+}
+
+function javascriptResultExpression(resultFields: string[]): string {
+  const accessors: Record<string, string> = {
+    'metadata.url': 'completedTask.metadata?.url',
+    result_url: 'completedTask.result_url',
+    video_url: 'completedTask.video_url',
+  }
+  return resultFields
+    .map((field) => accessors[field])
+    .filter(Boolean)
+    .join(' ?? ')
 }
 
 export function getSeedanceVideoDocumentation(
@@ -332,9 +402,19 @@ export function buildVideoTaskSample(
     duration: 5,
   }
   const pollingSeconds = documentation?.pollingSeconds ?? 10
+  const successStatuses = [
+    documentation?.statuses.success.toLowerCase() ?? 'completed',
+  ]
+  const failureStatuses = [
+    documentation?.statuses.failure.toLowerCase() ?? 'failed',
+  ]
+  const resultFields = documentation?.resultFields ?? [
+    'metadata.url',
+    'result_url',
+    'video_url',
+  ]
   const createUrl = `${baseUrl}${endpointPath}`
   const taskUrl = `${baseUrl}/v1/tasks`
-  const contentUrl = `${baseUrl}/v1/videos`
 
   if (lang === 'curl') {
     const bodyJson = JSON.stringify(body, null, 2)
@@ -350,14 +430,14 @@ export function buildVideoTaskSample(
       `  TASK=$(curl -sS '${taskUrl}/'"$TASK_ID" \\`,
       `    -H "Authorization: Bearer $${apiKeyEnv}")`,
       `  STATUS=$(printf '%s' "$TASK" | jq -r '.status' | tr '[:upper:]' '[:lower:]')`,
-      `  [ "$STATUS" = 'completed' ] || [ "$STATUS" = 'success' ] && break`,
-      `  [ "$STATUS" = 'failed' ] || [ "$STATUS" = 'failure' ] && exit 1`,
+      `  ${shellStatusMatch(successStatuses)} && break`,
+      `  ${shellStatusMatch(failureStatuses)} && { printf '%s\\n' "$TASK" >&2; exit 1; }`,
       `  sleep ${pollingSeconds}`,
       'done',
       '',
-      `curl -L '${contentUrl}/'"$TASK_ID"'/content' \\`,
-      `  -H "Authorization: Bearer $${apiKeyEnv}" \\`,
-      `  -o result.mp4`,
+      `VIDEO_URL=$(printf '%s' "$TASK" | jq -r '${shellResultExpression(resultFields)}')`,
+      `if [ -z "$VIDEO_URL" ]; then printf '%s\\n' "$TASK" >&2; exit 1; fi`,
+      `curl -L "$VIDEO_URL" -o result.mp4`,
     ].join('\n')
   }
 
@@ -383,17 +463,18 @@ export function buildVideoTaskSample(
       'while True:',
       '    task = requests.get(f"{base_url}/v1/tasks/{task_id}", headers=headers)',
       '    task.raise_for_status()',
-      '    status = task.json()["status"].lower()',
-      '    if status in {"completed", "success"}:',
+      '    result = task.json()',
+      '    status = result["status"].lower()',
+      `    if status in {${successStatuses.map((status) => `"${status}"`).join(', ')}}:`,
       '        break',
-      '    if status in {"failed", "failure"}:',
-      '        raise RuntimeError(task.json())',
+      `    if status in {${failureStatuses.map((status) => `"${status}"`).join(', ')}}:`,
+      '        raise RuntimeError(result)',
       `    time.sleep(${pollingSeconds})`,
       '',
-      'video = requests.get(',
-      '    f"{base_url}/v1/videos/{task_id}/content",',
-      '    headers=headers,',
-      ')',
+      `video_url = ${pythonResultExpression(resultFields)}`,
+      'if not video_url:',
+      '    raise RuntimeError(result)',
+      'video = requests.get(video_url)',
       'video.raise_for_status()',
       'with open("result.mp4", "wb") as file:',
       '    file.write(video.content)',
@@ -402,11 +483,24 @@ export function buildVideoTaskSample(
 
   const typed = lang === 'typescript'
   const envAccess = `process.env.${apiKeyEnv}`
-  const taskType = typed
-    ? ' as { task_id?: string; id?: string; status?: string; error?: unknown }'
-    : ''
+  const taskType = typed ? ' as TaskResult' : ''
   return [
     `import { writeFile } from 'node:fs/promises'`,
+    ...(typed
+      ? [
+          '',
+          'type TaskResult = {',
+          '  task_id?: string',
+          '  id?: string',
+          '  status?: string',
+          '  metadata?: { url?: string }',
+          '  result_url?: string',
+          '  video_url?: string',
+          '  failure_reason?: string',
+          '  error?: unknown',
+          '}',
+        ]
+      : []),
     '',
     `const baseUrl = '${baseUrl}'`,
     `const headers = {`,
@@ -424,17 +518,26 @@ export function buildVideoTaskSample(
     `const taskId = created.task_id ?? created.id`,
     `if (!taskId) throw new Error('Task response did not include task_id or id')`,
     '',
+    `let completedTask${typed ? ': TaskResult | undefined' : ''}`,
     'while (true) {',
     `  const response = await fetch(\`${'${baseUrl}'}/v1/tasks/${'${taskId}'}\`, { headers })`,
     `  if (!response.ok) throw new Error(await response.text())`,
     `  const task = (await response.json())${taskType}`,
     `  const status = task.status?.toLowerCase()`,
-    `  if (status === 'completed' || status === 'success') break`,
-    `  if (status === 'failed' || status === 'failure') throw new Error(JSON.stringify(task))`,
+    `  if (${successStatuses.map((status) => `status === '${status}'`).join(' || ')}) {`,
+    `    completedTask = task`,
+    `    break`,
+    `  }`,
+    `  if (${failureStatuses.map((status) => `status === '${status}'`).join(' || ')}) {`,
+    `    throw new Error(JSON.stringify(task))`,
+    `  }`,
     `  await new Promise((resolve) => setTimeout(resolve, ${pollingSeconds * 1000}))`,
     '}',
     '',
-    `const video = await fetch(\`${'${baseUrl}'}/v1/videos/${'${taskId}'}/content\`, { headers })`,
+    `if (!completedTask) throw new Error('Task did not complete')`,
+    `const videoUrl = ${javascriptResultExpression(resultFields)}`,
+    `if (!videoUrl) throw new Error('Completed task did not include a video URL')`,
+    `const video = await fetch(videoUrl)`,
     `if (!video.ok) throw new Error(await video.text())`,
     `const bytes = new Uint8Array(await video.arrayBuffer())`,
     `await writeFile('result.mp4', bytes)`,

@@ -99,6 +99,9 @@ func (a *TaskAdaptor) PollingInterval(task *model.Task) time.Duration {
 	if modelName == ModelSeedanceFast431 || modelName == ModelSeedancePro431 {
 		return 30 * time.Second
 	}
+	if modelName == ModelSeedanceV2 || modelName == ModelSeedancePro720P {
+		return 5 * time.Second
+	}
 	return 10 * time.Second
 }
 
@@ -907,7 +910,7 @@ func (a *TaskAdaptor) ConvertToNativeTask(originTask *model.Task) ([]byte, error
 	}
 	storedStatus, hasStatus := response["status"]
 	if !hasStatus {
-		response["status"] = nativeTaskStatus(originTask.Status)
+		response["status"] = nativeTaskStatus(originTask.Status, originTask.Properties.OriginModelName)
 	}
 	if originTask.Status == model.TaskStatusFailure {
 		statusText, _ := storedStatus.(string)
@@ -915,7 +918,7 @@ func (a *TaskAdaptor) ConvertToNativeTask(originTask *model.Task) ([]byte, error
 		if normalizedStatus != "failed" && normalizedStatus != "failure" {
 			// Local failures (for example a deleted channel) may still carry the
 			// queued submit payload. Do not publish that stale state.
-			response["status"] = "failed"
+			response["status"] = nativeTaskStatus(model.TaskStatusFailure, originTask.Properties.OriginModelName)
 		}
 		if originTask.FailReason != "" {
 			response["failure_reason"] = originTask.FailReason
@@ -935,18 +938,33 @@ func (a *TaskAdaptor) ConvertToNativeTask(originTask *model.Task) ([]byte, error
 	return common.Marshal(response)
 }
 
-func nativeTaskStatus(status model.TaskStatus) string {
+func nativeTaskStatus(status model.TaskStatus, modelName string) string {
+	if modelName == ModelSeedanceFast431 || modelName == ModelSeedancePro431 {
+		switch status {
+		case model.TaskStatusSubmitted, model.TaskStatusQueued:
+			return "QUEUED"
+		case model.TaskStatusInProgress:
+			return "IN_PROGRESS"
+		case model.TaskStatusSuccess:
+			return "SUCCESS"
+		case model.TaskStatusFailure:
+			return "FAILURE"
+		default:
+			return "QUEUED"
+		}
+	}
+
 	switch status {
 	case model.TaskStatusSubmitted, model.TaskStatusQueued:
 		return "queued"
 	case model.TaskStatusInProgress:
-		return "processing"
+		return "in_progress"
 	case model.TaskStatusSuccess:
 		return "completed"
 	case model.TaskStatusFailure:
 		return "failed"
 	default:
-		return "pending"
+		return "queued"
 	}
 }
 

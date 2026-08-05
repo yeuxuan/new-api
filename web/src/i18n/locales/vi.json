@@ -5460,6 +5460,19 @@
     "Text prompt describing the desired video": "Prompt mô tả video mong muốn",
     "Video duration in seconds": "Thời lượng video tính bằng giây",
     "Whether faces in reference media are masked": "Có che khuôn mặt trong dữ liệu tham chiếu hay không",
-    "Whether the generated video includes sound": "Video được tạo có kèm âm thanh hay không"
+    "Whether the generated video includes sound": "Video được tạo có kèm âm thanh hay không",
+    "Copy result URL": "Sao chép URL kết quả",
+    "Copy task data": "Sao chép dữ liệu tác vụ",
+    "No result is available yet": "Chưa có kết quả",
+    "Open result": "Mở kết quả",
+    "Public task data": "Dữ liệu công khai của tác vụ",
+    "Result Preview": "Xem trước kết quả",
+    "Task Details": "Chi tiết tác vụ",
+    "Task failed": "Tác vụ thất bại",
+    "Task information and generated result": "Thông tin tác vụ và kết quả đã tạo",
+    "The preview will be available after the task succeeds.": "Bản xem trước sẽ có sau khi tác vụ thành công.",
+    "Video preview could not be loaded": "Không thể tải bản xem trước video",
+    "Video result": "Kết quả video",
+    "You can retry after checking the task result.": "Hãy kiểm tra kết quả tác vụ rồi thử lại."
   }
 }

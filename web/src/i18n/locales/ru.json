@@ -5460,6 +5460,19 @@
     "Text prompt describing the desired video": "Текстовый промпт с описанием нужного видео",
     "Video duration in seconds": "Длительность видео в секундах",
     "Whether faces in reference media are masked": "Маскировать ли лица в референсах",
-    "Whether the generated video includes sound": "Добавлять ли звук в созданное видео"
+    "Whether the generated video includes sound": "Добавлять ли звук в созданное видео",
+    "Copy result URL": "Копировать URL результата",
+    "Copy task data": "Копировать данные задачи",
+    "No result is available yet": "Результат пока недоступен",
+    "Open result": "Открыть результат",
+    "Public task data": "Открытые данные задачи",
+    "Result Preview": "Предпросмотр результата",
+    "Task Details": "Сведения о задаче",
+    "Task failed": "Ошибка задачи",
+    "Task information and generated result": "Информация о задаче и созданный результат",
+    "The preview will be available after the task succeeds.": "Предпросмотр станет доступен после успешного выполнения задачи.",
+    "Video preview could not be loaded": "Не удалось загрузить предпросмотр видео",
+    "Video result": "Результат видео",
+    "You can retry after checking the task result.": "Проверьте результат задачи и повторите попытку."
   }
 }

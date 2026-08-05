@@ -209,6 +209,7 @@ export const TASK_PLATFORMS = {
   RUNWAY: 'runway',
   LUMA: 'luma',
   VIGGLE: 'viggle',
+  TMLAB_SEEDANCE: '61',
 } as const
 
 // ============================================================================
@@ -324,6 +325,10 @@ export const TASK_PLATFORM_MAPPINGS: Record<string, StatusMapping> = {
   [TASK_PLATFORMS.RUNWAY]: { label: 'runway', variant: 'violet' },
   [TASK_PLATFORMS.LUMA]: { label: 'luma', variant: 'orange' },
   [TASK_PLATFORMS.VIGGLE]: { label: 'viggle', variant: 'pink' },
+  [TASK_PLATFORMS.TMLAB_SEEDANCE]: {
+    label: 'TMLab Seedance',
+    variant: 'cyan',
+  },
 }
 
 // ============================================================================

@@ -5460,6 +5460,19 @@
     "Text prompt describing the desired video": "描述目标视频的文本提示词",
     "Video duration in seconds": "视频时长（秒）",
     "Whether faces in reference media are masked": "是否遮挡参考素材中的人脸",
-    "Whether the generated video includes sound": "生成的视频是否包含声音"
+    "Whether the generated video includes sound": "生成的视频是否包含声音",
+    "Copy result URL": "复制结果链接",
+    "Copy task data": "复制任务数据",
+    "No result is available yet": "暂无可用结果",
+    "Open result": "打开结果",
+    "Public task data": "公开任务数据",
+    "Result Preview": "结果预览",
+    "Task Details": "任务详情",
+    "Task failed": "任务失败",
+    "Task information and generated result": "任务信息和生成结果",
+    "The preview will be available after the task succeeds.": "任务成功后即可预览结果。",
+    "Video preview could not be loaded": "视频预览加载失败",
+    "Video result": "视频结果",
+    "You can retry after checking the task result.": "请检查任务结果后重试。"
   }
 }

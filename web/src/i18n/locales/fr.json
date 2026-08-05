@@ -5460,6 +5460,19 @@
     "Text prompt describing the desired video": "Prompt décrivant la vidéo souhaitée",
     "Video duration in seconds": "Durée de la vidéo en secondes",
     "Whether faces in reference media are masked": "Masquer ou non les visages des médias de référence",
-    "Whether the generated video includes sound": "Inclure ou non du son dans la vidéo générée"
+    "Whether the generated video includes sound": "Inclure ou non du son dans la vidéo générée",
+    "Copy result URL": "Copier l’URL du résultat",
+    "Copy task data": "Copier les données de la tâche",
+    "No result is available yet": "Aucun résultat disponible pour le moment",
+    "Open result": "Ouvrir le résultat",
+    "Public task data": "Données publiques de la tâche",
+    "Result Preview": "Aperçu du résultat",
+    "Task Details": "Détails de la tâche",
+    "Task failed": "Échec de la tâche",
+    "Task information and generated result": "Informations et résultat généré",
+    "The preview will be available after the task succeeds.": "L’aperçu sera disponible une fois la tâche terminée.",
+    "Video preview could not be loaded": "Impossible de charger l’aperçu vidéo",
+    "Video result": "Résultat vidéo",
+    "You can retry after checking the task result.": "Vérifiez le résultat de la tâche, puis réessayez."
   }
 }

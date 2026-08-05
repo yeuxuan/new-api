@@ -48,16 +48,7 @@ func authHelper(c *gin.Context, minRole int) {
 		writeDashboardAuthError(c, err)
 		return
 	}
-	if user.Status != common.UserStatusEnabled {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_USER_DISABLED", "message": common.TranslateMessage(c, i18n.MsgAuthUserBanned)})
-		return
-	}
-	if user.Role < minRole {
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"success": false, "code": "AUTH_INSUFFICIENT_PRIVILEGE", "message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege)})
-		return
-	}
-	if !validUserInfo(user.Username, user.Role) {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_USER_INVALID", "message": common.TranslateMessage(c, i18n.MsgAuthUserInfoInvalid)})
+	if !validateDashboardUser(c, user, minRole) {
 		return
 	}
 	setDashboardAuthContext(c, user, identity, useAccessToken)
@@ -73,6 +64,26 @@ func authHelper(c *gin.Context, minRole int) {
 	c.Next()
 
 	finishAdminAudit(c, auditWriter)
+}
+
+func validateDashboardUser(c *gin.Context, user *model.UserBase, minRole int) bool {
+	if user == nil {
+		writeDashboardAuthError(c, service.ErrAuthTokenInvalid)
+		return false
+	}
+	if user.Status != common.UserStatusEnabled {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_USER_DISABLED", "message": common.TranslateMessage(c, i18n.MsgAuthUserBanned)})
+		return false
+	}
+	if user.Role < minRole {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"success": false, "code": "AUTH_INSUFFICIENT_PRIVILEGE", "message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege)})
+		return false
+	}
+	if !validUserInfo(user.Username, user.Role) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_USER_INVALID", "message": common.TranslateMessage(c, i18n.MsgAuthUserInfoInvalid)})
+		return false
+	}
+	return true
 }
 
 func TryUserAuth() func(c *gin.Context) {
@@ -243,31 +254,24 @@ func WssAuth(c *gin.Context) {
 
 }
 
-// TokenOrUserAuth allows either session-based user auth or API token auth.
+// TokenOrUserAuth allows dashboard session/PAT auth or API token auth.
 // Used for endpoints that need to be accessible from both the dashboard and API clients.
 func TokenOrUserAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
-		raw, ok := authorizationToken(c.GetHeader("Authorization"))
-		if ok {
-			identity, internal, err := service.ParseDashboardAccessToken(raw)
-			if !internal {
-				TokenAuth()(c)
+		user, identity, credentialKind, err := classifyDashboardCredential(c)
+		if err != nil {
+			writeDashboardAuthError(c, err)
+			return
+		}
+		if credentialKind != dashboardCredentialUnmatched {
+			if !validateDashboardUser(c, user, common.RoleCommonUser) {
 				return
 			}
-			if err != nil {
-				writeDashboardAuthError(c, err)
-				return
-			}
-			_, user, err := service.ValidateLoginSession(identity)
-			if err != nil {
-				writeDashboardAuthError(c, err)
-				return
-			}
-			setDashboardAuthContext(c, user, identity, false)
+			setDashboardAuthContext(c, user, identity, credentialKind == dashboardCredentialPAT)
 			c.Next()
 			return
 		}
-		// Opaque credentials are relay API keys here, never dashboard PATs.
+
 		TokenAuth()(c)
 	}
 }

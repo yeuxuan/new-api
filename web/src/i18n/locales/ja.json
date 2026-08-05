@@ -5460,6 +5460,19 @@
     "Text prompt describing the desired video": "生成する動画を説明するプロンプト",
     "Video duration in seconds": "動画の長さ（秒）",
     "Whether faces in reference media are masked": "参照素材の顔をマスクするかどうか",
-    "Whether the generated video includes sound": "生成動画に音声を含めるかどうか"
+    "Whether the generated video includes sound": "生成動画に音声を含めるかどうか",
+    "Copy result URL": "結果 URL をコピー",
+    "Copy task data": "タスクデータをコピー",
+    "No result is available yet": "利用可能な結果はまだありません",
+    "Open result": "結果を開く",
+    "Public task data": "公開タスクデータ",
+    "Result Preview": "結果プレビュー",
+    "Task Details": "タスク詳細",
+    "Task failed": "タスクに失敗しました",
+    "Task information and generated result": "タスク情報と生成結果",
+    "The preview will be available after the task succeeds.": "タスクが成功するとプレビューできます。",
+    "Video preview could not be loaded": "動画プレビューを読み込めませんでした",
+    "Video result": "動画結果",
+    "You can retry after checking the task result.": "タスク結果を確認してから再試行してください。"
   }
 }

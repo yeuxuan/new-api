@@ -5460,6 +5460,19 @@
     "Text prompt describing the desired video": "Text prompt describing the desired video",
     "Video duration in seconds": "Video duration in seconds",
     "Whether faces in reference media are masked": "Whether faces in reference media are masked",
-    "Whether the generated video includes sound": "Whether the generated video includes sound"
+    "Whether the generated video includes sound": "Whether the generated video includes sound",
+    "Copy result URL": "Copy result URL",
+    "Copy task data": "Copy task data",
+    "No result is available yet": "No result is available yet",
+    "Open result": "Open result",
+    "Public task data": "Public task data",
+    "Result Preview": "Result Preview",
+    "Task Details": "Task Details",
+    "Task failed": "Task failed",
+    "Task information and generated result": "Task information and generated result",
+    "The preview will be available after the task succeeds.": "The preview will be available after the task succeeds.",
+    "Video preview could not be loaded": "Video preview could not be loaded",
+    "Video result": "Video result",
+    "You can retry after checking the task result.": "You can retry after checking the task result."
   }
 }

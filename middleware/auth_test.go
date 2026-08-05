@@ -126,6 +126,64 @@ func TestUserAuthNeverFallsBackForRecognizedInvalidInternalJWT(t *testing.T) {
 	assert.Contains(t, response.Body.String(), "AUTH_UNAUTHORIZED")
 }
 
+func TestTokenOrUserAuthAcceptsDashboardCredentials(t *testing.T) {
+	setupDashboardAuthMiddlewareTest(t)
+	gin.SetMode(gin.TestMode)
+
+	patUser := createMiddlewarePATUser(t, "video-pat-user", "video.dashboard.pat")
+	sessionUser := createMiddlewarePATUser(t, "video-session-user", "unrelated-session-pat")
+	now := time.Now().Unix()
+	session := &model.UserSession{
+		SID:             "video-dashboard-session",
+		UserID:          sessionUser.Id,
+		Version:         1,
+		UserAuthVersion: sessionUser.AuthVersion,
+		Status:          model.UserSessionStatusActive,
+		RefreshHash:     "video-refresh-hash",
+		LoginMethod:     "password",
+		LastActiveAt:    now,
+		ExpiresAt:       now + 3600,
+	}
+	require.NoError(t, model.CreateUserSession(session))
+	accessToken, _, err := service.IssueAccessToken(service.AuthIdentity{
+		UserID:          sessionUser.Id,
+		SessionID:       session.SID,
+		UserAuthVersion: session.UserAuthVersion,
+		SessionVersion:  session.Version,
+	})
+	require.NoError(t, err)
+
+	router := gin.New()
+	router.GET("/video", TokenOrUserAuth(), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"id": c.GetInt("id")})
+	})
+
+	tests := []struct {
+		name       string
+		token      string
+		wantUserID int
+	}{
+		{name: "dashboard session", token: accessToken, wantUserID: sessionUser.Id},
+		{name: "dashboard pat", token: "video.dashboard.pat", wantUserID: patUser.Id},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/video", nil)
+			request.Header.Set("Authorization", "Bearer "+test.token)
+			response := httptest.NewRecorder()
+
+			router.ServeHTTP(response, request)
+
+			assert.Equal(t, http.StatusOK, response.Code)
+			var body struct {
+				ID int `json:"id"`
+			}
+			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
+			assert.Equal(t, test.wantUserID, body.ID)
+		})
+	}
+}
+
 func TestTryUserAuthCredentialClassification(t *testing.T) {
 	setupDashboardAuthMiddlewareTest(t)
 	gin.SetMode(gin.TestMode)

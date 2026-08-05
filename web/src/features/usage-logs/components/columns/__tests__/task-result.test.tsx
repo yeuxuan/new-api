@@ -29,6 +29,8 @@ const domGlobals = [
   'document',
   'navigator',
   'HTMLElement',
+  'HTMLMediaElement',
+  'HTMLVideoElement',
   'SVGElement',
   'Node',
   'Element',
@@ -61,6 +63,21 @@ await i18n.use(initReactI18next).init({
   resources: {
     en: {
       translation: {
+        'No result is available yet': 'No result is available yet',
+        'Open result': 'Open result',
+        'Public task data': 'Public task data',
+        'Result Preview': 'Result Preview',
+        'Task Details': 'Task Details',
+        'Task information and generated result':
+          'Task information and generated result',
+        'TMLab Seedance': 'TMLab Seedance',
+        'Video preview could not be loaded':
+          'Video preview could not be loaded',
+        'You can retry after checking the task result.':
+          'You can retry after checking the task result.',
+        Retry: 'Retry',
+        'Video result': 'Video result',
+        'View details': 'View details',
         'View result': 'View result',
       },
     },
@@ -76,7 +93,7 @@ function createTaskLog(overrides: Partial<TaskLog> = {}): TaskLog {
   return {
     id: 1,
     user_id: 1,
-    platform: 'tmlab-seedance',
+    platform: '61',
     task_id: 'task_result/with space',
     action: 'generate',
     channel_id: 64,
@@ -114,7 +131,7 @@ describe('task log result details', () => {
     domWindow.close()
   })
 
-  test('fetches a completed video result with dashboard authentication before opening it', async () => {
+  test('opens task details and loads an inline video with dashboard authentication', async () => {
     useAuthStore.getState().auth.setBundle({
       access_token: 'dashboard-session-token',
       token_type: 'Bearer',
@@ -149,18 +166,11 @@ describe('task log result details', () => {
       }
     }
 
-    const popup = {
-      closed: false,
-      location: { href: '' },
-      opener: window,
-      close() {
-        this.closed = true
-      },
-    }
-    const originalOpen = window.open
-    window.open = () => popup as unknown as ReturnType<typeof window.open>
     const originalCreateObjectURL = URL.createObjectURL
+    const originalRevokeObjectURL = URL.revokeObjectURL
+    const revokedUrls: string[] = []
     URL.createObjectURL = () => 'blob:authenticated-video-result'
+    URL.revokeObjectURL = (url) => revokedUrls.push(String(url))
 
     const rendered = await renderDetails(
       createTaskLog({ result_url: 'https://upstream.example/result.mp4' })
@@ -168,7 +178,7 @@ describe('task log result details', () => {
 
     const button = rendered.container.querySelector('button')
     assert.ok(button)
-    assert.equal(button.textContent, 'View result')
+    assert.equal(button.textContent, 'View details')
 
     await act(async () => {
       button.click()
@@ -178,28 +188,111 @@ describe('task log result details', () => {
     assert.equal(requestUrl, '/v1/videos/task_result%2Fwith%20space/content')
     assert.equal(requestAuthorization, 'Bearer dashboard-session-token')
     assert.equal(responseType, 'blob')
-    assert.equal(popup.opener, null)
-    assert.equal(popup.location.href, 'blob:authenticated-video-result')
+    const sheet = document.querySelector('[data-slot="sheet-content"]')
+    assert.ok(sheet)
+    assert.match(sheet.textContent ?? '', /Task Details/)
+    assert.match(sheet.textContent ?? '', /Result Preview/)
+    assert.match(sheet.textContent ?? '', /Public task data/)
+    assert.match(sheet.textContent ?? '', /TMLab Seedance/)
+    assert.match(sheet.textContent ?? '', /task_result\/with space/)
+    const video = sheet.querySelector('video')
+    assert.ok(video)
+    assert.equal(video.getAttribute('src'), 'blob:authenticated-video-result')
     assert.equal(
-      rendered.container.textContent?.includes('upstream.example'),
-      false
+      sheet.textContent?.includes('https://upstream.example/result.mp4'),
+      true
     )
 
     await unmountDetails(rendered)
+    assert.deepEqual(revokedUrls, ['blob:authenticated-video-result'])
     api.defaults.adapter = originalAdapter
-    window.open = originalOpen
     URL.createObjectURL = originalCreateObjectURL
+    URL.revokeObjectURL = originalRevokeObjectURL
     useAuthStore.getState().auth.reset()
   })
 
-  test('does not show a result link before a video result is available', async () => {
+  test('shows task details without requesting a video before a result is available', async () => {
+    let requestCount = 0
+    const originalAdapter = api.defaults.adapter
+    api.defaults.adapter = async (config) => {
+      requestCount++
+      return {
+        data: new Blob(),
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config,
+      }
+    }
     const rendered = await renderDetails(
       createTaskLog({ status: 'IN_PROGRESS' })
     )
 
-    assert.equal(rendered.container.querySelector('button'), null)
-    assert.equal(rendered.container.textContent, '-')
+    const button = rendered.container.querySelector('button')
+    assert.ok(button)
+    assert.equal(button.textContent, 'View details')
+
+    await act(async () => {
+      button.click()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    const sheet = document.querySelector('[data-slot="sheet-content"]')
+    assert.ok(sheet)
+    assert.match(sheet.textContent ?? '', /No result is available yet/)
+    assert.equal(sheet.querySelector('video'), null)
+    assert.equal(requestCount, 0)
 
     await unmountDetails(rendered)
+    api.defaults.adapter = originalAdapter
+  })
+
+  test('shows a recoverable error and retries the video request', async () => {
+    let requestCount = 0
+    const originalAdapter = api.defaults.adapter
+    api.defaults.adapter = async (config) => {
+      requestCount++
+      if (requestCount === 1) throw new Error('temporary preview failure')
+      return {
+        data: new Blob(['video'], { type: 'video/mp4' }),
+        status: 200,
+        statusText: 'OK',
+        headers: { 'content-type': 'video/mp4' },
+        config,
+      }
+    }
+    const originalCreateObjectURL = URL.createObjectURL
+    URL.createObjectURL = () => 'blob:retried-video-result'
+    const rendered = await renderDetails(
+      createTaskLog({ result_url: 'https://upstream.example/result.mp4' })
+    )
+
+    const detailsButton = rendered.container.querySelector('button')
+    assert.ok(detailsButton)
+    await act(async () => {
+      detailsButton.click()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    const sheet = document.querySelector('[data-slot="sheet-content"]')
+    assert.ok(sheet)
+    assert.match(sheet.textContent ?? '', /Video preview could not be loaded/)
+    const retryButton = [...sheet.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Retry'
+    )
+    assert.ok(retryButton)
+    await act(async () => {
+      retryButton.click()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    assert.equal(requestCount, 2)
+    const video = sheet.querySelector('video')
+    assert.ok(video)
+    assert.equal(video.getAttribute('src'), 'blob:retried-video-result')
+
+    await unmountDetails(rendered)
+    api.defaults.adapter = originalAdapter
+    URL.createObjectURL = originalCreateObjectURL
   })
 })

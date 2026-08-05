@@ -5460,6 +5460,19 @@
     "Text prompt describing the desired video": "描述目標影片的文字提示詞",
     "Video duration in seconds": "影片時長（秒）",
     "Whether faces in reference media are masked": "是否遮蔽參考素材中的臉部",
-    "Whether the generated video includes sound": "生成的影片是否包含聲音"
+    "Whether the generated video includes sound": "生成的影片是否包含聲音",
+    "Copy result URL": "複製結果連結",
+    "Copy task data": "複製任務資料",
+    "No result is available yet": "暫無可用結果",
+    "Open result": "開啟結果",
+    "Public task data": "公開任務資料",
+    "Result Preview": "結果預覽",
+    "Task Details": "任務詳情",
+    "Task failed": "任務失敗",
+    "Task information and generated result": "任務資訊和生成結果",
+    "The preview will be available after the task succeeds.": "任務成功後即可預覽結果。",
+    "Video preview could not be loaded": "無法載入影片預覽",
+    "Video result": "影片結果",
+    "You can retry after checking the task result.": "請檢查任務結果後重試。"
   }
 }

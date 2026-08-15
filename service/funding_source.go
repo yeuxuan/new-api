@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"time"
 
 	"github.com/QuantumNous/new-api/model"
@@ -26,6 +27,11 @@ type FundingSource interface {
 // WalletFunding — 钱包资金来源实现（含奖励额度池）
 // ---------------------------------------------------------------------------
 
+// ErrInsufficientWalletQuota 钱包原子预扣失败（余额不足），未发生任何扣减。
+// BillingSession 据此映射为 ErrorCodeInsufficientUserQuota，
+// 使 wallet_first 等计费偏好可以回退到订阅。
+var ErrInsufficientWalletQuota = errors.New("wallet quota insufficient")
+
 type WalletFunding struct {
 	userId        int
 	modelName     string
@@ -42,7 +48,7 @@ type walletConsumption struct {
 
 func (w *WalletFunding) Source() string { return BillingSourceWallet }
 
-func (w *WalletFunding) consumeAmount(amount int, trackReserve bool) error {
+func (w *WalletFunding) consumeAmount(amount int, trackReserve, requireAvailableWallet bool) error {
 	if amount <= 0 {
 		return nil
 	}
@@ -59,7 +65,17 @@ func (w *WalletFunding) consumeAmount(amount int, trackReserve bool) error {
 
 	walletAmount := amount - bonusUsed
 	if walletAmount > 0 {
-		if err := model.DecreaseUserQuota(w.userId, walletAmount, false); err != nil {
+		if requireAvailableWallet {
+			reserved, reserveErr := model.TryReserveUserQuota(w.userId, walletAmount)
+			if reserveErr != nil {
+				err = reserveErr
+			} else if !reserved {
+				err = ErrInsufficientWalletQuota
+			}
+		} else {
+			err = model.DecreaseUserQuota(w.userId, walletAmount, false)
+		}
+		if err != nil {
 			if len(newDeducts) > 0 {
 				_ = model.RefundBonusQuota(newDeducts)
 				w.bonusConsumed -= bonusUsed
@@ -101,11 +117,11 @@ func removeBonusDeductions(all, remove []model.BonusQuotaDeduction) []model.Bonu
 }
 
 func (w *WalletFunding) PreConsume(amount int) error {
-	return w.consumeAmount(amount, false)
+	return w.consumeAmount(amount, false, true)
 }
 
 func (w *WalletFunding) ReserveAdditional(delta int) error {
-	return w.consumeAmount(delta, true)
+	return w.consumeAmount(delta, true, false)
 }
 
 func (w *WalletFunding) RollbackLastReserve() {
@@ -134,7 +150,7 @@ func (w *WalletFunding) Settle(delta int) error {
 		return nil
 	}
 	if delta > 0 {
-		return w.consumeAmount(delta, false)
+		return w.consumeAmount(delta, false, false)
 	}
 	refundAmount := -delta
 	bonusRefund := 0
@@ -215,12 +231,12 @@ func shrinkBonusDeductions(deductions []model.BonusQuotaDeduction, refunded int)
 // ---------------------------------------------------------------------------
 
 type SubscriptionFunding struct {
-	requestId      string
-	userId         int
-	modelName      string
-	amount         int64
-	subscriptionId int
-	preConsumed    int64
+	requestId       string
+	userId          int
+	modelName       string
+	amount          int64
+	subscriptionId  int
+	preConsumed     int64
 	AmountTotal     int64
 	AmountUsedAfter int64
 	PlanId          int

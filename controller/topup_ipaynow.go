@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/ipaynow"
@@ -22,7 +20,7 @@ import (
 )
 
 const (
-	PaymentMethodIPayNow = "ipaynow"
+	PaymentMethodIPayNow = model.PaymentMethodIPayNow
 
 	iPayNowOrderTimeoutSec = 600
 	iPayNowOrderName       = "TUC"
@@ -81,6 +79,9 @@ func (*IPayNowAdaptor) RequestAmount(c *gin.Context, req *IPayNowPayRequest) {
 	}
 
 	userId := c.GetInt("id")
+	if rejectInvalidTopUpQuota(c, userId, req.Amount) {
+		return
+	}
 	group, err := model.GetUserGroup(userId, true)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
@@ -118,6 +119,9 @@ func (*IPayNowAdaptor) RequestPay(c *gin.Context, req *IPayNowPayRequest) {
 	}
 
 	userId := c.GetInt("id")
+	if rejectInvalidTopUpQuota(c, userId, req.Amount) {
+		return
+	}
 	group, err := model.GetUserGroup(userId, true)
 	if err != nil {
 		c.JSON(200, gin.H{"message": "error", "data": "获取用户分组失败"})
@@ -292,49 +296,13 @@ func IPayNowNotify(c *gin.Context) {
 		return
 	}
 
-	if err := completeIPayNowTopUp(topUp, c.ClientIP()); err != nil {
+	if _, err := model.RechargeIPayNow(topUp.TradeNo, c.ClientIP()); err != nil {
 		common.SysError("iPayNow 充值落库失败: " + err.Error())
 		c.String(200, "success=N")
 		return
 	}
 
 	c.String(200, "success=Y")
-}
-
-func completeIPayNowTopUp(topUp *model.TopUp, callerIp string) error {
-	if topUp == nil {
-		return errors.New("空订单")
-	}
-
-	// 防跨网关：iPayNow 回调只允许完成 iPayNow 订单。
-	// 以 PaymentMethod 判定（部署前的在途订单 PaymentProvider 可能为空，
-	// 但 PaymentMethod 始终为 ipaynow），既挡住冒充又不误伤历史订单。
-	if topUp.PaymentMethod != PaymentMethodIPayNow {
-		return fmt.Errorf("订单支付方式不匹配: trade_no=%s payment_method=%s", topUp.TradeNo, topUp.PaymentMethod)
-	}
-
-	topUp.Status = common.TopUpStatusSuccess
-	topUp.CompleteTime = time.Now().Unix()
-	if err := topUp.Update(); err != nil {
-		return fmt.Errorf("更新订单失败: %w", err)
-	}
-
-	dAmount := decimal.NewFromInt(topUp.Amount)
-	dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
-	quotaToAdd := int(dAmount.Mul(dQuotaPerUnit).IntPart())
-	if quotaToAdd <= 0 {
-		return fmt.Errorf("计算额度失败: amount=%d", topUp.Amount)
-	}
-
-	if err := model.IncreaseUserQuota(topUp.UserId, quotaToAdd, true); err != nil {
-		return fmt.Errorf("增加用户额度失败: %w", err)
-	}
-
-	model.RecordTopupLogWithQuota(topUp.UserId,
-		fmt.Sprintf("使用聚合动态码充值成功，充值金额: %v，支付金额：%.2f",
-			logger.LogQuota(quotaToAdd), topUp.Money),
-		quotaToAdd, callerIp, topUp.PaymentMethod, "ipaynow")
-	return nil
 }
 
 // ipaynowQueryCooldown 限制对 iPayNow MQ002 的调用频率，tradeNo -> 最近一次查询 unix 秒
@@ -444,7 +412,7 @@ func tryActiveQueryIPayNow(tradeNo string) bool {
 		}
 	}
 
-	if err := completeIPayNowTopUp(topUp, ""); err != nil {
+	if _, err := model.RechargeIPayNow(topUp.TradeNo, ""); err != nil {
 		common.SysError("iPayNow MQ002 补偿落库失败: " + err.Error())
 		return false
 	}

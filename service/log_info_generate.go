@@ -317,6 +317,9 @@ func InjectTieredBillingInfo(other map[string]interface{}, relayInfo *relaycommo
 		matchedTier = result.MatchedTier
 	}
 	injectTieredBillingSnapshot(other, snap, matchedTier)
+	if result != nil && len(result.RequestRules) > 0 {
+		other["request_rules"] = result.RequestRules
+	}
 }
 
 func injectTieredBillingSnapshot(other map[string]interface{}, snap *billingexpr.BillingSnapshot, matchedTier string) {

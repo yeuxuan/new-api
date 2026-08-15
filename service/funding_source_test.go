@@ -5,6 +5,8 @@ import (
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
@@ -12,12 +14,8 @@ func setupWalletFundingTestDB(t *testing.T) {
 	t.Helper()
 	originalDB := model.DB
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	if err := db.AutoMigrate(&model.User{}, &model.BonusQuotaGrant{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.BonusQuotaGrant{}))
 	model.DB = db
 	t.Cleanup(func() {
 		model.DB = originalDB
@@ -25,32 +23,46 @@ func setupWalletFundingTestDB(t *testing.T) {
 			_ = sqlDB.Close()
 		}
 	})
-	db.Create(&model.User{Id: 1, Quota: 5000})
+	require.NoError(t, db.Create(&model.User{Id: 1, Quota: 5000}).Error)
 }
 
 func TestWalletFundingBonusFirst(t *testing.T) {
 	setupWalletFundingTestDB(t)
 
 	_, err := model.CreateBonusQuotaGrant(1, model.BonusQuotaSourceCheckin, "2026-06-01", 3000, 0)
-	if err != nil {
-		t.Fatalf("create bonus: %v", err)
-	}
+	require.NoError(t, err)
 
 	w := &WalletFunding{userId: 1, modelName: "gpt-4"}
-	if err := w.PreConsume(4000); err != nil {
-		t.Fatalf("preconsume: %v", err)
-	}
-	if w.bonusConsumed != 3000 || w.consumed != 1000 {
-		t.Fatalf("bonus=%d wallet=%d", w.bonusConsumed, w.consumed)
-	}
+	require.NoError(t, w.PreConsume(4000))
+	assert.Equal(t, 3000, w.bonusConsumed)
+	assert.Equal(t, 1000, w.consumed)
 
-	if err := w.Refund(); err != nil {
-		t.Fatalf("refund: %v", err)
-	}
+	require.NoError(t, w.Refund())
 
-	bonus, _ := model.GetUserBonusQuotaTotal(1)
-	quota, _ := model.GetUserQuota(1, true)
-	if bonus != 3000 || quota != 5000 {
-		t.Fatalf("after refund bonus=%d quota=%d", bonus, quota)
-	}
+	bonus, err := model.GetUserBonusQuotaTotal(1)
+	require.NoError(t, err)
+	quota, err := model.GetUserQuota(1, true)
+	require.NoError(t, err)
+	assert.Equal(t, 3000, bonus)
+	assert.Equal(t, 5000, quota)
+}
+
+func TestWalletFundingInsufficientQuotaRollsBackBonus(t *testing.T) {
+	setupWalletFundingTestDB(t)
+
+	_, err := model.CreateBonusQuotaGrant(1, model.BonusQuotaSourceCheckin, "2026-06-02", 3000, 0)
+	require.NoError(t, err)
+
+	w := &WalletFunding{userId: 1, modelName: "gpt-4"}
+	require.ErrorIs(t, w.PreConsume(9000), ErrInsufficientWalletQuota)
+	assert.Zero(t, w.bonusConsumed)
+	assert.Zero(t, w.consumed)
+	assert.Empty(t, w.bonusDeducts)
+
+	bonus, err := model.GetUserBonusQuotaTotal(1)
+	require.NoError(t, err)
+	quota, err := model.GetUserQuota(1, true)
+	require.NoError(t, err)
+	assert.Equal(t, 3000, bonus)
+	assert.Equal(t, 5000, quota)
 }

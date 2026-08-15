@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/thanhpk/randstr"
 )
 
@@ -62,6 +63,12 @@ type CreemProduct struct {
 type CreemAdaptor struct {
 }
 
+func getCreemCreditedQuota(productQuota float64) (int, error) {
+	return validateCreditedQuota(
+		decimal.NewFromFloat(productQuota).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
+	)
+}
+
 func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 	if req.PaymentMethod != model.PaymentMethodCreem {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "不支持的支付渠道"})
@@ -97,9 +104,18 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 	}
 
 	id := c.GetInt("id")
+	creditedQuota, err := getCreemCreditedQuota(selectedProduct.Quota)
+	if err == nil {
+		err = model.ValidateTopUpQuotaCapacity(id, creditedQuota)
+	}
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": err.Error()})
+		return
+	}
+
 	user, err := model.GetUserById(id, false)
 	if err != nil || user == nil {
-		c.JSON(200, gin.H{"message": "error", "data": "用户不存在"})
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "用户不存在"})
 		return
 	}
 
@@ -110,8 +126,8 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 	// 先创建订单记录，在创建时预计算内部额度（Quota 为 USD 等值，乘以 QuotaPerUnit）
 	topUp := &model.TopUp{
 		UserId:          id,
-		Amount:          int64(selectedProduct.Quota * common.QuotaPerUnit), // 预计算内部额度（USD 等值 × QuotaPerUnit）
-		Money:           selectedProduct.Price,                              // 支付金额
+		Amount:          int64(creditedQuota),  // 预计算内部额度（USD 等值 × QuotaPerUnit）
+		Money:           selectedProduct.Price, // 支付金额
 		TradeNo:         referenceId,
 		PaymentMethod:   model.PaymentMethodCreem,
 		PaymentProvider: model.PaymentProviderCreem,

@@ -120,7 +120,6 @@ function buildPublicTaskData(log: TaskLog): Record<string, unknown> {
     progress_message_en: log.progress_message_en,
     properties: parseJsonValue(log.properties),
     data: parseJsonValue(log.data),
-    other: parseJsonValue(log.other),
     created_at: log.created_at,
     updated_at: log.updated_at,
   }

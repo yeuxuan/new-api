@@ -53,13 +53,13 @@ export interface PaymentAmountCalculators {
   waffoPancake: AmountCalculator
 }
 
-const defaultPaymentAmountCalculators: PaymentAmountCalculators = {
+const defaultPaymentAmountCalculators = {
   regular: calculateAmount,
   stripe: calculateStripeAmount,
   ipaynow: calculateIPayNowAmount,
   waffo: calculateWaffoAmount,
   waffoPancake: calculateWaffoPancakeAmount,
-}
+} satisfies PaymentAmountCalculators
 
 export async function requestPaymentAmount(
   topupAmount: number,
@@ -100,7 +100,7 @@ export function usePayment() {
         if (isStripePayment(paymentType)) {
           calculator = defaultPaymentAmountCalculators.stripe
         } else if (isIPayNowPayment(paymentType)) {
-          calculator = defaultPaymentAmountCalculators.ipaynow!
+          calculator = defaultPaymentAmountCalculators.ipaynow
         } else if (isWaffoPayment(paymentType)) {
           calculator = defaultPaymentAmountCalculators.waffo
         } else if (isWaffoPancakePayment(paymentType)) {

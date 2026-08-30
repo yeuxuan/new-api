@@ -313,7 +313,7 @@ func TestRechargeEpayRejectsQuotaOverflowBeforeCompletingOrder(t *testing.T) {
 	truncateTables(t)
 
 	oldQuotaPerUnit := common.QuotaPerUnit
-	common.QuotaPerUnit = float64(common.MaxQuota)
+	common.QuotaPerUnit = float64(common.MaxWalletQuota + 1)
 	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
 
 	user := insertUserForPaymentGuardTest(t, 505, 3)
@@ -339,15 +339,15 @@ func TestRechargeEpayEnforcesFinalWalletQuotaLimit(t *testing.T) {
 	}{
 		{
 			name:         "allows exact highest representable wallet balance",
-			currentQuota: common.MaxQuota - 1 - 1_000_000,
-			wantQuota:    common.MaxQuota - 1,
+			currentQuota: common.MaxWalletQuota - 1_000_000,
+			wantQuota:    common.MaxWalletQuota,
 			wantStatus:   common.TopUpStatusSuccess,
 		},
 		{
-			name:         "rejects balance above int32 quota domain",
-			currentQuota: common.MaxQuota - 1_000_000,
+			name:         "rejects balance above wallet quota domain",
+			currentQuota: common.MaxWalletQuota - 999_999,
 			wantErr:      true,
-			wantQuota:    common.MaxQuota - 1_000_000,
+			wantQuota:    common.MaxWalletQuota - 999_999,
 			wantStatus:   common.TopUpStatusPending,
 		},
 	}
@@ -421,12 +421,12 @@ func TestRechargeIPayNowRejectsForeignAndOverflowingOrders(t *testing.T) {
 
 	t.Run("wallet capacity exceeded", func(t *testing.T) {
 		truncateTables(t)
-		user := insertUserForPaymentGuardTest(t, 611, common.MaxQuota-1_000_000)
+		user := insertUserForPaymentGuardTest(t, 611, common.MaxWalletQuota-999_999)
 		order := createIPayNowTestOrder(t, user.Id, "IPAYNOW-OVERFLOW", PaymentProviderIPayNow, common.TopUpStatusPending)
 
 		_, err := RechargeIPayNow(order.TradeNo, "127.0.0.1")
 		require.ErrorIs(t, err, ErrTopUpQuotaLimitExceeded)
-		assert.Equal(t, common.MaxQuota-1_000_000, getUserQuotaForPaymentGuardTest(t, user.Id))
+		assert.Equal(t, common.MaxWalletQuota-999_999, getUserQuotaForPaymentGuardTest(t, user.Id))
 		assert.Equal(t, common.TopUpStatusPending, getTopUpStatusForPaymentGuardTest(t, order.TradeNo))
 	})
 }

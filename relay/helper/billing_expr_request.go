@@ -68,6 +68,12 @@ func cloneRequestInput(src billingexpr.RequestInput) billingexpr.RequestInput {
 	if len(src.Body) > 0 {
 		input.Body = append([]byte(nil), src.Body...)
 	}
+	if len(src.Usage) > 0 {
+		input.Usage = make(map[string]any, len(src.Usage))
+		for key, value := range src.Usage {
+			input.Usage[key] = value
+		}
+	}
 	return input
 }
 

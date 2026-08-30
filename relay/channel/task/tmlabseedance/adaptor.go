@@ -111,7 +111,7 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) *taskdto.TaskError {
-	if taskErr := relaycommon.ValidateBasicTaskRequest(c, info, constant.TaskActionGenerate); taskErr != nil {
+	if taskErr := relaycommon.ValidateBasicTaskRequest(c, info, constant.TaskActionTextToVideo); taskErr != nil {
 		return taskErr
 	}
 	if strings.HasPrefix(c.GetHeader("Content-Type"), "multipart/form-data") {
@@ -194,6 +194,11 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	}
 	if taskErr := normalizeAndValidateRequest(&request, genericImages, profile); taskErr != nil {
 		return taskErr
+	}
+	if len(genericImages) > 0 || request.FirstImage != "" || request.LastImage != "" ||
+		len(request.ImageURLs) > 0 || len(request.Images) > 0 || len(request.InputImages) > 0 ||
+		len(request.ReferenceURLs) > 0 || len(request.ReferenceImages) > 0 {
+		info.Action = constant.TaskActionImageToVideo
 	}
 	sanitizeRequestForFormat(&request, profile.format)
 	billingBody, err := common.Marshal(request)
@@ -659,6 +664,37 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, _ *relaycommon.RelayInfo) 
 	return ratios
 }
 
+func (a *TaskAdaptor) ExtractUsageFacts(c *gin.Context, _ *relaycommon.RelayInfo) map[string]any {
+	request, err := getSubmitRequest(c)
+	if err != nil {
+		return nil
+	}
+	profile, ok := modelProfiles[request.Model]
+	if !ok {
+		return nil
+	}
+	duration := request.Duration
+	if profile.format == requestFormatPro720P || profile.format == requestFormat25 {
+		duration = request.DurationSec
+	}
+	if duration == nil || *duration <= 0 {
+		return nil
+	}
+
+	ratio := request.Ratio
+	if ratio == "" {
+		ratio = request.AspectRatio
+	}
+	return map[string]any{
+		"duration":         float64(*duration),
+		"seconds":          float64(*duration),
+		"resolution":       request.Resolution,
+		"resolution_ratio": profile.resolutionRatios[request.Resolution],
+		"ratio":            ratio,
+		"mode_type":        request.ModeType,
+	}
+}
+
 func (a *TaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, error) {
 	return a.baseURL + "/v1/tasks", nil
 }
@@ -690,16 +726,15 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 	return channel.DoTaskApiRequest(a, c, info, requestBody)
 }
 
-func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (string, []byte, *taskdto.TaskError) {
+func (a *TaskAdaptor) ParseResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *taskdto.TaskError) {
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", nil, service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
+		return nil, service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
 	}
-	_ = resp.Body.Close()
 
 	var upstreamResponse taskResponse
 	if err := common.Unmarshal(responseBody, &upstreamResponse); err != nil {
-		return "", nil, service.TaskErrorWrapper(errors.Wrapf(err, "body: %s", responseBody), "unmarshal_response_body_failed", http.StatusInternalServerError)
+		return nil, service.TaskErrorWrapper(errors.Wrapf(err, "body: %s", responseBody), "unmarshal_response_body_failed", http.StatusInternalServerError)
 	}
 	taskID := upstreamResponse.TaskID
 	if taskID == "" {
@@ -710,14 +745,14 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		if message == "" {
 			message = "task_id is empty"
 		}
-		return "", nil, service.TaskErrorWrapper(fmt.Errorf("%s", message), "invalid_response", http.StatusBadGateway)
+		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", message), "invalid_response", http.StatusBadGateway)
 	}
 
 	var downstreamResponse []byte
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/tasks") {
 		var nativeResponse map[string]any
 		if err := common.Unmarshal(responseBody, &nativeResponse); err != nil {
-			return "", nil, service.TaskErrorWrapper(errors.Wrap(err, "unmarshal native TMLab response failed"), "invalid_response", http.StatusBadGateway)
+			return nil, service.TaskErrorWrapper(errors.Wrap(err, "unmarshal native TMLab response failed"), "invalid_response", http.StatusBadGateway)
 		}
 		replaceTaskIDs(nativeResponse, info.PublicTaskID, true)
 		downstreamResponse, err = common.Marshal(nativeResponse)
@@ -730,11 +765,14 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		downstreamResponse, err = common.Marshal(video)
 	}
 	if err != nil {
-		return "", nil, service.TaskErrorWrapper(errors.Wrap(err, "marshal downstream task response failed"), "marshal_response_failed", http.StatusInternalServerError)
+		return nil, service.TaskErrorWrapper(errors.Wrap(err, "marshal downstream task response failed"), "marshal_response_failed", http.StatusInternalServerError)
 	}
 	info.PendingResponse = downstreamResponse
 	info.PendingResponseStatusCode = http.StatusOK
-	return taskID, a.SanitizeTaskResponse(responseBody, info.PublicTaskID), nil
+	return &channel.TaskSubmitResponse{
+		UpstreamTaskID: taskID,
+		TaskData:       a.SanitizeTaskResponse(responseBody, info.PublicTaskID),
+	}, nil
 }
 
 func (a *TaskAdaptor) SanitizeTaskResponse(responseBody []byte, publicTaskID string) []byte {

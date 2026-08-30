@@ -66,10 +66,12 @@ function createTaskLog(overrides: Partial<TaskLog> = {}): TaskLog {
   return {
     id: 1,
     user_id: 1,
-    platform: '61',
+    platform: '62',
     task_id: 'task_result/with space',
     action: 'generate',
     channel_id: 64,
+    group: 'default',
+    quota: 100,
     submit_time: 1,
     status: 'SUCCESS',
     ...overrides,

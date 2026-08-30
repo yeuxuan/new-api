@@ -331,4 +331,7 @@ func injectTieredBillingSnapshot(other map[string]interface{}, snap *billingexpr
 	if matchedTier != "" {
 		other["matched_tier"] = matchedTier
 	}
+	if len(snap.UsageFacts) > 0 {
+		other["usage_facts"] = snap.UsageFacts
+	}
 }

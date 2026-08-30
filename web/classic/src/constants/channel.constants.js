@@ -190,7 +190,7 @@ export const CHANNEL_OPTIONS = [
     label: 'ChatGPT Subscription (Codex)',
   },
   {
-    value: 61,
+    value: 62,
     color: 'blue',
     label: 'TMLab Seedance',
   },

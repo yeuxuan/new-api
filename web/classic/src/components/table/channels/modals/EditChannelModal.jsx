@@ -678,7 +678,7 @@ const EditChannelModal = (props) => {
             base_url: 'https://ark.cn-beijing.volces.com',
           }));
           break;
-        case 61:
+        case 62:
           localModels = [...TMLAB_SEEDANCE_MODELS];
           setInputs((prevInputs) => ({
             ...prevInputs,
@@ -985,7 +985,7 @@ const EditChannelModal = (props) => {
         data.base_url = 'https://ark.cn-beijing.volces.com';
       }
       if (
-        data.type === 61 &&
+        data.type === 62 &&
         (!data.base_url ||
           (typeof data.base_url === 'string' && data.base_url.trim() === ''))
       ) {
@@ -1005,7 +1005,7 @@ const EditChannelModal = (props) => {
       // 同步企业账户状态
       setIsEnterpriseAccount(data.is_enterprise_account || false);
       setBasicModels(
-        data.type === 61
+        data.type === 62
           ? [...TMLAB_SEEDANCE_MODELS]
           : getChannelModels(data.type),
       );
@@ -1332,7 +1332,7 @@ const EditChannelModal = (props) => {
         formApiRef.current.setValues(originInputs);
       }
       let localModels =
-        inputs.type === 61
+        inputs.type === 62
           ? [...TMLAB_SEEDANCE_MODELS]
           : getChannelModels(inputs.type);
       setBasicModels(localModels);
@@ -1680,7 +1680,7 @@ const EditChannelModal = (props) => {
       return;
     }
     if (
-      [45, 61].includes(localInputs.type) &&
+      [45, 62].includes(localInputs.type) &&
       (!localInputs.base_url || localInputs.base_url.trim() === '')
     ) {
       showInfo(t('请输入API地址！'));
@@ -2652,7 +2652,7 @@ const EditChannelModal = (props) => {
                       disabled={isIonetLocked}
                     />
 
-                    {inputs.type === 61 && (
+                    {inputs.type === 62 && (
                       <Banner
                         type='warning'
                         closeIcon={null}

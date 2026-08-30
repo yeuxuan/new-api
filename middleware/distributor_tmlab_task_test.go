@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/model"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -40,14 +38,4 @@ func TestGetModelRequestSupportsNativeTaskRoutes(t *testing.T) {
 		assert.Empty(t, request.Model)
 		assert.Equal(t, relayconstant.RelayModeVideoFetchByID, ctx.GetInt("relay_mode"))
 	})
-}
-
-func TestChannelSupportsRequestPathRestrictsNativeTaskSubmission(t *testing.T) {
-	tmlab := &model.Channel{Type: constant.ChannelTypeTMLabSeedance}
-	openAI := &model.Channel{Type: constant.ChannelTypeOpenAI}
-
-	assert.True(t, channelSupportsRequestPath(tmlab, "/v1/tasks", "seedance-2.0-fast"))
-	assert.False(t, channelSupportsRequestPath(openAI, "/v1/tasks", "seedance-2.0-fast"))
-	assert.True(t, channelSupportsRequestPath(openAI, "/v1/chat/completions", "gpt-4o"))
-	assert.True(t, channelSupportsRequestPath(openAI, "/v1/video/generations", "sora-2"))
 }

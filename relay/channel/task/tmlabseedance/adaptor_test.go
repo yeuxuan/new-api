@@ -132,6 +132,25 @@ func TestBillingInputUsesNormalizedTMLabRequest(t *testing.T) {
 	assert.Equal(t, "16:9", billingRequest.Ratio)
 }
 
+func TestExtractUsageFactsUsesNormalizedTMLabRequest(t *testing.T) {
+	adaptor, context, info := validateRequest(t, `{
+		"model":"seedance-2.0-fast",
+		"prompt":"cinematic forest",
+		"duration":8,
+		"resolution":"720p",
+		"images":["https://example.com/frame.png"]
+	}`)
+
+	assert.Equal(t, map[string]any{
+		"duration":         float64(8),
+		"seconds":          float64(8),
+		"resolution":       "720p",
+		"resolution_ratio": float64(2),
+		"ratio":            "adaptive",
+		"mode_type":        "image2video",
+	}, adaptor.ExtractUsageFacts(context, info))
+}
+
 func TestValidateOpenAIVideoFieldsForTMLab(t *testing.T) {
 	body := `{
 		"model":"[V2]seedance-2.0",
@@ -416,7 +435,7 @@ func TestParseTaskResultWaitsWhenSuccessHasNoVideoURL(t *testing.T) {
 	assert.Empty(t, result.Url)
 }
 
-func TestDoResponseUsesPublicTaskIDAndKeepsUpstreamTaskID(t *testing.T) {
+func TestParseResponseUsesPublicTaskIDAndKeepsUpstreamTaskID(t *testing.T) {
 	context, recorder := newTaskContext(t, `{}`)
 	adaptor := &TaskAdaptor{}
 	response := &http.Response{
@@ -429,11 +448,12 @@ func TestDoResponseUsesPublicTaskIDAndKeepsUpstreamTaskID(t *testing.T) {
 		},
 	}
 
-	taskID, taskData, taskErr := adaptor.DoResponse(context, response, info)
+	parsed, taskErr := adaptor.ParseResponse(context, response, info)
 	require.Nil(t, taskErr)
-	assert.Equal(t, "upstream-task", taskID)
-	assert.JSONEq(t, `{"task_id":"task_public","status":"queued"}`, string(taskData))
-	assert.NotContains(t, string(taskData), "upstream-task")
+	require.NotNil(t, parsed)
+	assert.Equal(t, "upstream-task", parsed.UpstreamTaskID)
+	assert.JSONEq(t, `{"task_id":"task_public","status":"queued"}`, string(parsed.TaskData))
+	assert.NotContains(t, string(parsed.TaskData), "upstream-task")
 	assert.Empty(t, recorder.Body.String())
 	var downstream map[string]any
 	require.NoError(t, common.Unmarshal(info.PendingResponse, &downstream))
@@ -467,9 +487,10 @@ func TestNativeTaskSubmitResponsePreservesShapeAndHidesUpstreamID(t *testing.T) 
 		},
 	}
 
-	taskID, _, taskErr := adaptor.DoResponse(context, response, info)
+	parsed, taskErr := adaptor.ParseResponse(context, response, info)
 	require.Nil(t, taskErr)
-	assert.Equal(t, "upstream-task", taskID)
+	require.NotNil(t, parsed)
+	assert.Equal(t, "upstream-task", parsed.UpstreamTaskID)
 	assert.JSONEq(t, `{"id":"task_public","task_id":"task_public","status":"queued","amount":"3.00"}`, string(info.PendingResponse))
 	assert.NotContains(t, string(info.PendingResponse), "upstream-task")
 }

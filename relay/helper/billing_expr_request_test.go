@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/gin-gonic/gin"
@@ -60,4 +61,25 @@ func TestBuildBillingExprRequestInputFromRequest(t *testing.T) {
 	require.True(t, gjson.GetBytes(input.Body, "stream").Bool())
 	require.Equal(t, "user", gjson.GetBytes(input.Body, "messages.0.role").String())
 	require.Equal(t, float64(3000), gjson.GetBytes(input.Body, "max_tokens").Float())
+}
+
+func TestResolveIncomingBillingExprRequestInputClonesStoredUsage(t *testing.T) {
+	stored := billingexpr.RequestInput{
+		Headers: map[string]string{"X-Test": "original"},
+		Body:    []byte(`{"model":"seedance-2.0-fast"}`),
+		Usage:   map[string]any{"seconds": float64(8)},
+	}
+
+	input, err := ResolveIncomingBillingExprRequestInput(nil, &relaycommon.RelayInfo{
+		BillingRequestInput: &stored,
+	})
+	require.NoError(t, err)
+
+	input.Headers["X-Test"] = "changed"
+	input.Body[0] = '['
+	input.Usage["seconds"] = float64(10)
+
+	require.Equal(t, "original", stored.Headers["X-Test"])
+	require.Equal(t, byte('{'), stored.Body[0])
+	require.Equal(t, float64(8), stored.Usage["seconds"])
 }

@@ -16,10 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { ViewIcon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Music } from 'lucide-react'
 /* eslint-disable react-refresh/only-export-components */
-import { useState, useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
@@ -39,7 +41,10 @@ import {
   AudioPreviewDialog,
   type AudioClip,
 } from '../dialogs/audio-preview-dialog'
+import { TaskDetailsDialog } from '../dialogs/task-details-dialog'
 import { TaskDetailsSheet } from '../dialogs/task-details-sheet'
+import { PluginAuthorLink } from '../plugin-author-link'
+import { TaskArtifactsCell } from '../task-artifacts'
 import { useUsageLogsContext } from '../usage-logs-provider'
 import {
   createDurationColumn,
@@ -49,27 +54,28 @@ import {
 
 function parseTaskData(data: unknown): unknown[] {
   if (Array.isArray(data)) return data
-  if (typeof data === 'string') {
-    try {
-      const parsed = JSON.parse(data)
-      return Array.isArray(parsed) ? parsed : []
-    } catch {
-      return []
-    }
+  if (typeof data !== 'string') return []
+  try {
+    const parsed = JSON.parse(data)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
   }
-  return []
 }
 
 function AudioPreviewCell({ log }: { log: TaskLog }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
-  const clips = useMemo(() => {
-    const data = parseTaskData(log.data)
-    return data.filter(
-      (c) =>
-        c && typeof c === 'object' && (c as Record<string, unknown>).audio_url
-    )
-  }, [log.data])
+  const clips = useMemo(
+    () =>
+      parseTaskData(log.data).filter(
+        (clip) =>
+          clip &&
+          typeof clip === 'object' &&
+          (clip as Record<string, unknown>).audio_url
+      ),
+    [log.data]
+  )
 
   if (clips.length === 0) return null
 
@@ -94,32 +100,68 @@ function AudioPreviewCell({ log }: { log: TaskLog }) {
   )
 }
 
-type TaskDetailsCellProps = {
+export function TaskDetailsCell(props: {
   log: TaskLog
-}
+  isAdmin?: boolean
+  isRoot?: boolean
+}) {
+  const { t } = useTranslation()
+  const [dialogOpen, setDialogOpen] = useState(false)
 
-export function TaskDetailsCell(props: TaskDetailsCellProps) {
-  const log = props.log
-  const status = log.status
-
-  const isSunoSuccess =
-    log.platform === 'suno' && status === TASK_STATUS.SUCCESS
-  if (isSunoSuccess) {
-    const data = parseTaskData(log.data)
-    if (
-      data.some(
-        (c) =>
-          c && typeof c === 'object' && (c as Record<string, unknown>).audio_url
-      )
-    ) {
-      return <AudioPreviewCell log={log} />
-    }
+  if (
+    props.log.platform === 'suno' &&
+    props.log.status === TASK_STATUS.SUCCESS &&
+    parseTaskData(props.log.data).some(
+      (item) =>
+        item &&
+        typeof item === 'object' &&
+        (item as Record<string, unknown>).audio_url
+    )
+  ) {
+    return <AudioPreviewCell log={props.log} />
   }
 
-  return <TaskDetailsSheet log={log} />
+  if (props.log.platform === '62') {
+    return <TaskDetailsSheet log={props.log} />
+  }
+
+  return (
+    <>
+      <div className='flex max-w-[220px] flex-col items-start gap-1'>
+        <button
+          type='button'
+          className='text-foreground inline-flex items-center gap-1 text-xs font-medium hover:underline'
+          onClick={() => setDialogOpen(true)}
+        >
+          <HugeiconsIcon
+            icon={ViewIcon}
+            className='size-3'
+            strokeWidth={2}
+            aria-hidden='true'
+          />
+          {t('View details')}
+        </button>
+        {props.log.fail_reason ? (
+          <span className='max-w-full truncate text-xs text-red-600 dark:text-red-400'>
+            {props.log.fail_reason}
+          </span>
+        ) : null}
+      </div>
+      <TaskDetailsDialog
+        log={props.log}
+        isAdmin={props.isAdmin ?? false}
+        isRoot={props.isRoot ?? false}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+      />
+    </>
+  )
 }
 
-export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
+export function useTaskLogsColumns(
+  isAdmin: boolean,
+  isRoot: boolean
+): ColumnDef<TaskLog>[] {
   const { t } = useTranslation()
   const columns: ColumnDef<TaskLog>[] = [
     {
@@ -149,46 +191,80 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
   ]
 
   if (isAdmin) {
-    columns.push(createChannelColumn<TaskLog>({ headerLabel: t('Channel') }), {
-      id: 'user',
-      header: t('User'),
-      accessorFn: (row) => row.username || row.user_id,
-      cell: function UserCell({ row }) {
-        const { sensitiveVisible, setSelectedUserId, setUserInfoDialogOpen } =
-          useUsageLogsContext()
-        const log = row.original
-        const displayName = log.username || String(log.user_id || '?')
+    columns.push(
+      createChannelColumn<TaskLog>({ headerLabel: t('Channel') }),
+      {
+        id: 'user',
+        header: t('User'),
+        accessorFn: (row) => row.username || row.user_id,
+        cell: function UserCell({ row }) {
+          const { sensitiveVisible, setSelectedUserId, setUserInfoDialogOpen } =
+            useUsageLogsContext()
+          const log = row.original
+          const displayName = log.username || String(log.user_id || '?')
 
-        return (
-          <button
-            type='button'
-            className='flex items-center gap-1.5 text-left'
-            onClick={(e) => {
-              e.stopPropagation()
-              setSelectedUserId(log.user_id)
-              setUserInfoDialogOpen(true)
-            }}
-          >
-            <Avatar className='ring-border/60 size-6 ring-1 max-sm:hidden'>
-              <AvatarFallback
-                className={cn(
-                  'text-[11px] font-semibold',
-                  !sensitiveVisible && 'bg-muted text-muted-foreground'
-                )}
-                style={
-                  sensitiveVisible ? getUserAvatarStyle(displayName) : undefined
-                }
-              >
-                {sensitiveVisible ? getUserAvatarFallback(displayName) : '•'}
-              </AvatarFallback>
-            </Avatar>
-            <span className='text-muted-foreground truncate text-sm hover:underline'>
-              {sensitiveVisible ? displayName : '••••'}
-            </span>
-          </button>
-        )
+          return (
+            <button
+              type='button'
+              className='flex items-center gap-1.5 text-left'
+              onClick={(e) => {
+                e.stopPropagation()
+                setSelectedUserId(log.user_id)
+                setUserInfoDialogOpen(true)
+              }}
+            >
+              <Avatar className='ring-border/60 size-6 ring-1 max-sm:hidden'>
+                <AvatarFallback
+                  className={cn(
+                    'text-[11px] font-semibold',
+                    !sensitiveVisible && 'bg-muted text-muted-foreground'
+                  )}
+                  style={
+                    sensitiveVisible
+                      ? getUserAvatarStyle(displayName)
+                      : undefined
+                  }
+                >
+                  {sensitiveVisible ? getUserAvatarFallback(displayName) : '•'}
+                </AvatarFallback>
+              </Avatar>
+              <span className='text-muted-foreground truncate text-sm hover:underline'>
+                {sensitiveVisible ? displayName : '••••'}
+              </span>
+            </button>
+          )
+        },
       },
-    })
+      {
+        id: 'plugin',
+        header: t('Plugin'),
+        accessorFn: (row) => row.admin_info?.task_plugin?.key ?? '',
+        cell: ({ row }) => {
+          const plugin = row.original.admin_info?.task_plugin
+          if (!plugin) {
+            return <span className='text-muted-foreground/60 text-xs'>-</span>
+          }
+          return (
+            <div className='flex max-w-[170px] flex-col gap-0.5'>
+              <span className='truncate text-xs font-medium'>
+                {plugin.name || plugin.key}
+              </span>
+              <span className='text-muted-foreground truncate font-mono text-[11px]'>
+                {plugin.key}
+                {plugin.version ? ` @ ${plugin.version}` : ''}
+              </span>
+              {plugin.author ? (
+                <PluginAuthorLink
+                  author={plugin.author}
+                  showUrl
+                  className='text-muted-foreground text-[11px]'
+                />
+              ) : null}
+            </div>
+          )
+        },
+      }
+    )
   }
 
   columns.push(
@@ -249,11 +325,27 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
     },
     createProgressColumn<TaskLog>({ headerLabel: t('Progress') }),
     {
+      id: 'artifacts',
+      header: t('Artifacts'),
+      cell: ({ row }) => (
+        <TaskArtifactsCell key={row.original.task_id} log={row.original} />
+      ),
+      size: 120,
+      maxSize: 140,
+    },
+    {
       accessorKey: 'fail_reason',
       header: t('Details'),
-      cell: ({ row }) => <TaskDetailsCell log={row.original} />,
-      size: 200,
-      maxSize: 220,
+      cell: ({ row }) => (
+        <TaskDetailsCell
+          key={row.original.task_id}
+          log={row.original}
+          isAdmin={isAdmin}
+          isRoot={isRoot}
+        />
+      ),
+      size: 220,
+      maxSize: 240,
     }
   )
 

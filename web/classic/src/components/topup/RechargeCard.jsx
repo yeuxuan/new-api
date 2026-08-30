@@ -92,6 +92,7 @@ const RechargeCard = ({
   enableWaffoTopUp,
   enableWaffoPancakeTopUp,
   enableIPayNowTopUp,
+  hideOnlineTopup = false,
   subscriptionLoading = false,
   subscriptionPlans = [],
   billingPreference,
@@ -110,6 +111,13 @@ const RechargeCard = ({
   const shouldShowSubscription =
     !subscriptionLoading && subscriptionPlans.length > 0;
   const regularPayMethods = payMethods || [];
+  const onlineTopupEnabled =
+    enableOnlineTopUp ||
+    enableStripeTopUp ||
+    enableCreemTopUp ||
+    enableWaffoTopUp ||
+    enableWaffoPancakeTopUp ||
+    enableIPayNowTopUp;
   const getAmountForCurrentPayment = (value) =>
     requestAmountByPayment?.(payWay || regularPayMethods[0]?.type, value) ??
     getAmount(value);
@@ -231,16 +239,12 @@ const RechargeCard = ({
         }
       >
         {/* 在线充值表单 */}
-        {statusLoading ? (
+        {!hideOnlineTopup && statusLoading && (
           <div className='py-8 flex justify-center'>
             <Spin size='large' />
           </div>
-        ) : enableOnlineTopUp ||
-          enableStripeTopUp ||
-          enableCreemTopUp ||
-          enableWaffoTopUp ||
-          enableWaffoPancakeTopUp ||
-          enableIPayNowTopUp ? (
+        )}
+        {!hideOnlineTopup && !statusLoading && onlineTopupEnabled && (
           <Form
             getFormApi={(api) => (onlineFormApiRef.current = api)}
             initValues={{ topUpCount: topUpCount }}
@@ -580,7 +584,8 @@ const RechargeCard = ({
               )}
             </div>
           </Form>
-        ) : (
+        )}
+        {!hideOnlineTopup && !statusLoading && !onlineTopupEnabled && (
           <Banner
             type='info'
             description={t(

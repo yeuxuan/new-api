@@ -131,6 +131,7 @@ const TopUp = () => {
   const [topupInfo, setTopupInfo] = useState({
     amount_options: [],
     discount: {},
+    hide_online_topup: false,
     enable_redemption: true,
     payment_compliance_confirmed: true,
   });
@@ -778,6 +779,7 @@ const TopUp = () => {
           setTopUpLink(data.topup_link || '');
           setTopupInfo((prev) => ({
             ...prev,
+            hide_online_topup: data.hide_online_topup === true,
             enable_ipaynow_topup: enableIPayNowTopUp,
             ipaynow_min_topup: data.ipaynow_min_topup || 1,
             enable_redemption: data.enable_redemption !== false,
@@ -1094,6 +1096,7 @@ const TopUp = () => {
           enableWaffoTopUp={enableWaffoTopUp}
           enableWaffoPancakeTopUp={enableWaffoPancakeTopUp}
           enableIPayNowTopUp={enableIPayNowTopUp}
+          hideOnlineTopup={topupInfo.hide_online_topup === true}
           presetAmounts={presetAmounts}
           selectedPreset={selectedPreset}
           selectPresetAmount={selectPresetAmount}

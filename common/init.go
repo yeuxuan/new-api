@@ -86,6 +86,7 @@ func InitEnv() {
 	// Initialize variables from constants.go that were using environment variables
 	DebugEnabled = os.Getenv("DEBUG") == "true"
 	MemoryCacheEnabled = os.Getenv("MEMORY_CACHE_ENABLED") == "true"
+	HideOnlineTopUp = GetEnvOrDefaultBool("HIDE_ONLINE_TOPUP", false)
 	ConversationLogEnabled = os.Getenv("CONVERSATION_LOG_ENABLED") == "true"
 	ConversationLogStoragePath = strings.TrimSpace(os.Getenv("CONVERSATION_LOG_STORAGE_PATH"))
 	ConversationLogStorageSentinel = strings.TrimSpace(os.Getenv("CONVERSATION_LOG_STORAGE_SENTINEL"))

@@ -150,6 +150,7 @@ export function RechargeFormCard({
     Array.isArray(waffoPayMethods) && waffoPayMethods.length > 0
   const minTopup = getMinTopupAmount(topupInfo)
   const redemptionEnabled = topupInfo?.enable_redemption !== false
+  const hideOnlineTopup = topupInfo?.hide_online_topup === true
 
   if (loading) {
     return (
@@ -205,7 +206,11 @@ export function RechargeFormCard({
   return (
     <TitledCard
       title={t('Add Funds')}
-      description={t('Choose an amount and payment method')}
+      description={
+        hideOnlineTopup
+          ? t('Enter your redemption code')
+          : t('Choose an amount and payment method')
+      }
       icon={<WalletCards className='h-4 w-4' />}
       iconTone='success'
       disableHoverEffect
@@ -225,7 +230,7 @@ export function RechargeFormCard({
       contentClassName='space-y-4 sm:space-y-6'
     >
       {/* Online Topup Section */}
-      {hasAnyTopup ? (
+      {!hideOnlineTopup && hasAnyTopup && (
         <div className='space-y-4 sm:space-y-6'>
           {hasConfigurableTopup && (
             <>
@@ -333,10 +338,7 @@ export function RechargeFormCard({
                 {hasStandardPaymentMethods ? (
                   <div className='grid grid-cols-2 gap-1.5 sm:gap-3 lg:grid-cols-3'>
                     {topupInfo?.pay_methods?.map((method) => {
-                      const minTopup = getMinTopupAmount(
-                        topupInfo,
-                        method.type
-                      )
+                      const minTopup = getMinTopupAmount(topupInfo, method.type)
                       const disabled = minTopup > topupAmount
                       const disabledReason = disabled
                         ? t('Minimum topup amount: {{amount}}', {
@@ -490,7 +492,8 @@ export function RechargeFormCard({
             </>
           )}
         </div>
-      ) : (
+      )}
+      {!hideOnlineTopup && !hasAnyTopup && (
         <Alert>
           <AlertDescription>
             {t(
@@ -501,7 +504,8 @@ export function RechargeFormCard({
       )}
 
       {/* Creem Products Section */}
-      {enableCreemTopup &&
+      {!hideOnlineTopup &&
+        enableCreemTopup &&
         Array.isArray(creemProducts) &&
         creemProducts.length > 0 &&
         onCreemProductSelect && (
@@ -518,7 +522,12 @@ export function RechargeFormCard({
 
       {/* Redemption Code Section */}
       {redemptionEnabled ? (
-        <div className='space-y-2.5 border-t pt-4 sm:space-y-3 sm:pt-6'>
+        <div
+          className={cn(
+            'space-y-2.5 sm:space-y-3',
+            !hideOnlineTopup && 'border-t pt-4 sm:pt-6'
+          )}
+        >
           <div className='flex items-center gap-2'>
             <IconBadge tone='warning' size='xs'>
               <Gift />

@@ -121,6 +121,8 @@ export interface WaffoPayMethod {
  * Topup configuration information
  */
 export interface TopupInfo {
+  /** Whether the direct online topup form is hidden */
+  hide_online_topup?: boolean
   /** Whether online topup is enabled */
   enable_online_topup: boolean
   /** Whether Stripe topup is enabled */

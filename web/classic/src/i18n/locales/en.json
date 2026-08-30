@@ -3914,6 +3914,12 @@
     "更新 iPayNow 设置": "Update iPayNow settings",
     "开始日期": "Start date",
     "结束日期": "End date",
-    "Channel testing is disabled because a test would create a billable asynchronous video task. Verify this channel with a real video generation request.": "Channel testing is disabled because a test would create a billable asynchronous video task. Verify this channel with a real video generation request."
+    "Channel testing is disabled because a test would create a billable asynchronous video task. Verify this channel with a real video generation request.": "Channel testing is disabled because a test would create a billable asynchronous video task. Verify this channel with a real video generation request.",
+    "管理员未开启 Waffo Pancake 充值！": "The administrator has not enabled Waffo Pancake top-up!",
+    "管理员未开启 Waffo 充值！": "The administrator has not enabled Waffo top-up!",
+    "导出额度明细": "Export quota details",
+    "导出失败": "Export failed",
+    "额度明细": "Quota details",
+    "最后登录": "Last login"
   }
 }

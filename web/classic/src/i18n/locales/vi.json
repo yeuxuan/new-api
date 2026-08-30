@@ -4300,6 +4300,13 @@
     "更新 iPayNow 设置": "Cập nhật cài đặt iPayNow",
     "开始日期": "Ngày bắt đầu",
     "结束日期": "Ngày kết thúc",
-    "Channel testing is disabled because a test would create a billable asynchronous video task. Verify this channel with a real video generation request.": "Tính năng kiểm tra kênh đã bị tắt vì thao tác kiểm tra sẽ tạo một tác vụ video bất đồng bộ có tính phí. Hãy xác minh kênh bằng một yêu cầu tạo video thực tế."
+    "Channel testing is disabled because a test would create a billable asynchronous video task. Verify this channel with a real video generation request.": "Tính năng kiểm tra kênh đã bị tắt vì thao tác kiểm tra sẽ tạo một tác vụ video bất đồng bộ có tính phí. Hãy xác minh kênh bằng một yêu cầu tạo video thực tế.",
+    "管理员未开启 Waffo Pancake 充值！": "Quản trị viên chưa bật nạp tiền qua Waffo Pancake!",
+    "管理员未开启 Waffo 充值！": "Quản trị viên chưa bật nạp tiền qua Waffo!",
+    "支付跳转地址不安全": "URL chuyển hướng thanh toán không an toàn",
+    "导出额度明细": "Xuất chi tiết hạn mức",
+    "导出失败": "Xuất dữ liệu thất bại",
+    "额度明细": "Chi tiết hạn mức",
+    "最后登录": "Đăng nhập gần nhất"
   }
 }

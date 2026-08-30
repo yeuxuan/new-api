@@ -3768,6 +3768,13 @@
     "更新 iPayNow 设置": "Mettre à jour les paramètres iPayNow",
     "开始日期": "Date de début",
     "结束日期": "Date de fin",
-    "Channel testing is disabled because a test would create a billable asynchronous video task. Verify this channel with a real video generation request.": "Le test du canal est désactivé, car il créerait une tâche vidéo asynchrone facturable. Vérifiez ce canal avec une véritable requête de génération vidéo."
+    "Channel testing is disabled because a test would create a billable asynchronous video task. Verify this channel with a real video generation request.": "Le test du canal est désactivé, car il créerait une tâche vidéo asynchrone facturable. Vérifiez ce canal avec une véritable requête de génération vidéo.",
+    "管理员未开启 Waffo Pancake 充值！": "L'administrateur n'a pas activé la recharge Waffo Pancake !",
+    "管理员未开启 Waffo 充值！": "L'administrateur n'a pas activé la recharge Waffo !",
+    "支付跳转地址不安全": "L'URL de redirection du paiement n'est pas sécurisée",
+    "导出额度明细": "Exporter le détail des quotas",
+    "导出失败": "Échec de l'exportation",
+    "额度明细": "Détail des quotas",
+    "最后登录": "Dernière connexion"
   }
 }

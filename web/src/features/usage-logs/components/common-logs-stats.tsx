@@ -16,16 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { RefreshIcon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatLogQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { getLogStats, getUserLogStats } from '../api'
-import { DEFAULT_LOG_STATS } from '../constants'
 import { buildApiParams } from '../lib/utils'
 import { useLogsViewScope, useUsageLogsContext } from './usage-logs-provider'
 
@@ -53,7 +55,13 @@ export function CommonLogsStats() {
   const searchParams = route.useSearch()
   const { sensitiveVisible } = useUsageLogsContext()
 
-  const { data: stats, isLoading } = useQuery({
+  const {
+    data: stats,
+    isPending,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery({
     queryKey: ['usage-logs-stats', isAdmin, searchParams],
     queryFn: async () => {
       const params = buildApiParams({
@@ -68,19 +76,54 @@ export function CommonLogsStats() {
         ? await getLogStats(params)
         : await getUserLogStats(params)
 
-      return result.success
-        ? result.data || DEFAULT_LOG_STATS
-        : DEFAULT_LOG_STATS
+      if (
+        !result.success ||
+        !result.data ||
+        ![result.data.quota, result.data.rpm, result.data.tpm].every(
+          Number.isFinite
+        )
+      ) {
+        throw new Error(result.message || t('Failed to load'))
+      }
+      return result.data
     },
     placeholderData: (previousData) => previousData,
   })
 
-  if (isLoading) {
+  if (isPending) {
     return (
-      <div className='flex items-center gap-2'>
+      <div
+        role='status'
+        aria-label={t('Loading...')}
+        className='flex items-center gap-2'
+      >
         <Skeleton className='h-7 w-[150px] rounded-md' />
         <Skeleton className='h-7 w-[100px] rounded-md' />
         <Skeleton className='h-7 w-[120px] rounded-md' />
+      </div>
+    )
+  }
+
+  if (isError) {
+    return (
+      <div className='flex min-h-7 flex-wrap items-center gap-2 text-xs'>
+        <span role='alert' className='text-destructive'>
+          {t('Usage')}: {t('Failed to load')}
+        </span>
+        <Button
+          type='button'
+          variant='outline'
+          size='xs'
+          disabled={isFetching}
+          onClick={() => void refetch()}
+        >
+          <HugeiconsIcon
+            icon={RefreshIcon}
+            data-icon='inline-start'
+            aria-hidden
+          />
+          {t('Retry')}
+        </Button>
       </div>
     )
   }
@@ -89,19 +132,11 @@ export function CommonLogsStats() {
     <div className='flex flex-wrap items-center gap-2'>
       <StatBadge
         label={t('Usage')}
-        value={sensitiveVisible ? formatLogQuota(stats?.quota || 0) : '••••'}
+        value={sensitiveVisible ? formatLogQuota(stats.quota) : '••••'}
         accent='bg-sky-500/70'
       />
-      <StatBadge
-        label={t('RPM')}
-        value={stats?.rpm || 0}
-        accent='bg-rose-500/65'
-      />
-      <StatBadge
-        label={t('TPM')}
-        value={stats?.tpm || 0}
-        accent='bg-slate-400/70'
-      />
+      <StatBadge label={t('RPM')} value={stats.rpm} accent='bg-rose-500/65' />
+      <StatBadge label={t('TPM')} value={stats.tpm} accent='bg-slate-400/70' />
     </div>
   )
 }

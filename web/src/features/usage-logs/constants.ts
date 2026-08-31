@@ -21,20 +21,11 @@ For commercial licensing, please contact support@quantumnous.com
  */
 import type { StatusBadgeProps } from '@/components/status-badge'
 
-import type { LogStatistics, LogCategory } from './types'
+import type { LogCategory } from './types'
 
 // ============================================================================
 // Default Values
 // ============================================================================
-
-/**
- * Default log statistics when no data is available
- */
-export const DEFAULT_LOG_STATS: LogStatistics = {
-  quota: 0,
-  rpm: 0,
-  tpm: 0,
-}
 
 /**
  * Default empty logs data

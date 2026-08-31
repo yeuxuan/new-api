@@ -121,7 +121,7 @@ export interface WaffoPayMethod {
  * Topup configuration information
  */
 export interface TopupInfo {
-  /** Whether the direct online topup form is hidden */
+  /** Whether the configurable topup form is hidden, excluding Creem products */
   hide_online_topup?: boolean
   /** Whether online topup is enabled */
   enable_online_topup: boolean

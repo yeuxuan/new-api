@@ -38,7 +38,7 @@ services:
       - REDIS_CONN_STRING=redis://:123456@redis:6379 # ⚠️ IMPORTANT: Change the password in production!
       - TZ=Asia/Shanghai
       - ERROR_LOG_ENABLED=true # 是否启用错误日志记录 (Whether to enable error log recording)
-#      - HIDE_ONLINE_TOPUP=true # 隐藏钱包页在线充值表单，保留兑换码、账单和后端支付能力
+#      - HIDE_ONLINE_TOPUP=true # 隐藏钱包页常规充值表单，保留 Creem、兑换码、账单和后端支付能力
       - CONVERSATION_LOG_ENABLED=true # 是否启用对话内容日志记录，用于审计分析 (Whether to enable conversation content logging for audit/analysis)
       - CONVERSATION_LOG_STORAGE_PATH=${CONVERSATION_LOG_STORAGE_PATH:-/data/conversation-archive} # 会话正文文件归档目录；数据库仅保留索引元数据
       - CONVERSATION_LOG_STORAGE_SENTINEL=${CONVERSATION_LOG_STORAGE_SENTINEL:-.new-api-conversation-archive-volume} # 每次写入前核验挂载标记，防止数据盘掉线后写爆系统盘

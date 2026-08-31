@@ -17,9 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { expect, test, vi } from 'vitest'
 
-import type { TopupInfo } from '../types'
+import type { CreemProduct, TopupInfo } from '../types'
 import { RechargeFormCard } from './recharge-form-card'
 
 const hiddenTopupInfo: TopupInfo = {
@@ -34,28 +35,51 @@ const hiddenTopupInfo: TopupInfo = {
   enable_redemption: true,
 }
 
-test('hides direct payment controls while keeping redemption available', () => {
-  render(
-    <RechargeFormCard
-      topupInfo={hiddenTopupInfo}
-      presetAmounts={[{ value: 10, discount: 1 }]}
-      selectedPreset={null}
-      onSelectPreset={vi.fn()}
-      topupAmount={10}
-      onTopupAmountChange={vi.fn()}
-      paymentAmount={70}
-      calculating={false}
-      onPaymentMethodSelect={vi.fn()}
-      paymentLoading={null}
-      redemptionCode=''
-      onRedemptionCodeChange={vi.fn()}
-      onRedeem={vi.fn()}
-      redeeming={false}
-    />
-  )
+test.each([true, false, undefined])(
+  'preserves Creem and redemption with hide_online_topup=%s',
+  async (hideOnlineTopup) => {
+    const user = userEvent.setup()
+    const onCreemProductSelect = vi.fn()
+    const product: CreemProduct = {
+      productId: 'prod_test',
+      name: 'Creem credit pack',
+      price: 10,
+      quota: 10,
+      currency: 'USD',
+    }
+    render(
+      <RechargeFormCard
+        topupInfo={{ ...hiddenTopupInfo, hide_online_topup: hideOnlineTopup }}
+        presetAmounts={[{ value: 10, discount: 1 }]}
+        selectedPreset={null}
+        onSelectPreset={vi.fn()}
+        topupAmount={10}
+        onTopupAmountChange={vi.fn()}
+        paymentAmount={70}
+        calculating={false}
+        onPaymentMethodSelect={vi.fn()}
+        paymentLoading={null}
+        redemptionCode=''
+        onRedemptionCodeChange={vi.fn()}
+        onRedeem={vi.fn()}
+        redeeming={false}
+        enableCreemTopup
+        creemProducts={[product]}
+        onCreemProductSelect={onCreemProductSelect}
+      />
+    )
 
-  expect(screen.queryByLabelText('Custom Amount')).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Stripe' })).toBeNull()
-  expect(screen.getByLabelText('Have a Code?')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Redeem' })).toBeInTheDocument()
-})
+    if (hideOnlineTopup) {
+      expect(screen.queryByLabelText('Custom Amount')).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Stripe' })).toBeNull()
+    } else {
+      expect(screen.getByLabelText('Custom Amount')).toBeVisible()
+      expect(screen.getByRole('button', { name: 'Stripe' })).toBeVisible()
+    }
+    expect(screen.getByLabelText('Have a Code?')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Redeem' })).toBeInTheDocument()
+    expect(screen.getByText('Creem Payment')).toBeVisible()
+    await user.click(screen.getByText(product.name))
+    expect(onCreemProductSelect).toHaveBeenCalledExactlyOnceWith(product)
+  }
+)

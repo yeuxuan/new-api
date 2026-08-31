@@ -555,33 +555,6 @@ const RechargeCard = ({
                   </div>
                 </Form.Slot>
               )}
-
-              {/* Creem 充值区域 */}
-              {enableCreemTopUp && creemProducts.length > 0 && (
-                <Form.Slot label={t('Creem 充值')}>
-                  <div className='grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3'>
-                    {creemProducts.map((product, index) => (
-                      <Card
-                        key={index}
-                        onClick={() => creemPreTopUp(product)}
-                        className='cursor-pointer !rounded-2xl transition-all hover:shadow-md border-gray-200 hover:border-gray-300'
-                        bodyStyle={{ textAlign: 'center', padding: '16px' }}
-                      >
-                        <div className='font-medium text-lg mb-2'>
-                          {product.name}
-                        </div>
-                        <div className='text-sm text-gray-600 mb-2'>
-                          {t('充值额度')}: {product.quota}
-                        </div>
-                        <div className='text-lg font-semibold text-blue-600'>
-                          {product.currency === 'EUR' ? '€' : '$'}
-                          {product.price}
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                </Form.Slot>
-              )}
             </div>
           </Form>
         )}
@@ -594,6 +567,30 @@ const RechargeCard = ({
             className='!rounded-xl'
             closeIcon={null}
           />
+        )}
+        {!statusLoading && enableCreemTopUp && creemProducts.length > 0 && (
+          <div className={hideOnlineTopup ? 'space-y-3' : 'mt-6 space-y-3'}>
+            <Text strong>{t('Creem 充值')}</Text>
+            <div className='grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3'>
+              {creemProducts.map((product) => (
+                <Card
+                  key={product.productId}
+                  onClick={() => creemPreTopUp(product)}
+                  className='cursor-pointer !rounded-2xl transition-all hover:shadow-md border-gray-200 hover:border-gray-300'
+                  bodyStyle={{ textAlign: 'center', padding: '16px' }}
+                >
+                  <div className='font-medium text-lg mb-2'>{product.name}</div>
+                  <div className='text-sm text-gray-600 mb-2'>
+                    {t('充值额度')}: {product.quota}
+                  </div>
+                  <div className='text-lg font-semibold text-blue-600'>
+                    {product.currency === 'EUR' ? '€' : '$'}
+                    {product.price}
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
         )}
       </Card>
 

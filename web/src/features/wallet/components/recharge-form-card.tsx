@@ -207,9 +207,7 @@ export function RechargeFormCard({
     <TitledCard
       title={t('Add Funds')}
       description={
-        hideOnlineTopup
-          ? t('Enter your redemption code')
-          : t('Choose an amount and payment method')
+        hideOnlineTopup ? undefined : t('Choose an amount and payment method')
       }
       icon={<WalletCards className='h-4 w-4' />}
       iconTone='success'
@@ -504,12 +502,16 @@ export function RechargeFormCard({
       )}
 
       {/* Creem Products Section */}
-      {!hideOnlineTopup &&
-        enableCreemTopup &&
+      {enableCreemTopup &&
         Array.isArray(creemProducts) &&
         creemProducts.length > 0 &&
         onCreemProductSelect && (
-          <div className='space-y-2.5 border-t pt-4 sm:space-y-3 sm:pt-6'>
+          <div
+            className={cn(
+              'space-y-2.5 sm:space-y-3',
+              !hideOnlineTopup && 'border-t pt-4 sm:pt-6'
+            )}
+          >
             <Label className='text-muted-foreground text-xs font-medium tracking-wider uppercase'>
               {t('Creem Payment')}
             </Label>
@@ -525,7 +527,11 @@ export function RechargeFormCard({
         <div
           className={cn(
             'space-y-2.5 sm:space-y-3',
-            !hideOnlineTopup && 'border-t pt-4 sm:pt-6'
+            (!hideOnlineTopup ||
+              (enableCreemTopup &&
+                creemProducts?.length &&
+                onCreemProductSelect)) &&
+              'border-t pt-4 sm:pt-6'
           )}
         >
           <div className='flex items-center gap-2'>

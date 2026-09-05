@@ -87,19 +87,22 @@ type Properties struct {
 }
 
 func (m *Properties) Scan(val interface{}) error {
-	bytesValue, _ := val.([]byte)
-	if len(bytesValue) == 0 {
+	raw, err := scanJSONColumn(val)
+	if err != nil {
+		return err
+	}
+	if len(raw) == 0 {
 		*m = Properties{}
 		return nil
 	}
-	return common.Unmarshal(bytesValue, m)
+	return common.Unmarshal(raw, m)
 }
 
 func (m Properties) Value() (driver.Value, error) {
 	if m == (Properties{}) {
 		return nil, nil
 	}
-	return common.Marshal(m)
+	return jsonColumnValue(common.Marshal(m))
 }
 
 type TaskPrivateData struct {
@@ -193,11 +196,14 @@ func GenerateTaskID() string {
 }
 
 func (p *TaskPrivateData) Scan(val interface{}) error {
-	bytesValue, _ := val.([]byte)
-	if len(bytesValue) == 0 {
+	raw, err := scanJSONColumn(val)
+	if err != nil {
+		return err
+	}
+	if len(raw) == 0 {
 		return nil
 	}
-	if err := common.Unmarshal(bytesValue, p); err != nil {
+	if err := common.Unmarshal(raw, p); err != nil {
 		return err
 	}
 	if p.BillingContext != nil {
@@ -213,7 +219,7 @@ func (p TaskPrivateData) Value() (driver.Value, error) {
 	if p.BillingContext != nil {
 		p.BillingContext.normalizeTieredSnapshot()
 	}
-	return common.Marshal(p)
+	return jsonColumnValue(common.Marshal(p))
 }
 
 // SyncTaskQueryParams 用于包含所有搜索条件的结构体，可以根据需求添加更多字段

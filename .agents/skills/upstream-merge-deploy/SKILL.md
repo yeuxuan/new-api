@@ -11,15 +11,16 @@ Primary objective: **upstream changes must not remove, bypass, or silently degra
 
 ## Fixed Project Context
 
-- Local repo: `/Users/yihua/Desktop/mycode/new-api`
-- Production server: `43.161.224.4`
+- Local repo: `D:\my_project\ct-new-api\new-api`
+- Production server: `43.165.178.37`
+- SSH host alias: `new-api-v2` (local `~/.ssh/config`, key `~/.ssh/id_ed25519_new_api`)
 - Server deploy dir: `/root/new-api`
 - Production compose service: `new-api`
 - Production image tag used by compose: `calciumion/new-api:latest`
 - Preferred branch for this fork: `v2`
 - Frontend package manager: `bun`
 
-Do not store or repeat server passwords. If no usable SSH session or credential is available, ask for the missing credential once.
+Do not store or repeat server passwords. Connect with `ssh new-api-v2`. If key login fails, ask for the missing credential once.
 
 ## Protected Custom Feature Surfaces
 
@@ -145,9 +146,10 @@ git push origin v2
 
 Deploy only when the user explicitly asks to update/deploy the server, or when the current request includes that expectation.
 
-On the server:
+On the server via `ssh new-api-v2`:
 
 ```bash
+ssh new-api-v2
 cd /root/new-api
 git status --short
 git branch --show-current

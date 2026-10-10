@@ -28,11 +28,12 @@ import {
   Divider,
   Tooltip,
 } from '@douyinfe/semi-ui';
-import { Crown, CalendarClock, Package } from 'lucide-react';
+import { Crown, CalendarClock, Package, Wallet } from 'lucide-react';
 import { SiStripe } from 'react-icons/si';
 import { IconCreditCard } from '@douyinfe/semi-icons';
 import { renderQuota } from '../../../helpers';
-import { getCurrencyConfig } from '../../../helpers/render';
+import { getCurrencyConfig, getQuotaPerUnit } from '../../../helpers/render';
+import { subscriptionBalanceQuota } from '../../../../../shared/subscription-balance';
 import {
   formatSubscriptionDuration,
   formatSubscriptionResetPeriod,
@@ -53,9 +54,12 @@ const SubscriptionPurchaseModal = ({
   enableStripeTopUp = false,
   enableCreemTopUp = false,
   purchaseLimitInfo = null,
+  paymentComplianceConfirmed = false,
+  userQuota = 0,
   onPayStripe,
   onPayCreem,
   onPayEpay,
+  onPayBalance,
 }) => {
   const plan = selectedPlan?.plan;
   const totalAmount = Number(plan?.total_amount || 0);
@@ -74,6 +78,15 @@ const SubscriptionPurchaseModal = ({
   const purchaseCount = Number(purchaseLimitInfo?.count || 0);
   const purchaseLimitReached =
     purchaseLimit > 0 && purchaseCount >= purchaseLimit;
+  const configuredQuotaPerUnit = getQuotaPerUnit();
+  const quotaPerUnit =
+    Number.isFinite(configuredQuotaPerUnit) && configuredQuotaPerUnit > 0
+      ? configuredQuotaPerUnit
+      : 500000;
+  const balanceCost = subscriptionBalanceQuota(price, quotaPerUnit);
+  const availableQuota = Math.max(0, Number(userQuota || 0));
+  const allowBalancePay = plan?.allow_balance_pay !== false;
+  const insufficientBalance = availableQuota < balanceCost;
 
   return (
     <Modal
@@ -179,7 +192,44 @@ const SubscriptionPurchaseModal = ({
             />
           )}
 
-          {hasAnyPayment ? (
+          <div className='space-y-3'>
+            <div className='flex flex-wrap justify-between gap-2'>
+              <Text>{t('Required')}</Text>
+              <Text>{renderQuota(balanceCost)}</Text>
+            </div>
+            <div className='flex flex-wrap justify-between gap-2'>
+              <Text>{t('Available Balance')}</Text>
+              <Text>{renderQuota(availableQuota)}</Text>
+            </div>
+            {(!allowBalancePay || insufficientBalance) && (
+              <Banner
+                type='warning'
+                description={
+                  allowBalancePay
+                    ? t('余额不足')
+                    : t('This plan does not allow balance redemption')
+                }
+                closeIcon={null}
+              />
+            )}
+            <Button
+              block
+              icon={<Wallet size={16} />}
+              onClick={onPayBalance}
+              loading={paying}
+              disabled={
+                paying ||
+                !paymentComplianceConfirmed ||
+                purchaseLimitReached ||
+                !allowBalancePay ||
+                insufficientBalance
+              }
+            >
+              {t('Pay with Balance')}
+            </Button>
+          </div>
+
+          {hasAnyPayment && (
             <div className='space-y-3'>
               <Text size='small' type='tertiary'>
                 {t('选择支付方式')}：
@@ -242,13 +292,6 @@ const SubscriptionPurchaseModal = ({
                 </div>
               )}
             </div>
-          ) : (
-            <Banner
-              type='info'
-              description={t('管理员未开启在线支付功能，请联系管理员配置。')}
-              className='!rounded-xl'
-              closeIcon={null}
-            />
           )}
         </div>
       ) : null}

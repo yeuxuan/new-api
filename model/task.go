@@ -86,7 +86,7 @@ type Properties struct {
 	OriginModelName   string `json:"origin_model_name,omitempty"`
 }
 
-func (m *Properties) Scan(val interface{}) error {
+func (m *Properties) Scan(val any) error {
 	raw, err := scanJSONColumn(val)
 	if err != nil {
 		return err
@@ -123,6 +123,12 @@ type TaskPrivateData struct {
 	// disconnect regardless; this only echoes the protocol-level request
 	// attribute back on retrieval snapshots.
 	ResponsesBackground bool `json:"responses_background,omitempty"`
+	// PluginState is plugin-owned cross-round data. Unlike Task.Data it is
+	// only replaced when a hook explicitly returns state.
+	PluginState json.RawMessage `json:"plugin_state,omitempty"`
+	// PollFailures counts consecutive unrecognized or transient poll outcomes.
+	PollFailures      int                   `json:"poll_failures,omitempty"`
+	BonusQuotaDeducts []BonusQuotaDeduction `json:"bonus_quota_deducts,omitempty"`
 }
 
 type TaskExecutionSnapshot struct {
@@ -195,12 +201,13 @@ func GenerateTaskID() string {
 	return "task_" + key
 }
 
-func (p *TaskPrivateData) Scan(val interface{}) error {
+func (p *TaskPrivateData) Scan(val any) error {
 	raw, err := scanJSONColumn(val)
 	if err != nil {
 		return err
 	}
 	if len(raw) == 0 {
+		*p = TaskPrivateData{}
 		return nil
 	}
 	if err := common.Unmarshal(raw, p); err != nil {
@@ -213,7 +220,10 @@ func (p *TaskPrivateData) Scan(val interface{}) error {
 }
 
 func (p TaskPrivateData) Value() (driver.Value, error) {
-	if (p == TaskPrivateData{}) {
+	if p.Key == "" && p.UpstreamTaskID == "" && p.ResultURL == "" &&
+		p.Execution == nil && p.BillingSource == "" && p.SubscriptionId == 0 &&
+		p.TokenId == 0 && p.NodeName == "" && p.BillingContext == nil &&
+		!p.ResponsesBackground && len(p.PluginState) == 0 && p.PollFailures == 0 && len(p.BonusQuotaDeducts) == 0 {
 		return nil, nil
 	}
 	if p.BillingContext != nil {
@@ -484,14 +494,16 @@ func (Task *Task) InsertWithContext(ctx context.Context) error {
 }
 
 type taskSnapshot struct {
-	Status     TaskStatus
-	UpdatedAt  int64
-	Progress   string
-	StartTime  int64
-	FinishTime int64
-	FailReason string
-	ResultURL  string
-	Data       json.RawMessage
+	UpdatedAt    int64
+	Status       TaskStatus
+	Progress     string
+	StartTime    int64
+	FinishTime   int64
+	FailReason   string
+	ResultURL    string
+	Data         json.RawMessage
+	PluginState  json.RawMessage
+	PollFailures int
 }
 
 func (s taskSnapshot) Equal(other taskSnapshot) bool {
@@ -502,19 +514,23 @@ func (s taskSnapshot) Equal(other taskSnapshot) bool {
 		s.FinishTime == other.FinishTime &&
 		s.FailReason == other.FailReason &&
 		s.ResultURL == other.ResultURL &&
-		bytes.Equal(s.Data, other.Data)
+		bytes.Equal(s.Data, other.Data) &&
+		bytes.Equal(s.PluginState, other.PluginState) &&
+		s.PollFailures == other.PollFailures
 }
 
 func (t *Task) Snapshot() taskSnapshot {
 	return taskSnapshot{
-		Status:     t.Status,
-		UpdatedAt:  t.UpdatedAt,
-		Progress:   t.Progress,
-		StartTime:  t.StartTime,
-		FinishTime: t.FinishTime,
-		FailReason: t.FailReason,
-		ResultURL:  t.PrivateData.ResultURL,
-		Data:       t.Data,
+		UpdatedAt:    t.UpdatedAt,
+		Status:       t.Status,
+		Progress:     t.Progress,
+		StartTime:    t.StartTime,
+		FinishTime:   t.FinishTime,
+		FailReason:   t.FailReason,
+		ResultURL:    t.PrivateData.ResultURL,
+		Data:         t.Data,
+		PluginState:  t.PrivateData.PluginState,
+		PollFailures: t.PrivateData.PollFailures,
 	}
 }
 

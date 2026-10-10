@@ -27,17 +27,8 @@ import {
   showError,
   showInfo,
   showSuccess,
-  updateAPI,
   getSystemName,
   getOAuthProviderIcon,
-  setUserData,
-  onGitHubOAuthClicked,
-  onDiscordOAuthClicked,
-  onOIDCClicked,
-  onLinuxDOOAuthClicked,
-  onCustomOAuthClicked,
-  prepareCredentialRequestOptions,
-  buildAssertionResult,
   isPasskeySupported,
 } from '../../helpers';
 import Turnstile from 'react-turnstile';
@@ -52,7 +43,6 @@ import {
 } from '@douyinfe/semi-ui';
 import Title from '@douyinfe/semi-ui/lib/es/typography/title';
 import Text from '@douyinfe/semi-ui/lib/es/typography/text';
-import TelegramLoginButton from 'react-telegram-login';
 
 import {
   IconGithubLogo,
@@ -64,8 +54,15 @@ import OIDCIcon from '../common/logo/OIDCIcon';
 import WeChatIcon from '../common/logo/WeChatIcon';
 import LinuxDoIcon from '../common/logo/LinuxDoIcon';
 import TwoFAVerification from './TwoFAVerification';
+import {
+  completeLogin,
+  isLoginChallenge,
+  loginWithPasskey,
+  loginWithPassword,
+} from './loginFlow';
 import { useTranslation } from 'react-i18next';
-import { SiDiscord } from 'react-icons/si';
+import { SiDiscord, SiTelegram } from 'react-icons/si';
+import { prepareOAuthLogin } from '../../helpers/oauthVerification';
 
 const LoginForm = () => {
   let navigate = useNavigate();
@@ -101,7 +98,8 @@ const LoginForm = () => {
   const [otherLoginOptionsLoading, setOtherLoginOptionsLoading] =
     useState(false);
   const [wechatCodeSubmitLoading, setWechatCodeSubmitLoading] = useState(false);
-  const [showTwoFA, setShowTwoFA] = useState(false);
+  const [loginChallenge, setLoginChallenge] = useState(null);
+  const loginRequest = useRef(null);
   const [passkeySupported, setPasskeySupported] = useState(false);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
@@ -109,7 +107,7 @@ const LoginForm = () => {
   const [hasPrivacyPolicy, setHasPrivacyPolicy] = useState(false);
   const [githubButtonState, setGithubButtonState] = useState('idle');
   const [githubButtonDisabled, setGithubButtonDisabled] = useState(false);
-  const githubTimeoutRef = useRef(null);
+  const oauthRequest = useRef(null);
   const githubButtonText = t(githubButtonTextKeyByState[githubButtonState]);
   const [customOAuthLoading, setCustomOAuthLoading] = useState({});
 
@@ -135,12 +133,12 @@ const LoginForm = () => {
     (status.custom_oauth_providers || []).length > 0;
   const hasOAuthLoginOptions = Boolean(
     status.github_oauth ||
-      status.discord_oauth ||
-      status.oidc_enabled ||
-      status.wechat_login ||
-      status.linuxdo_oauth ||
-      status.telegram_oauth ||
-      hasCustomOAuthProviders,
+    status.discord_oauth ||
+    status.oidc_enabled ||
+    status.wechat_login ||
+    status.linuxdo_oauth ||
+    status.telegram_oauth ||
+    hasCustomOAuthProviders,
   );
 
   useEffect(() => {
@@ -160,9 +158,8 @@ const LoginForm = () => {
       .catch(() => setPasskeySupported(false));
 
     return () => {
-      if (githubTimeoutRef.current) {
-        clearTimeout(githubTimeoutRef.current);
-      }
+      loginRequest.current?.abort();
+      oauthRequest.current?.abort();
     };
   }, []);
 
@@ -182,6 +179,19 @@ const LoginForm = () => {
     setWechatLoading(false);
   };
 
+  const acceptLogin = (data, destination = '/console') => {
+    if (isLoginChallenge(data)) {
+      setInputs({ username: '', password: '', wechat_verification_code: '' });
+      setShowWeChatLoginModal(false);
+      setLoginChallenge(data);
+      return false;
+    }
+    completeLogin(data, userDispatch);
+    showSuccess(t('登录成功！'));
+    navigate(destination);
+    return true;
+  };
+
   const onSubmitWeChatVerificationCode = async () => {
     if (turnstileEnabled && turnstileToken === '') {
       showInfo('请稍后几秒重试，Turnstile 正在检查用户环境！');
@@ -189,17 +199,16 @@ const LoginForm = () => {
     }
     setWechatCodeSubmitLoading(true);
     try {
-      const res = await API.get(
-        `/api/oauth/wechat?code=${inputs.wechat_verification_code}`,
-      );
+      const res = await API.get('/api/oauth/wechat', {
+        params: { code: inputs.wechat_verification_code },
+        skipAuthRefresh: true,
+        skipErrorHandler: true,
+        singleUseAuthorization: true,
+        disableDuplicate: true,
+      });
       const { success, message, data } = res.data;
       if (success) {
-        userDispatch({ type: 'login', payload: data });
-        localStorage.setItem('user', JSON.stringify(data));
-        setUserData(data);
-        updateAPI();
-        navigate('/');
-        showSuccess('登录成功！');
+        acceptLogin(data, '/');
         setShowWeChatLoginModal(false);
       } else {
         showError(message);
@@ -228,26 +237,20 @@ const LoginForm = () => {
     setLoginLoading(true);
     try {
       if (username && password) {
-        const res = await API.post(
-          `/api/user/login?turnstile=${turnstileToken}`,
-          {
-            username,
-            password,
-          },
+        loginRequest.current?.abort();
+        const controller = new AbortController();
+        loginRequest.current = controller;
+        const res = await loginWithPassword(
+          username,
+          password,
+          status.password_encryption_enabled,
+          turnstileToken,
+          controller.signal,
         );
+        controller.signal.throwIfAborted();
         const { success, message, data } = res.data;
         if (success) {
-          // 检查是否需要2FA验证
-          if (data && data.require_2fa) {
-            setShowTwoFA(true);
-            setLoginLoading(false);
-            return;
-          }
-
-          userDispatch({ type: 'login', payload: data });
-          setUserData(data);
-          updateAPI();
-          showSuccess('登录成功！');
+          if (!acceptLogin(data)) return;
           if (username === 'root' && password === '123456') {
             Modal.error({
               title: '您正在使用默认密码！',
@@ -255,7 +258,6 @@ const LoginForm = () => {
               centered: true,
             });
           }
-          navigate('/console');
         } else {
           showError(message);
         }
@@ -270,139 +272,58 @@ const LoginForm = () => {
   }
 
   // 添加Telegram登录处理函数
-  const onTelegramLoginClicked = async (response) => {
-    if ((hasUserAgreement || hasPrivacyPolicy) && !agreedToTerms) {
-      showInfo(t('请先阅读并同意用户协议和隐私政策'));
-      return;
-    }
-    const fields = [
-      'id',
-      'first_name',
-      'last_name',
-      'username',
-      'photo_url',
-      'auth_date',
-      'hash',
-      'lang',
-    ];
-    const params = {};
-    fields.forEach((field) => {
-      if (response[field]) {
-        params[field] = response[field];
-      }
-    });
-    try {
-      const res = await API.get(`/api/oauth/telegram/login`, { params });
-      const { success, message, data } = res.data;
-      if (success) {
-        userDispatch({ type: 'login', payload: data });
-        localStorage.setItem('user', JSON.stringify(data));
-        showSuccess('登录成功！');
-        setUserData(data);
-        updateAPI();
-        navigate('/');
-      } else {
-        showError(message);
-      }
-    } catch (error) {
-      showError('登录失败，请重试');
-    }
-  };
 
   // 包装的GitHub登录点击处理
-  const handleGitHubClick = () => {
+  const handleOAuthLogin = async (provider, setLoading) => {
     if ((hasUserAgreement || hasPrivacyPolicy) && !agreedToTerms) {
       showInfo(t('请先阅读并同意用户协议和隐私政策'));
       return;
     }
-    if (githubButtonDisabled) {
-      return;
-    }
-    setGithubLoading(true);
-    setGithubButtonDisabled(true);
-    setGithubButtonState('redirecting');
-    if (githubTimeoutRef.current) {
-      clearTimeout(githubTimeoutRef.current);
-    }
-    githubTimeoutRef.current = setTimeout(() => {
-      setGithubLoading(false);
-      setGithubButtonState('timeout');
+    if (oauthRequest.current) return;
+    const controller = new AbortController();
+    oauthRequest.current = controller;
+    setLoading(true);
+    if (provider === 'github') {
       setGithubButtonDisabled(true);
-    }, 20000);
+      setGithubButtonState('redirecting');
+    }
     try {
-      onGitHubOAuthClicked(status.github_client_id, { shouldLogout: true });
-    } finally {
-      // 由于重定向，这里不会执行到，但为了完整性添加
-      setTimeout(() => setGithubLoading(false), 3000);
-    }
-  };
-
-  // 包装的Discord登录点击处理
-  const handleDiscordClick = () => {
-    if ((hasUserAgreement || hasPrivacyPolicy) && !agreedToTerms) {
-      showInfo(t('请先阅读并同意用户协议和隐私政策'));
-      return;
-    }
-    setDiscordLoading(true);
-    try {
-      onDiscordOAuthClicked(status.discord_client_id, { shouldLogout: true });
-    } finally {
-      // 由于重定向，这里不会执行到，但为了完整性添加
-      setTimeout(() => setDiscordLoading(false), 3000);
-    }
-  };
-
-  // 包装的OIDC登录点击处理
-  const handleOIDCClick = () => {
-    if ((hasUserAgreement || hasPrivacyPolicy) && !agreedToTerms) {
-      showInfo(t('请先阅读并同意用户协议和隐私政策'));
-      return;
-    }
-    setOidcLoading(true);
-    try {
-      onOIDCClicked(
-        status.oidc_authorization_endpoint,
-        status.oidc_client_id,
-        false,
-        { shouldLogout: true },
+      const authorization = await prepareOAuthLogin(
+        provider,
+        controller.signal,
       );
+      controller.signal.throwIfAborted();
+      window.location.assign(authorization.url);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        showError(
+          t(
+            error.response?.data?.message ||
+              error.message ||
+              '登录失败，请重试',
+          ),
+        );
+      }
     } finally {
-      // 由于重定向，这里不会执行到，但为了完整性添加
-      setTimeout(() => setOidcLoading(false), 3000);
+      if (oauthRequest.current === controller) oauthRequest.current = null;
+      setLoading(false);
+      if (provider === 'github') {
+        setGithubButtonDisabled(false);
+        setGithubButtonState('idle');
+      }
     }
   };
 
-  // 包装的LinuxDO登录点击处理
-  const handleLinuxDOClick = () => {
-    if ((hasUserAgreement || hasPrivacyPolicy) && !agreedToTerms) {
-      showInfo(t('请先阅读并同意用户协议和隐私政策'));
-      return;
-    }
-    setLinuxdoLoading(true);
-    try {
-      onLinuxDOOAuthClicked(status.linuxdo_client_id, { shouldLogout: true });
-    } finally {
-      // 由于重定向，这里不会执行到，但为了完整性添加
-      setTimeout(() => setLinuxdoLoading(false), 3000);
-    }
-  };
-
-  // 包装的自定义OAuth登录点击处理
-  const handleCustomOAuthClick = (provider) => {
-    if ((hasUserAgreement || hasPrivacyPolicy) && !agreedToTerms) {
-      showInfo(t('请先阅读并同意用户协议和隐私政策'));
-      return;
-    }
-    setCustomOAuthLoading((prev) => ({ ...prev, [provider.slug]: true }));
-    try {
-      onCustomOAuthClicked(provider, { shouldLogout: true });
-    } finally {
-      // 由于重定向，这里不会执行到，但为了完整性添加
-      setTimeout(() => {
-        setCustomOAuthLoading((prev) => ({ ...prev, [provider.slug]: false }));
-      }, 3000);
-    }
-  };
+  const handleGitHubClick = () => handleOAuthLogin('github', setGithubLoading);
+  const handleDiscordClick = () =>
+    handleOAuthLogin('discord', setDiscordLoading);
+  const handleOIDCClick = () => handleOAuthLogin('oidc', setOidcLoading);
+  const handleLinuxDOClick = () =>
+    handleOAuthLogin('linuxdo', setLinuxdoLoading);
+  const handleCustomOAuthClick = (provider) =>
+    handleOAuthLogin(provider.slug, (loading) =>
+      setCustomOAuthLoading((prev) => ({ ...prev, [provider.slug]: loading })),
+    );
 
   // 包装的邮箱登录选项点击处理
   const handleEmailLoginClick = () => {
@@ -427,39 +348,12 @@ const LoginForm = () => {
 
     setPasskeyLoading(true);
     try {
-      const beginRes = await API.post('/api/user/passkey/login/begin');
-      const { success, message, data } = beginRes.data;
-      if (!success) {
-        showError(message || '无法发起 Passkey 登录');
-        return;
-      }
-
-      const publicKeyOptions = prepareCredentialRequestOptions(
-        data?.options || data?.publicKey || data,
-      );
-      const assertion = await navigator.credentials.get({
-        publicKey: publicKeyOptions,
-      });
-      const payload = buildAssertionResult(assertion);
-      if (!payload) {
-        showError('Passkey 验证失败，请重试');
-        return;
-      }
-
-      const finishRes = await API.post(
-        '/api/user/passkey/login/finish',
-        payload,
-      );
-      const finish = finishRes.data;
-      if (finish.success) {
-        userDispatch({ type: 'login', payload: finish.data });
-        setUserData(finish.data);
-        updateAPI();
-        showSuccess('登录成功！');
-        navigate('/console');
-      } else {
-        showError(finish.message || 'Passkey 登录失败，请重试');
-      }
+      loginRequest.current?.abort();
+      const controller = new AbortController();
+      loginRequest.current = controller;
+      const bundle = await loginWithPasskey(controller.signal);
+      controller.signal.throwIfAborted();
+      acceptLogin(bundle);
     } catch (error) {
       if (error?.name === 'AbortError') {
         showInfo('已取消 Passkey 登录');
@@ -487,16 +381,13 @@ const LoginForm = () => {
 
   // 2FA验证成功处理
   const handle2FASuccess = (data) => {
-    userDispatch({ type: 'login', payload: data });
-    setUserData(data);
-    updateAPI();
-    showSuccess('登录成功！');
-    navigate('/console');
+    acceptLogin(data);
+    setLoginChallenge(null);
   };
 
   // 返回登录页面
   const handleBackToLogin = () => {
-    setShowTwoFA(false);
+    setLoginChallenge(null);
     setInputs({ username: '', password: '', wechat_verification_code: '' });
   };
 
@@ -622,10 +513,20 @@ const LoginForm = () => {
 
                 {status.telegram_oauth && (
                   <div className='flex justify-center my-2'>
-                    <TelegramLoginButton
-                      dataOnauth={onTelegramLoginClicked}
-                      botName={status.telegram_bot_name}
-                    />
+                    <Button
+                      theme='outline'
+                      className='w-full h-12 flex items-center justify-center !rounded-full'
+                      type='tertiary'
+                      icon={<SiTelegram size={20} />}
+                      onClick={() =>
+                        handleCustomOAuthClick({ slug: 'telegram' })
+                      }
+                      loading={customOAuthLoading.telegram}
+                    >
+                      <span className='ml-3'>
+                        {t('使用 {{name}} 继续', { name: 'Telegram' })}
+                      </span>
+                    </Button>
                   </div>
                 )}
 
@@ -911,38 +812,14 @@ const LoginForm = () => {
 
   // 2FA验证弹窗
   const render2FAModal = () => {
+    if (!loginChallenge) return null;
     return (
-      <Modal
-        title={
-          <div className='flex items-center'>
-            <div className='w-8 h-8 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center mr-3'>
-              <svg
-                className='w-4 h-4 text-green-600 dark:text-green-400'
-                fill='currentColor'
-                viewBox='0 0 20 20'
-              >
-                <path
-                  fillRule='evenodd'
-                  d='M6 8a2 2 0 11-4 0 2 2 0 014 0zM8 7a1 1 0 100 2h8a1 1 0 100-2H8zM6 14a2 2 0 11-4 0 2 2 0 014 0zM8 13a1 1 0 100 2h8a1 1 0 100-2H8z'
-                  clipRule='evenodd'
-                />
-              </svg>
-            </div>
-            两步验证
-          </div>
-        }
-        visible={showTwoFA}
-        onCancel={handleBackToLogin}
-        footer={null}
-        width={450}
-        centered
-      >
-        <TwoFAVerification
-          onSuccess={handle2FASuccess}
-          onBack={handleBackToLogin}
-          isModal={true}
-        />
-      </Modal>
+      <TwoFAVerification
+        key={loginChallenge.flow_token}
+        challenge={loginChallenge}
+        onSuccess={handle2FASuccess}
+        onBack={handleBackToLogin}
+      />
     );
   };
 
@@ -958,8 +835,7 @@ const LoginForm = () => {
         style={{ top: '50%', left: '-120px' }}
       />
       <div className='w-full max-w-sm mt-[60px]'>
-        {showEmailLogin ||
-        !hasOAuthLoginOptions
+        {showEmailLogin || !hasOAuthLoginOptions
           ? renderEmailLoginForm()
           : renderOAuthOptions()}
         {renderWeChatLoginModal()}

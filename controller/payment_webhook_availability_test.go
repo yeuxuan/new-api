@@ -1,10 +1,21 @@
 package controller
 
 import (
+	"bytes"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -44,7 +55,7 @@ func TestStripeWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 	require.False(t, isStripeWebhookEnabled())
 }
 
-func TestCreemWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
+func TestCreemAvailabilitySeparatesCatalogCheckoutAndCallback(t *testing.T) {
 	confirmPaymentComplianceForTest(t)
 	originalAPIKey := setting.CreemApiKey
 	originalProducts := setting.CreemProducts
@@ -55,16 +66,213 @@ func TestCreemWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 		setting.CreemWebhookSecret = originalWebhookSecret
 	})
 
-	setting.CreemWebhookSecret = ""
-	setting.CreemApiKey = "creem_api_key"
-	setting.CreemProducts = `[{"productId":"prod_123"}]`
-	require.False(t, isCreemWebhookEnabled())
+	for _, tc := range []struct {
+		name, key, products, secret, terms      string
+		confirmed, topup, subscription, webhook bool
+	}{
+		{"configured", "key", `[{"productId":"prod"}]`, "secret", operation_setting.CurrentComplianceTermsVersion, true, true, true, true},
+		{"no recharge catalog", "key", "[]", "secret", operation_setting.CurrentComplianceTermsVersion, true, false, true, true},
+		{"settle existing orders without API key", "", "", "secret", operation_setting.CurrentComplianceTermsVersion, true, false, false, true},
+		{"missing webhook secret", "key", "[]", " ", operation_setting.CurrentComplianceTermsVersion, true, false, false, false},
+		{"unconfirmed compliance", "key", "[]", "secret", operation_setting.CurrentComplianceTermsVersion, false, false, false, false},
+		{"outdated compliance", "key", "[]", "secret", "old-terms", true, false, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setting.CreemApiKey, setting.CreemProducts, setting.CreemWebhookSecret = tc.key, tc.products, tc.secret
+			payment := operation_setting.GetPaymentSetting()
+			payment.ComplianceConfirmed, payment.ComplianceTermsVersion = tc.confirmed, tc.terms
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			GetTopUpInfo(ctx)
+			var result struct {
+				Data struct {
+					Topup        bool `json:"enable_creem_topup"`
+					Subscription bool `json:"enable_creem_subscription"`
+				} `json:"data"`
+			}
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &result))
+			assert.Equal(t, tc.topup, result.Data.Topup)
+			assert.Equal(t, tc.subscription, result.Data.Subscription)
+			response := sendCreemWebhookForTest(t, CreemWebhookEvent{EventType: "ignored"}, true)
+			expectedStatus := http.StatusForbidden
+			if tc.webhook {
+				expectedStatus = http.StatusOK
+			}
+			assert.Equal(t, expectedStatus, response.Code)
+		})
+	}
+}
 
-	setting.CreemWebhookSecret = "creem_secret"
-	require.True(t, isCreemWebhookEnabled())
+func setupCreemPaymentTest(t *testing.T) (*model.User, service.AuthIdentity) {
+	t.Helper()
+	user, identity := setupUserRewardsTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.TopUp{}, &model.SubscriptionPlan{}, &model.SubscriptionOrder{}, &model.UserSubscription{}))
+	confirmPaymentComplianceForTest(t)
+	key, products, secret, testMode := setting.CreemApiKey, setting.CreemProducts, setting.CreemWebhookSecret, setting.CreemTestMode
+	t.Cleanup(func() {
+		setting.CreemApiKey, setting.CreemProducts, setting.CreemWebhookSecret, setting.CreemTestMode = key, products, secret, testMode
+	})
+	setting.CreemApiKey, setting.CreemProducts, setting.CreemWebhookSecret, setting.CreemTestMode = "test-key", "[]", "test-secret", true
+	return user, identity
+}
 
-	setting.CreemProducts = "[]"
-	require.False(t, isCreemWebhookEnabled())
+func sendCreemWebhookForTest(t *testing.T, event CreemWebhookEvent, validSignature bool) *httptest.ResponseRecorder {
+	t.Helper()
+	body, err := common.Marshal(event)
+	require.NoError(t, err)
+	response := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(response)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/creem/webhook", bytes.NewReader(body))
+	signature := "invalid"
+	if validSignature {
+		signature = generateCreemSignature(string(body), setting.CreemWebhookSecret)
+	}
+	ctx.Request.Header.Set(CreemSignatureHeader, signature)
+	CreemWebhook(ctx)
+	return response
+}
+
+func TestCreemPaidTopupDoesNotBindEmailOrConsumeFirstBindReward(t *testing.T) {
+	for _, email := range []string{"", "verified@example.com"} {
+		t.Run(email, func(t *testing.T) {
+			user, identity := setupCreemPaymentTest(t)
+			require.NoError(t, model.DB.Model(user).Update("email", email).Error)
+			order := model.TopUp{UserId: user.Id, Amount: 12345, Money: 1, TradeNo: "creem-topup", PaymentMethod: model.PaymentMethodCreem, PaymentProvider: model.PaymentProviderCreem, Status: common.TopUpStatusPending}
+			require.NoError(t, model.DB.Create(&order).Error)
+			event := CreemWebhookEvent{EventType: "checkout.completed"}
+			event.Object.RequestId, event.Object.Order.Status = order.TradeNo, "paid"
+			event.Object.Customer.Email = "unverified-payment@example.com"
+			setting.CreemApiKey = "" // Existing orders still settle after checkout is disabled.
+			require.Equal(t, http.StatusUnauthorized, sendCreemWebhookForTest(t, event, false).Code)
+			for range 2 {
+				require.Equal(t, http.StatusOK, sendCreemWebhookForTest(t, event, true).Code)
+			}
+			require.NoError(t, model.DB.First(user, user.Id).Error)
+			assert.Equal(t, 12345, user.Quota, "duplicate callbacks must not credit twice")
+			require.Equal(t, email, user.Email, "checkout email is not verified account identity")
+			var grantCount int64
+			require.NoError(t, model.DB.Model(&model.BonusQuotaGrant{}).Where("user_id = ?", user.Id).Count(&grantCount).Error)
+			assert.Zero(t, grantCount)
+			if email == "" {
+				mailbox := newSecurityMailbox(t)
+				flow := startSecurityEmailBinding(t, identity, "first@example.com", service.VerificationMethodPassword)
+				state, err := service.FinishEmailBinding(identity, flow.FlowToken, mailbox.code(t, flow.Email), "")
+				require.NoError(t, err)
+				assert.Equal(t, 500, state.QuotaAwarded)
+			}
+		})
+	}
+}
+
+type creemCheckoutTestTransport func(*http.Request) (*http.Response, error)
+
+func (f creemCheckoutTestTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+func TestCreemSubscriptionCheckoutAndCallbackWithoutRechargeCatalog(t *testing.T) {
+	user, identity := setupCreemPaymentTest(t)
+	plan := model.SubscriptionPlan{Title: "CREEM subscription", Enabled: true, PriceAmount: 2, CreemProductId: "subscription-product", DurationUnit: "month", DurationValue: 1}
+	require.NoError(t, model.DB.Create(&plan).Error)
+	model.InvalidateSubscriptionPlanCache(plan.Id)
+	t.Cleanup(func() { model.InvalidateSubscriptionPlanCache(plan.Id) })
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+	checkoutCalls := 0
+	http.DefaultTransport = creemCheckoutTestTransport(func(request *http.Request) (*http.Response, error) {
+		checkoutCalls++
+		var body CreemCheckoutRequest
+		require.NoError(t, common.DecodeJson(request.Body, &body))
+		assert.Equal(t, plan.CreemProductId, body.ProductId)
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"checkout_url":"https://checkout.example.test/subscription"}`)), Header: make(http.Header)}, nil
+	})
+	for _, scenario := range []string{"unconfirmed", "old terms", "missing key", "missing secret in test mode", "missing plan product"} {
+		t.Run(scenario, func(t *testing.T) {
+			payment := operation_setting.GetPaymentSetting()
+			payment.ComplianceConfirmed, payment.ComplianceTermsVersion = true, operation_setting.CurrentComplianceTermsVersion
+			setting.CreemApiKey, setting.CreemWebhookSecret = "test-key", "test-secret"
+			product := "subscription-product"
+			switch scenario {
+			case "unconfirmed":
+				payment.ComplianceConfirmed = false
+			case "old terms":
+				payment.ComplianceTermsVersion = "old-terms"
+			case "missing key":
+				setting.CreemApiKey = " "
+			case "missing secret in test mode":
+				setting.CreemWebhookSecret = ""
+			case "missing plan product":
+				product = " "
+			}
+			require.NoError(t, model.DB.Model(&plan).Update("creem_product_id", product).Error)
+			model.InvalidateSubscriptionPlanCache(plan.Id)
+			response := securityEnrollmentRequest(http.MethodPost, "/api/subscription/creem/pay", fmt.Sprintf(`{"plan_id":%d}`, plan.Id), "", identity, SubscriptionRequestCreemPay)
+			assert.NotContains(t, response.Body.String(), `"message":"success"`)
+			assert.Zero(t, checkoutCalls)
+			if scenario == "unconfirmed" || scenario == "old terms" {
+				response = securityEnrollmentRequest(http.MethodPost, "/api/user/creem/pay", `{}`, "", identity, RequestCreemPay)
+				assert.Contains(t, response.Body.String(), `"success":false`)
+			}
+			var count int64
+			require.NoError(t, model.DB.Model(&model.SubscriptionOrder{}).Count(&count).Error)
+			assert.Zero(t, count, "configuration rejection must not create a pending order")
+		})
+	}
+	setting.CreemApiKey, setting.CreemWebhookSecret = "test-key", "test-secret"
+	require.NoError(t, model.DB.Model(&plan).Update("creem_product_id", "subscription-product").Error)
+	model.InvalidateSubscriptionPlanCache(plan.Id)
+	response := securityEnrollmentRequest(http.MethodPost, "/api/subscription/creem/pay", fmt.Sprintf(`{"plan_id":%d}`, plan.Id), "", identity, SubscriptionRequestCreemPay)
+	require.Contains(t, response.Body.String(), `"message":"success"`)
+	require.Equal(t, 1, checkoutCalls)
+	var order model.SubscriptionOrder
+	require.NoError(t, model.DB.Where("user_id = ?", user.Id).First(&order).Error)
+	event := CreemWebhookEvent{EventType: "checkout.completed"}
+	event.Object.RequestId, event.Object.Order.Status = order.TradeNo, "paid"
+	for range 2 {
+		require.Equal(t, http.StatusOK, sendCreemWebhookForTest(t, event, true).Code)
+	}
+	require.NoError(t, model.DB.First(&order, order.Id).Error)
+	assert.Equal(t, common.TopUpStatusSuccess, order.Status)
+	var count int64
+	require.NoError(t, model.DB.Model(&model.UserSubscription{}).Where("user_id = ?", user.Id).Count(&count).Error)
+	assert.EqualValues(t, 1, count)
+	require.NoError(t, model.DB.First(user, user.Id).Error)
+	assert.Zero(t, user.Quota, "subscription completion must not top up the wallet")
+}
+
+func TestSubscriptionBalanceDecimalCostMatchesCheckout(t *testing.T) {
+	for _, quota := range []int{6, 7} {
+		t.Run(fmt.Sprint(quota), func(t *testing.T) {
+			user, identity := setupCreemPaymentTest(t)
+			originalUnit := common.QuotaPerUnit
+			common.QuotaPerUnit = 100
+			t.Cleanup(func() { common.QuotaPerUnit = originalUnit })
+			require.NoError(t, model.DB.Model(user).Update("quota", quota).Error)
+			_, err := model.CreateBonusQuotaGrant(user.Id, model.BonusQuotaSourceEmailBind, "", 500, 0)
+			require.NoError(t, err)
+			plan := model.SubscriptionPlan{Title: "Decimal balance plan", Enabled: true, PriceAmount: 0.07, DurationUnit: "month", DurationValue: 1}
+			require.NoError(t, model.DB.Create(&plan).Error)
+			response := securityEnrollmentRequest(http.MethodPost, "/api/subscription/balance/pay", fmt.Sprintf(`{"plan_id":%d}`, plan.Id), "", identity, SubscriptionRequestBalancePay)
+			var result struct {
+				Success bool `json:"success"`
+			}
+			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+			assert.Equal(t, quota == 7, result.Success, response.Body.String())
+			require.NoError(t, model.DB.First(user, user.Id).Error)
+			var count int64
+			require.NoError(t, model.DB.Model(&model.UserSubscription{}).Where("user_id = ?", user.Id).Count(&count).Error)
+			if quota == 7 {
+				assert.Zero(t, user.Quota)
+				assert.EqualValues(t, 1, count)
+			} else {
+				assert.Equal(t, quota, user.Quota)
+				assert.Zero(t, count)
+			}
+			bonus, err := model.GetUserBonusQuotaTotal(user.Id)
+			require.NoError(t, err)
+			assert.Equal(t, 500, bonus, "subscription purchases cannot spend restricted rewards")
+		})
+	}
 }
 
 func TestWaffoWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {

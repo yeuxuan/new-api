@@ -103,15 +103,19 @@ func removeBonusDeductions(all, remove []model.BonusQuotaDeduction) []model.Bonu
 	for _, d := range remove {
 		removeMap[d.GrantId] += d.Amount
 	}
-	result := make([]model.BonusQuotaDeduction, 0, len(all))
-	for _, d := range all {
-		if rem, ok := removeMap[d.GrantId]; ok {
-			if d.Amount > rem {
-				result = append(result, model.BonusQuotaDeduction{GrantId: d.GrantId, Amount: d.Amount - rem})
-			}
-			continue
+	remaining := append([]model.BonusQuotaDeduction(nil), all...)
+	// A grant can fund several reservations; roll back the newest deductions.
+	for i := len(remaining) - 1; i >= 0; i-- {
+		d := &remaining[i]
+		amount := min(d.Amount, removeMap[d.GrantId])
+		d.Amount -= amount
+		removeMap[d.GrantId] -= amount
+	}
+	result := remaining[:0]
+	for _, d := range remaining {
+		if d.Amount > 0 {
+			result = append(result, d)
 		}
-		result = append(result, d)
 	}
 	return result
 }
@@ -120,8 +124,8 @@ func (w *WalletFunding) PreConsume(amount int) error {
 	return w.consumeAmount(amount, false, true)
 }
 
-func (w *WalletFunding) ReserveAdditional(delta int) error {
-	return w.consumeAmount(delta, true, false)
+func (w *WalletFunding) ReserveAdditional(delta int, requireAvailableQuota bool) error {
+	return w.consumeAmount(delta, true, requireAvailableQuota)
 }
 
 func (w *WalletFunding) RollbackLastReserve() {
@@ -172,7 +176,10 @@ func (w *WalletFunding) Settle(delta int) error {
 		w.bonusDeducts = shrinkBonusDeductions(w.bonusDeducts, bonusRefund)
 	}
 	if walletRefund > 0 {
-		return model.IncreaseUserQuota(w.userId, walletRefund, false)
+		if err := model.IncreaseUserQuota(w.userId, walletRefund, false); err != nil {
+			return err
+		}
+		w.consumed -= walletRefund
 	}
 	return nil
 }
@@ -188,7 +195,11 @@ func (w *WalletFunding) Refund() error {
 	if w.consumed <= 0 {
 		return nil
 	}
-	return model.IncreaseUserQuota(w.userId, w.consumed, false)
+	if err := model.IncreaseUserQuota(w.userId, w.consumed, false); err != nil {
+		return err
+	}
+	w.consumed = 0
+	return nil
 }
 
 func scaleBonusDeductions(deductions []model.BonusQuotaDeduction, amount int) []model.BonusQuotaDeduction {
@@ -283,7 +294,7 @@ func refundWithRetry(fn func() error) error {
 	}
 	const maxAttempts = 3
 	var lastErr error
-	for i := 0; i < maxAttempts; i++ {
+	for i := range maxAttempts {
 		if err := fn(); err == nil {
 			return nil
 		} else {

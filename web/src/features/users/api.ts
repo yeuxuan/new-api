@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { PermissionCatalog } from '@/lib/admin-permissions'
 import { api } from '@/lib/api'
 import type { CustomOAuthBinding } from '@/lib/oauth'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import type {
   User,
@@ -34,6 +35,17 @@ import type {
 // ============================================================================
 // User Management APIs
 // ============================================================================
+
+export async function getUserQuotaSummary(): Promise<
+  ApiResponse<{
+    total_quota: number
+    total_used_quota: number
+    total_user_count: number
+  }>
+> {
+  const res = await api.get('/api/user/quota_summary')
+  return requireServerSuccess(res.data)
+}
 
 /**
  * Get paginated users list
@@ -169,6 +181,7 @@ export async function getGroups(): Promise<ApiResponse<string[]>> {
  */
 export async function getPermissionCatalog(): Promise<PermissionCatalog> {
   const res = await api.get('/api/authz/catalog')
+  requireServerSuccess(res.data)
   return {
     resources: res.data?.data?.resources ?? [],
     roles: res.data?.data?.roles ?? [],

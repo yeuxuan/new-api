@@ -1,51 +1,23 @@
 package controller
 
 import (
-	"fmt"
 	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 )
 
-func setupEmailBindTestDB(t *testing.T) *gorm.DB {
-	t.Helper()
-	previousDB, previousLogDB := model.DB, model.LOG_DB
-	previousRedisEnabled := common.RedisEnabled
-	previousMainDatabaseType, previousLogDatabaseType := common.MainDatabaseType(), common.LogDatabaseType()
-	common.RedisEnabled = false
-	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
-
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-	model.DB, model.LOG_DB = db, db
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.BonusQuotaGrant{}, &model.Log{}))
-
-	t.Cleanup(func() {
-		model.DB, model.LOG_DB = previousDB, previousLogDB
-		common.RedisEnabled = previousRedisEnabled
-		common.SetDatabaseTypes(previousMainDatabaseType, previousLogDatabaseType)
-		sqlDB, dbErr := db.DB()
-		if dbErr == nil {
-			_ = sqlDB.Close()
-		}
-	})
-	return db
-}
-
 func TestEmailBindAwardsConfiguredBonusQuotaOnce(t *testing.T) {
-	db := setupEmailBindTestDB(t)
+	user, identity := setupSecurityEnrollmentTest(t)
+	db := model.DB
+	require.NoError(t, db.AutoMigrate(&model.BonusQuotaGrant{}))
+	require.NoError(t, model.LOG_DB.AutoMigrate(&model.Log{}))
 	emailSetting := operation_setting.GetEmailBindSetting()
 	bonusSetting := operation_setting.GetBonusQuotaSetting()
 	previousEmailSetting := *emailSetting
@@ -58,36 +30,47 @@ func TestEmailBindAwardsConfiguredBonusQuotaOnce(t *testing.T) {
 		*bonusSetting = previousBonusSetting
 	})
 
-	user := model.User{
-		Username: "email-bind-reward-user",
-		Password: "password",
-		Role:     common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default",
+	mailbox := newSecurityMailbox(t)
+	startBinding := func(email string) service.EmailBindingData {
+		flow := startSecurityEmailBinding(t, identity, email, service.VerificationMethodPassword)
+		return flow
 	}
-	require.NoError(t, db.Create(&user).Error)
-
-	gin.SetMode(gin.TestMode)
-	bindEmail := func(email, code string) *httptest.ResponseRecorder {
-		common.RegisterVerificationCodeWithKey(email, code, common.EmailVerificationPurpose)
-		t.Cleanup(func() { common.DeleteKey(email, common.EmailVerificationPurpose) })
-		recorder := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(recorder)
-		body := fmt.Sprintf(`{"email":%q,"code":%q}`, email, code)
-		c.Request = httptest.NewRequest(http.MethodPost, "/api/oauth/email/bind", strings.NewReader(body))
-		c.Request.Header.Set("Content-Type", "application/json")
-		c.Set("id", user.Id)
-		EmailBind(c)
-		return recorder
+	finishBinding := func(flow service.EmailBindingData, oldEmail string) *securityEnrollmentResponse {
+		payload, err := common.Marshal(map[string]string{
+			"flow_token": flow.FlowToken,
+			"new_code":   mailbox.code(t, flow.Email),
+			"old_code": func() string {
+				if oldEmail == "" {
+					return ""
+				}
+				return mailbox.code(t, oldEmail)
+			}(),
+		})
+		require.NoError(t, err)
+		response := securityEnrollmentRequest(http.MethodPost, "/api/oauth/email/bind", string(payload), "", identity, EmailBind)
+		var result securityEnrollmentResponse
+		require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+		assert.Equal(t, http.StatusOK, response.Code)
+		return &result
 	}
 
 	before := time.Now().Unix()
-	recorder := bindEmail("reward@example.com", "123456")
-
-	assert.Equal(t, http.StatusOK, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), `"success":true`)
-	assert.Contains(t, recorder.Body.String(), `"quota_awarded":2500`)
-	secondRecorder := bindEmail("reward-updated@example.com", "654321")
-	assert.Equal(t, http.StatusOK, secondRecorder.Code)
-	assert.Contains(t, secondRecorder.Body.String(), `"quota_awarded":0`)
+	first := finishBinding(startBinding("reward@example.com"), "")
+	assert.True(t, first.Success)
+	var firstData struct {
+		QuotaAwarded int64 `json:"quota_awarded"`
+		ExpiresAt    int64 `json:"expires_at"`
+	}
+	require.NoError(t, common.Unmarshal(first.Data, &firstData))
+	assert.Equal(t, int64(2500), firstData.QuotaAwarded)
+	assert.GreaterOrEqual(t, firstData.ExpiresAt, before+7*86400)
+	second := finishBinding(startBinding("reward-updated@example.com"), "reward@example.com")
+	assert.True(t, second.Success)
+	var secondData struct {
+		QuotaAwarded int64 `json:"quota_awarded"`
+	}
+	require.NoError(t, common.Unmarshal(second.Data, &secondData))
+	assert.Zero(t, secondData.QuotaAwarded)
 
 	var grants []model.BonusQuotaGrant
 	require.NoError(t, db.Where("user_id = ? AND source = ?", user.Id, model.BonusQuotaSourceEmailBind).Find(&grants).Error)

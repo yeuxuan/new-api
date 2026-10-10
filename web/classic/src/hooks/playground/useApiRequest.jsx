@@ -26,7 +26,8 @@ import {
   DEBUG_TABS,
 } from '../../constants/playground.constants';
 import {
-  getUserIdFromLocalStorage,
+  API,
+  getFreshAuthHeaders,
   handleApiError,
   processThinkTags,
   processIncompleteThinkTags,
@@ -185,14 +186,16 @@ export const useApiRequest = (
       setActiveDebugTab(DEBUG_TABS.REQUEST);
 
       try {
-        const response = await fetch(API_ENDPOINTS.CHAT_COMPLETIONS, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'New-Api-User': getUserIdFromLocalStorage(),
+        const headers = await getFreshAuthHeaders();
+        const response = await fetch(
+          API.getUri({ url: API_ENDPOINTS.CHAT_COMPLETIONS }),
+          {
+            method: 'POST',
+            headers,
+            credentials: 'include',
+            body: JSON.stringify(payload),
           },
-          body: JSON.stringify(payload),
-        });
+        );
 
         if (!response.ok) {
           let errorBody = '';
@@ -302,7 +305,7 @@ export const useApiRequest = (
 
   // SSE请求
   const handleSSE = useCallback(
-    (payload) => {
+    async (payload) => {
       setDebugData((prev) => ({
         ...prev,
         request: payload,
@@ -313,14 +316,38 @@ export const useApiRequest = (
       }));
       setActiveDebugTab(DEBUG_TABS.REQUEST);
 
-      const source = new SSE(API_ENDPOINTS.CHAT_COMPLETIONS, {
-        headers: {
-          'Content-Type': 'application/json',
-          'New-Api-User': getUserIdFromLocalStorage(),
+      const controller = new AbortController();
+      const pendingSource = { close: () => controller.abort() };
+      sseSourceRef.current = pendingSource;
+      let headers;
+      try {
+        headers = await getFreshAuthHeaders();
+        controller.signal.throwIfAborted();
+      } catch (error) {
+        if (sseSourceRef.current === pendingSource) sseSourceRef.current = null;
+        if (!controller.signal.aborted) {
+          const errorInfo = handleApiError(error);
+          setDebugData((prev) => ({
+            ...prev,
+            response: JSON.stringify(errorInfo, null, 2),
+            isStreaming: false,
+          }));
+          setActiveDebugTab(DEBUG_TABS.RESPONSE);
+          streamMessageUpdate(t('建立连接时发生错误'), 'content');
+          completeMessage(MESSAGE_STATUS.ERROR);
+        }
+        return;
+      }
+
+      const source = new SSE(
+        API.getUri({ url: API_ENDPOINTS.CHAT_COMPLETIONS }),
+        {
+          headers,
+          withCredentials: true,
+          method: 'POST',
+          payload: JSON.stringify(payload),
         },
-        method: 'POST',
-        payload: JSON.stringify(payload),
-      });
+      );
 
       sseSourceRef.current = source;
 
@@ -421,7 +448,11 @@ export const useApiRequest = (
           setMessage((prevMessage) => {
             const newMessages = [...prevMessage];
             const lastMessage = newMessages[newMessages.length - 1];
-            if (lastMessage && lastMessage.status !== MESSAGE_STATUS.COMPLETE && lastMessage.status !== MESSAGE_STATUS.ERROR) {
+            if (
+              lastMessage &&
+              lastMessage.status !== MESSAGE_STATUS.COMPLETE &&
+              lastMessage.status !== MESSAGE_STATUS.ERROR
+            ) {
               newMessages[newMessages.length - 1] = {
                 ...lastMessage,
                 content: (lastMessage.content || '') + errorMessage,
@@ -497,6 +528,7 @@ export const useApiRequest = (
       sseSourceRef.current.close();
       sseSourceRef.current = null;
     }
+    setDebugData((prev) => ({ ...prev, isStreaming: false }));
 
     // 无论是否存在 SSE 连接，都尝试处理最后一条正在生成的消息
     setMessage((prevMessage) => {
@@ -532,15 +564,15 @@ export const useApiRequest = (
       }
       return prevMessage;
     });
-  }, [setMessage, applyAutoCollapseLogic, saveMessages]);
+  }, [setMessage, setDebugData, applyAutoCollapseLogic, saveMessages]);
 
   // 发送请求
   const sendRequest = useCallback(
     (payload, isStream) => {
       if (isStream) {
-        handleSSE(payload);
+        return handleSSE(payload);
       } else {
-        handleNonStreamRequest(payload);
+        return handleNonStreamRequest(payload);
       }
     },
     [handleSSE, handleNonStreamRequest],

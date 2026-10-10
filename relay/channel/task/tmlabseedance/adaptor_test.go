@@ -410,7 +410,7 @@ func TestParseTaskResultSupportsBothStatusFamilies(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result, err := adaptor.ParseTaskResult([]byte(test.body))
+			result, err := adaptor.ParseTaskResult(nil, nil, []byte(test.body))
 			require.NoError(t, err)
 			assert.EqualValues(t, test.status, result.Status)
 			assert.Equal(t, test.progress, result.Progress)
@@ -423,13 +423,13 @@ func TestParseTaskResultSupportsBothStatusFamilies(t *testing.T) {
 func TestParseTaskResultLeavesStructuredErrorsForPollingClassifier(t *testing.T) {
 	adaptor := &TaskAdaptor{}
 
-	result, err := adaptor.ParseTaskResult([]byte(`{"error":{"message":"invalid API key"}}`))
+	result, err := adaptor.ParseTaskResult(nil, nil, []byte(`{"error":{"message":"invalid API key"}}`))
 	require.NoError(t, err)
 	assert.Empty(t, result.Status)
 }
 
 func TestParseTaskResultWaitsWhenSuccessHasNoVideoURL(t *testing.T) {
-	result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(`{"task_id":"upstream","status":"completed","progress":100}`))
+	result, err := (&TaskAdaptor{}).ParseTaskResult(nil, nil, []byte(`{"task_id":"upstream","status":"completed","progress":100}`))
 	require.NoError(t, err)
 	assert.EqualValues(t, model.TaskStatusInProgress, result.Status)
 	assert.Empty(t, result.Url)

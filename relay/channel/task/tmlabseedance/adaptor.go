@@ -799,11 +799,11 @@ func replaceTaskIDs(response map[string]any, publicTaskID string, ensureTaskID b
 	}
 }
 
-func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy string) (*http.Response, error) {
-	taskID, ok := body["task_id"].(string)
-	if !ok || strings.TrimSpace(taskID) == "" {
+func (a *TaskAdaptor) FetchTask(baseURL, key string, task *model.Task, proxy string) (*http.Response, error) {
+	if task == nil || strings.TrimSpace(task.GetUpstreamTaskID()) == "" {
 		return nil, fmt.Errorf("invalid task_id")
 	}
+	taskID := task.GetUpstreamTaskID()
 	requestURL := strings.TrimRight(baseURL, "/") + "/v1/tasks/" + url.PathEscape(taskID)
 	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
 	if err != nil {
@@ -819,7 +819,7 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 	return client.Do(req)
 }
 
-func (a *TaskAdaptor) ParseTaskResult(responseBody []byte) (*relaycommon.TaskInfo, error) {
+func (a *TaskAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, responseBody []byte) (*relaycommon.TaskInfo, error) {
 	var upstreamResponse taskResponse
 	if err := common.Unmarshal(responseBody, &upstreamResponse); err != nil {
 		return nil, errors.Wrap(err, "unmarshal TMLab Seedance task result failed")

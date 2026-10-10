@@ -35,6 +35,30 @@ func TestSEOForPath(t *testing.T) {
 		page := seoForPath("/dashboard", "https://computetoken.ai", "Compute Token")
 		assert.Equal(t, "noindex, nofollow", page.robots)
 	})
+
+	t.Run("model management stays private while model docs remain indexable", func(t *testing.T) {
+		for _, path := range []string{"/models", "/models/metadata", "/models/pricing", "/models/vendors", "/system-settings/models"} {
+			assert.Equal(t, "noindex, nofollow", seoForPath(path, "https://computetoken.ai", "Compute Token").robots, path)
+		}
+		page := seoForPath("/pricing/%5BV2%5Dseedance-2.0", "https://computetoken.ai", "Compute Token")
+		assert.Equal(t, "index, follow", page.robots)
+		assert.Contains(t, page.title, "[V2]seedance-2.0")
+		assert.Equal(t, "https://computetoken.ai/pricing/%5BV2%5Dseedance-2.0", page.canonical)
+	})
+}
+
+func TestRobotsPreservesPublicDocumentationAndDisallowsModelManagement(t *testing.T) {
+	original := system_setting.ServerAddress
+	system_setting.ServerAddress = "https://computetoken.ai"
+	t.Cleanup(func() { system_setting.ServerAddress = original })
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/robots.txt", nil)
+	serveRobots(context)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "Disallow: /models/\n")
+	assert.NotContains(t, recorder.Body.String(), "Disallow: /pricing")
+	assert.Contains(t, recorder.Body.String(), "Sitemap: https://computetoken.ai/sitemap.xml")
 }
 
 func TestRenderSEOIndex(t *testing.T) {

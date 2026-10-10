@@ -68,6 +68,32 @@ func TestGeneratedMediaFilterRedactsMimeTypedProviderOutput(t *testing.T) {
 	assert.Contains(t, string(archived), `"omitted":"generated_media"`)
 }
 
+func TestGeneratedMediaFilterPreservesFramingWhitespace(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		prefix string
+		suffix string
+	}{
+		{name: "json whitespace", prefix: " \t\r\n", suffix: "\t \r\n"},
+		{name: "ndjson", suffix: "\n"},
+		{name: "sse crlf", prefix: "data:\t ", suffix: "\r\n\r\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			filter := &generatedMediaFilter{}
+			frame := `{"type":"response.output_item.done","item":{"type":"image_generation_call","result":"QUJD"}}`
+			archived, count := filter.Append([]byte(tc.prefix+frame+tc.suffix), true)
+			require.Equal(t, 1, count)
+			assert.True(t, bytes.HasPrefix(archived, []byte(tc.prefix)))
+			assert.True(t, bytes.HasSuffix(archived, []byte(tc.suffix)))
+			assert.NotContains(t, string(archived), "QUJD")
+			var event map[string]any
+			require.NoError(t, common.Unmarshal(archived[len(tc.prefix):len(archived)-len(tc.suffix)], &event))
+			assert.Equal(t, "response.output_item.done", event["type"])
+			assert.Contains(t, string(archived), `"omitted":"generated_media"`)
+		})
+	}
+}
+
 func TestGeneratedMediaFilterBoundsLargeSplitSSEEvent(t *testing.T) {
 	filter := &generatedMediaFilter{}
 	large := strings.Repeat("QUJD", generatedMediaBufferLimit/4+100)
@@ -340,6 +366,69 @@ func TestCaptureConversationRealtimeFramePreservesOrderAndOmitsAudio(t *testing.
 	assert.Equal(t, uint64(2), second.Sequence)
 	assert.Contains(t, string(second.Frame), "真实转写文本")
 	assert.Empty(t, second.AudioOmissions)
+}
+
+func TestCaptureConversationResponsesFrameKeepsNDJSONAndFiltersGeneratedMedia(t *testing.T) {
+	root := t.TempDir()
+	store, err := conversationarchive.New(root, conversationarchive.Options{})
+	require.NoError(t, err)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.ConversationArchive{}))
+	previousDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = previousDB })
+
+	startedAt := time.Date(2026, 8, 2, 9, 30, 0, 0, time.UTC)
+	info := &relaycommon.RelayInfo{
+		RequestId:   "responses-ws-archive",
+		RelayFormat: types.RelayFormatOpenAIResponses,
+		StartTime:   startedAt,
+		IsStream:    true,
+	}
+	pending, err := store.BeginPending(conversationarchive.Record{
+		ID:         "responses-ws-archive",
+		RecordedAt: startedAt,
+		Protocol:   string(types.RelayFormatOpenAIResponses),
+	})
+	require.NoError(t, err)
+	require.NoError(t, pending.Append("client_request", []byte(`{"input":"hello"}`)))
+	capture := &conversationCapture{
+		pending:       pending,
+		info:          info,
+		metadata:      make(map[string]string),
+		startedAt:     startedAt,
+		mediaFilters:  make(map[string]*generatedMediaFilter),
+		recoveryFiles: make(map[string]string),
+	}
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	ctx.Set(conversationCaptureContextKey, capture)
+
+	requestFrame := []byte(`{"type":"response.create","input":"hello"}`)
+	responseFrame := []byte(`{"type":"response.output_item.done","item":{"type":"image_generation_call","result":"QUJD"}}`)
+	CaptureConversationResponsesFrame(ctx, info, "request", requestFrame)
+	CaptureConversationResponsesFrame(ctx, info, "response", responseFrame)
+	CaptureConversationResponsesFrame(ctx, info, "client_response", responseFrame)
+	textFrame := []byte(`{"type":"response.output_text.delta","delta":"hello"}`)
+	CaptureConversationResponsesFrame(ctx, info, "response", textFrame)
+	CaptureConversationResponsesFrame(ctx, info, "client_response", textFrame)
+	require.NoError(t, capture.Finish(ctx, nil))
+
+	var manifest model.ConversationArchive
+	require.NoError(t, db.First(&manifest).Error)
+	restored, _, err := store.Restore(manifest.RecordPath)
+	require.NoError(t, err)
+	requestLines := bytes.Split(bytes.TrimSpace(restored.Payloads["upstream_attempt_000_request"]), []byte{'\n'})
+	responseLines := bytes.Split(bytes.TrimSpace(restored.Payloads["upstream_attempt_000_response"]), []byte{'\n'})
+	require.Len(t, requestLines, 1)
+	require.Len(t, responseLines, 2)
+	assert.Equal(t, requestFrame, requestLines[0])
+	assert.Equal(t, textFrame, responseLines[1])
+	assert.Equal(t, restored.Payloads["upstream_attempt_000_response"], restored.Payloads["client_response"])
+	assert.NotContains(t, string(restored.Payloads["client_response"]), "QUJD")
+	assert.Contains(t, string(restored.Payloads["client_response"]), "generated_media")
 }
 
 func TestConversationCaptureFinishWritesRestorableRecordBeforeSmallManifest(t *testing.T) {

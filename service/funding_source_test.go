@@ -66,3 +66,39 @@ func TestWalletFundingInsufficientQuotaRollsBackBonus(t *testing.T) {
 	assert.Equal(t, 3000, bonus)
 	assert.Equal(t, 5000, quota)
 }
+
+func TestWalletFundingRefundClearedGrantDoesNotBecomeCash(t *testing.T) {
+	setupWalletFundingTestDB(t)
+
+	grant := &model.BonusQuotaGrant{
+		UserId:          1,
+		Source:          model.BonusQuotaSourceCheckin,
+		SourceRef:       "cleared-refund",
+		AmountTotal:     3000,
+		AmountRemaining: 0,
+		Status:          model.BonusQuotaStatusCleared,
+	}
+	require.NoError(t, model.DB.Create(grant).Error)
+
+	// The wallet part was consumed separately; the cleared grant must not be
+	// revived or converted into wallet quota during the same refund.
+	w := &WalletFunding{
+		userId:        1,
+		modelName:     "gpt-4",
+		consumed:      1000,
+		bonusConsumed: 3000,
+		bonusDeducts:  []model.BonusQuotaDeduction{{GrantId: grant.Id, Amount: 3000}},
+	}
+	require.NoError(t, w.Refund())
+
+	bonus, err := model.GetUserBonusQuotaTotal(1)
+	require.NoError(t, err)
+	quota, err := model.GetUserQuota(1, true)
+	require.NoError(t, err)
+	assert.Zero(t, bonus)
+	assert.Equal(t, 6000, quota)
+	var persisted model.BonusQuotaGrant
+	require.NoError(t, model.DB.First(&persisted, grant.Id).Error)
+	assert.Equal(t, model.BonusQuotaStatusCleared, persisted.Status)
+	assert.Zero(t, persisted.AmountRemaining)
+}

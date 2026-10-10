@@ -141,6 +141,7 @@ export interface TopupInfo {
   topup_link?: string
   /** Whether Creem topup is enabled */
   enable_creem_topup?: boolean
+  enable_creem_subscription?: boolean
   /** Available Creem products */
   creem_products?: CreemProduct[]
   /** Whether Waffo topup is enabled */

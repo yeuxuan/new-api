@@ -100,6 +100,7 @@ const RechargeCard = ({
   activeSubscriptions = [],
   allSubscriptions = [],
   reloadSubscriptionSelf,
+  onSubscriptionPurchaseSuccess,
   enableRedemption = true,
 }) => {
   const onlineFormApiRef = useRef(null);
@@ -698,10 +699,15 @@ const RechargeCard = ({
                 t={t}
                 loading={subscriptionLoading}
                 plans={subscriptionPlans}
-                payMethods={payMethods}
-                enableOnlineTopUp={enableOnlineTopUp}
-                enableStripeTopUp={enableStripeTopUp}
-                enableCreemTopUp={enableCreemTopUp}
+                payMethods={hideOnlineTopup ? [] : payMethods}
+                enableOnlineTopUp={!hideOnlineTopup && enableOnlineTopUp}
+                enableStripeTopUp={!hideOnlineTopup && enableStripeTopUp}
+                enableCreemTopUp={topupInfo?.enable_creem_subscription === true}
+                paymentComplianceConfirmed={
+                  topupInfo?.payment_compliance_confirmed === true
+                }
+                userQuota={userState?.user?.quota}
+                onPurchaseSuccess={onSubscriptionPurchaseSuccess}
                 billingPreference={billingPreference}
                 onChangeBillingPreference={onChangeBillingPreference}
                 activeSubscriptions={activeSubscriptions}

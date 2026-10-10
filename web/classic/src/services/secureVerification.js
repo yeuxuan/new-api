@@ -17,212 +17,244 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import { API, showError } from '../helpers';
+import { t } from 'i18next';
+import { API } from '../helpers/api';
+import { encryptPassword } from '../helpers/passwordEncryption';
+import { verifyOAuth } from '../helpers/oauthVerification';
 import {
   prepareCredentialRequestOptions,
   buildAssertionResult,
   isPasskeySupported,
 } from '../helpers/passkey';
 
-/**
- * 通用安全验证服务
- * 验证状态完全由后端 Session 控制，前端不存储任何状态
- */
-export class SecureVerificationService {
-  /**
-   * 检查用户可用的验证方式
-   * @returns {Promise<{has2FA: boolean, hasPasskey: boolean, passkeySupported: boolean}>}
-   */
-  static async checkAvailableVerificationMethods() {
-    try {
-      const [twoFAResponse, passkeyResponse, passkeySupported] =
-        await Promise.all([
-          API.get('/api/user/2fa/status'),
-          API.get('/api/user/passkey'),
-          isPasskeySupported(),
-        ]);
+function operationFields(operation) {
+  if (!operation?.scope) throw new Error(t('验证配置错误'));
+  return {
+    scope: operation.scope,
+    ...(operation.context ? { context: operation.context } : {}),
+  };
+}
 
-      // console.log('=== DEBUGGING VERIFICATION METHODS ===');
-      // console.log('2FA Response:', JSON.stringify(twoFAResponse, null, 2));
-      // console.log(
-      //   'Passkey Response:',
-      //   JSON.stringify(passkeyResponse, null, 2),
-      // );
-
-      const has2FA =
-        twoFAResponse.data?.success &&
-        twoFAResponse.data?.data?.enabled === true;
-      const hasPasskey =
-        passkeyResponse.data?.success &&
-        passkeyResponse.data?.data?.enabled === true;
-
-      console.log('has2FA calculation:', {
-        success: twoFAResponse.data?.success,
-        dataExists: !!twoFAResponse.data?.data,
-        enabled: twoFAResponse.data?.data?.enabled,
-        result: has2FA,
-      });
-
-      console.log('hasPasskey calculation:', {
-        success: passkeyResponse.data?.success,
-        dataExists: !!passkeyResponse.data?.data,
-        enabled: passkeyResponse.data?.data?.enabled,
-        result: hasPasskey,
-      });
-
-      const result = {
-        has2FA,
-        hasPasskey,
-        passkeySupported,
-      };
-
-      return result;
-    } catch (error) {
-      console.error('Failed to check verification methods:', error);
-      return {
-        has2FA: false,
-        hasPasskey: false,
-        passkeySupported: false,
-      };
-    }
+function unwrap(response) {
+  const payload = response.data;
+  if (!payload?.success) {
+    throw new Error(payload?.message || t('验证失败'));
   }
+  return payload.data;
+}
 
-  /**
-   * 执行2FA验证
-   * @param {string} code - 验证码
-   * @returns {Promise<void>}
-   */
-  static async verify2FA(code) {
-    if (!code?.trim()) {
-      throw new Error('请输入验证码或备用码');
-    }
-
-    // 调用通用验证 API，验证成功后后端会设置 session
-    const verifyResponse = await API.post('/api/verify', {
-      method: '2fa',
-      code: code.trim(),
-    });
-
-    if (!verifyResponse.data?.success) {
-      throw new Error(verifyResponse.data?.message || '验证失败');
-    }
-
-    // 验证成功，session 已在后端设置
+function validateProof(proof, operation, method) {
+  if (
+    !proof?.proof_token ||
+    proof.scope !== operation.scope ||
+    proof.method !== method ||
+    !Number.isFinite(proof.expires_at) ||
+    proof.expires_at * 1000 <= Date.now()
+  ) {
+    throw new Error(t('服务端未返回有效的安全验证凭证'));
   }
-
-  /**
-   * 执行Passkey验证
-   * @returns {Promise<void>}
-   */
-  static async verifyPasskey() {
-    try {
-      // 开始Passkey验证
-      const beginResponse = await API.post('/api/user/passkey/verify/begin');
-      if (!beginResponse.data?.success) {
-        throw new Error(beginResponse.data?.message || '开始验证失败');
-      }
-
-      // 准备WebAuthn选项
-      const publicKey = prepareCredentialRequestOptions(
-        beginResponse.data.data.options,
-      );
-
-      // 执行WebAuthn验证
-      const credential = await navigator.credentials.get({ publicKey });
-      if (!credential) {
-        throw new Error('Passkey 验证被取消');
-      }
-
-      // 构建验证结果
-      const assertionResult = buildAssertionResult(credential);
-
-      // 完成验证
-      const finishResponse = await API.post(
-        '/api/user/passkey/verify/finish',
-        assertionResult,
-      );
-      if (!finishResponse.data?.success) {
-        throw new Error(finishResponse.data?.message || '验证失败');
-      }
-
-      // 调用通用验证 API 设置 session（Passkey 验证已完成）
-      const verifyResponse = await API.post('/api/verify', {
-        method: 'passkey',
-      });
-
-      if (!verifyResponse.data?.success) {
-        throw new Error(verifyResponse.data?.message || '验证失败');
-      }
-
-      // 验证成功，session 已在后端设置
-    } catch (error) {
-      if (error.name === 'NotAllowedError') {
-        throw new Error('Passkey 验证被取消或超时');
-      } else if (error.name === 'InvalidStateError') {
-        throw new Error('Passkey 验证状态无效');
-      } else {
-        throw error;
-      }
-    }
-  }
-
-  /**
-   * 通用验证方法，根据验证类型执行相应的验证流程
-   * @param {string} method - 验证方式: '2fa' | 'passkey'
-   * @param {string} code - 2FA验证码（当method为'2fa'时必需）
-   * @returns {Promise<void>}
-   */
-  static async verify(method, code = '') {
-    switch (method) {
-      case '2fa':
-        return await this.verify2FA(code);
-      case 'passkey':
-        return await this.verifyPasskey();
-      default:
-        throw new Error(`不支持的验证方式: ${method}`);
-    }
-  }
+  return proof;
 }
 
 /**
- * 预设的API调用函数工厂
+ * Classic 端安全验证适配器。所有敏感操作都必须显式携带 scoped proof。
  */
+export class SecureVerificationService {
+  static async checkAvailableVerificationMethods(scope, signal) {
+    if (!scope) throw new Error(t('验证配置错误'));
+
+    const [requirementsResponse, passkeySupported] = await Promise.all([
+      API.get('/api/verify/methods', {
+        params: { scope },
+        disableDuplicate: true,
+        skipErrorHandler: true,
+        signal,
+      }),
+      isPasskeySupported(),
+    ]);
+    signal?.throwIfAborted();
+    const requirements = unwrap(requirementsResponse);
+    if (requirements?.scope !== scope || !Array.isArray(requirements.methods)) {
+      throw new Error(t('验证配置错误'));
+    }
+    const methods = Array.isArray(requirements.methods)
+      ? requirements.methods.map((option) => {
+          if (
+            option.method === 'passkey' &&
+            option.available &&
+            !passkeySupported
+          ) {
+            return { ...option, available: false };
+          }
+          return option;
+        })
+      : [];
+    const available = new Set(
+      methods
+        .filter((option) => option.available)
+        .map((option) => option.method),
+    );
+
+    return {
+      scope,
+      methods,
+      has2FA: available.has('2fa'),
+      hasPasskey: available.has('passkey'),
+      hasPassword: available.has('password'),
+      hasSession: available.has('session'),
+      hasOAuth: available.has('oauth'),
+      oauthProviders: requirements.oauth_providers || [],
+      passkeySupported,
+      passwordEncryptionEnabled:
+        requirements.password_encryption_enabled === true,
+    };
+  }
+
+  static async postVerification(method, operation, fields = {}, signal) {
+    const response = await API.post(
+      '/api/verify',
+      {
+        method,
+        ...operationFields(operation),
+        ...fields,
+      },
+      { signal, skipErrorHandler: true, singleUseAuthorization: true },
+    );
+    return unwrap(response);
+  }
+
+  static async verifyPasskey(operation, signal) {
+    try {
+      const beginResponse = await API.post(
+        '/api/user/passkey/verify/begin',
+        {
+          ...operationFields(operation),
+        },
+        { signal, skipErrorHandler: true },
+      );
+      const begin = unwrap(beginResponse);
+      if (
+        !begin?.flow_token ||
+        !Number.isFinite(begin.expires_at) ||
+        begin.expires_at * 1000 <= Date.now()
+      ) {
+        throw new Error(t('验证流程已失效'));
+      }
+
+      const publicKey = prepareCredentialRequestOptions(begin.options || begin);
+      const credential = await navigator.credentials.get({ publicKey, signal });
+      signal?.throwIfAborted();
+      if (!credential) throw new Error(t('Passkey 验证被取消'));
+
+      const finishResponse = await API.post(
+        '/api/user/passkey/verify/finish',
+        {
+          flow_token: begin.flow_token,
+          credential: buildAssertionResult(credential),
+        },
+        { signal, singleUseAuthorization: true, skipErrorHandler: true },
+      );
+      return unwrap(finishResponse);
+    } catch (error) {
+      if (error?.name === 'NotAllowedError') {
+        throw new Error(t('Passkey 验证被取消或超时'));
+      }
+      if (error?.name === 'InvalidStateError') {
+        throw new Error(t('Passkey 验证状态无效'));
+      }
+      throw error;
+    }
+  }
+
+  static async verify(
+    method,
+    operation,
+    code = '',
+    password = '',
+    options = {},
+  ) {
+    const { signal, passwordEncryptionEnabled, provider } = options;
+    let proof;
+    switch (method) {
+      case '2fa':
+        if (!code?.trim()) throw new Error(t('请输入验证码或备用码'));
+        proof = await this.postVerification(
+          '2fa',
+          operation,
+          {
+            code: code.trim(),
+          },
+          signal,
+        );
+        break;
+      case 'password': {
+        if (!password?.trim()) throw new Error(t('请输入当前密码'));
+        const fields = passwordEncryptionEnabled
+          ? await encryptPassword(password)
+          : { password };
+        signal?.throwIfAborted();
+        proof = await this.postVerification(
+          'password',
+          operation,
+          fields,
+          signal,
+        );
+        break;
+      }
+      case 'session':
+        proof = await this.postVerification('session', operation, {}, signal);
+        break;
+      case 'passkey':
+        proof = await this.verifyPasskey(operation, signal);
+        break;
+      case 'oauth':
+        proof = await verifyOAuth(provider, operation, signal);
+        break;
+      default:
+        throw new Error(t('验证配置错误'));
+    }
+    signal?.throwIfAborted();
+    return validateProof(proof, operation, method);
+  }
+}
+
 export const createApiCalls = {
-  /**
-   * 创建查看渠道密钥的API调用
-   * @param {number} channelId - 渠道ID
-   */
-  viewChannelKey: (channelId) => async () => {
-    // 新系统中，验证已通过中间件处理，直接调用 API 即可
-    const response = await API.post(`/api/channel/${channelId}/key`, {});
+  viewChannelKey: (channelId) => async (proofToken, signal) => {
+    if (!proofToken) throw new Error(t('验证配置错误'));
+    const response = await API.post(
+      `/api/channel/${channelId}/key`,
+      undefined,
+      {
+        headers: { 'X-Security-Proof': proofToken },
+        singleUseAuthorization: true,
+        signal,
+      },
+    );
     return response.data;
   },
 
-  /**
-   * 创建自定义API调用
-   * @param {string} url - API URL
-   * @param {string} method - HTTP方法，默认为 'POST'
-   * @param {Object} extraData - 额外的请求数据
-   */
   custom:
     (url, method = 'POST', extraData = {}) =>
-    async () => {
-      // 新系统中，验证已通过中间件处理
-      const data = extraData;
-
+    async (proofToken, signal) => {
+      if (!proofToken) throw new Error(t('验证配置错误'));
+      const config = {
+        headers: { 'X-Security-Proof': proofToken },
+        singleUseAuthorization: true,
+        signal,
+      };
       let response;
       switch (method.toUpperCase()) {
         case 'GET':
-          response = await API.get(url, { params: data });
+          response = await API.get(url, { ...config, params: extraData });
           break;
         case 'POST':
-          response = await API.post(url, data);
+          response = await API.post(url, extraData, config);
           break;
         case 'PUT':
-          response = await API.put(url, data);
+          response = await API.put(url, extraData, config);
           break;
         case 'DELETE':
-          response = await API.delete(url, { data });
+          response = await API.delete(url, { ...config, data: extraData });
           break;
         default:
           throw new Error(`不支持的HTTP方法: ${method}`);

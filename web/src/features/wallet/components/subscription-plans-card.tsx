@@ -57,6 +57,8 @@ import type {
   UserSubscriptionRecord,
 } from '@/features/subscriptions/types'
 import { formatQuota } from '@/lib/format'
+import { handleServerError } from '@/lib/handle-server-error'
+import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
 import type { PaymentMethod, TopupInfo } from '../types'
@@ -70,7 +72,11 @@ interface SubscriptionPlansCardProps {
 
 function getEpayMethods(payMethods: PaymentMethod[] = []): PaymentMethod[] {
   return payMethods.filter(
-    (m) => m?.type && m.type !== 'stripe' && m.type !== 'creem'
+    (m) =>
+      m?.type &&
+      m.type !== 'stripe' &&
+      m.type !== 'creem' &&
+      m.type !== 'ipaynow'
   )
 }
 
@@ -115,29 +121,32 @@ export function SubscriptionPlansCard({
   const [purchaseOpen, setPurchaseOpen] = useState(false)
   const [selectedPlan, setSelectedPlan] = useState<PlanRecord | null>(null)
 
-  const enableStripe = !!topupInfo?.enable_stripe_topup
-  const enableCreem = !!topupInfo?.enable_creem_topup
-  const enableWaffoPancake = !!topupInfo?.enable_waffo_pancake_topup
-  const enableOnlineTopUp = !!topupInfo?.enable_online_topup
+  const hideOnlineTopup = !!topupInfo?.hide_online_topup
+  const enableStripe = !hideOnlineTopup && !!topupInfo?.enable_stripe_topup
+  const enableCreem = !!topupInfo?.enable_creem_subscription
+  const enableWaffoPancake =
+    !hideOnlineTopup && !!topupInfo?.enable_waffo_pancake_topup
+  const enableOnlineTopUp = !hideOnlineTopup && !!topupInfo?.enable_online_topup
   const epayMethods = useMemo(
-    () => getEpayMethods(topupInfo?.pay_methods),
-    [topupInfo?.pay_methods]
+    () => (hideOnlineTopup ? [] : getEpayMethods(topupInfo?.pay_methods)),
+    [hideOnlineTopup, topupInfo?.pay_methods]
   )
 
   const fetchPlans = useCallback(async () => {
     try {
-      const res = await getPublicPlans()
+      const res = requireServerSuccess(await getPublicPlans())
       if (res.success) {
         setPlans(res.data || [])
       }
-    } catch {
+    } catch (error) {
+      handleServerError(error)
       setPlans([])
     }
   }, [])
 
   const fetchSelfSubscription = useCallback(async () => {
     try {
-      const res = await getSelfSubscriptionFull()
+      const res = requireServerSuccess(await getSelfSubscriptionFull())
       if (res.success && res.data) {
         setBillingPreference(
           res.data.billing_preference || 'subscription_first'
@@ -145,8 +154,8 @@ export function SubscriptionPlansCard({
         setActiveSubscriptions(res.data.subscriptions || [])
         setAllSubscriptions(res.data.all_subscriptions || [])
       }
-    } catch {
-      // ignore
+    } catch (error) {
+      handleServerError(error)
     }
   }, [])
 
@@ -178,11 +187,11 @@ export function SubscriptionPlansCard({
         const normalized = res.data?.billing_preference || pref
         setBillingPreference(normalized)
       } else {
-        toast.error(res.message || t('Update failed'))
+        handleServerError(res, t('Update failed'))
         setBillingPreference(previous)
       }
-    } catch {
-      toast.error(t('Request failed'))
+    } catch (error) {
+      handleServerError(error, t('Request failed'))
       setBillingPreference(previous)
     }
   }

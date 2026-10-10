@@ -20,6 +20,8 @@ import (
 type JSONValue json.RawMessage
 
 // Value 实现 driver.Valuer 接口，用于数据库写入
+// 必须返回 string 而非 []byte:PG simple protocol 下 []byte 按 bytea 编码,
+// 写 json 列会触发 SQLSTATE 22P02。
 func (j JSONValue) Value() (driver.Value, error) {
 	if j == nil {
 		return nil, nil
@@ -28,7 +30,7 @@ func (j JSONValue) Value() (driver.Value, error) {
 }
 
 // Scan 实现 sql.Scanner 接口，兼容不同驱动返回的类型
-func (j *JSONValue) Scan(value interface{}) error {
+func (j *JSONValue) Scan(value any) error {
 	switch v := value.(type) {
 	case nil:
 		*j = nil
@@ -44,7 +46,7 @@ func (j *JSONValue) Scan(value interface{}) error {
 		return nil
 	default:
 		// 其他类型尝试序列化为 JSON
-		b, err := json.Marshal(v)
+		b, err := common.Marshal(v)
 		if err != nil {
 			return err
 		}

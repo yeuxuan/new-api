@@ -44,7 +44,11 @@ const { Text } = Typography;
 // 过滤易支付方式
 function getEpayMethods(payMethods = []) {
   return (payMethods || []).filter(
-    (m) => m?.type && m.type !== 'stripe' && m.type !== 'creem',
+    (m) =>
+      m?.type &&
+      m.type !== 'stripe' &&
+      m.type !== 'creem' &&
+      m.type !== 'ipaynow',
   );
 }
 
@@ -82,6 +86,9 @@ const SubscriptionPlansCard = ({
   activeSubscriptions = [],
   allSubscriptions = [],
   reloadSubscriptionSelf,
+  paymentComplianceConfirmed = false,
+  userQuota = 0,
+  onPurchaseSuccess,
   withCard = true,
 }) => {
   const [open, setOpen] = useState(false);
@@ -190,6 +197,39 @@ const SubscriptionPlansCard = ({
             ? res.data.data
             : res.data?.message || t('支付失败');
         showError(errorMsg);
+      }
+    } catch (e) {
+      showError(t('支付请求失败'));
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  const payBalance = async () => {
+    if (
+      paying ||
+      !paymentComplianceConfirmed ||
+      !selectedPlan?.plan ||
+      selectedPlan.plan.allow_balance_pay === false
+    )
+      return;
+    setPaying(true);
+    try {
+      const res = await API.post('/api/subscription/balance/pay', {
+        plan_id: selectedPlan.plan.id,
+      });
+      if (!res.data?.success) {
+        showError(res.data?.message || t('支付失败'));
+        return;
+      }
+      showSuccess(t('Subscription purchased successfully'));
+      closeBuy();
+      const results = await Promise.allSettled([
+        Promise.resolve().then(() => reloadSubscriptionSelf?.()),
+        Promise.resolve().then(() => onPurchaseSuccess?.()),
+      ]);
+      if (results.some((result) => result.status === 'rejected')) {
+        showError(t('刷新失败'));
       }
     } catch (e) {
       showError(t('支付请求失败'));
@@ -664,7 +704,9 @@ const SubscriptionPlansCard = ({
       <SubscriptionPurchaseModal
         t={t}
         visible={open}
-        onCancel={closeBuy}
+        onCancel={() => {
+          if (!paying) closeBuy();
+        }}
         selectedPlan={selectedPlan}
         paying={paying}
         selectedEpayMethod={selectedEpayMethod}
@@ -673,6 +715,8 @@ const SubscriptionPlansCard = ({
         enableOnlineTopUp={enableOnlineTopUp}
         enableStripeTopUp={enableStripeTopUp}
         enableCreemTopUp={enableCreemTopUp}
+        paymentComplianceConfirmed={paymentComplianceConfirmed}
+        userQuota={userQuota}
         purchaseLimitInfo={
           selectedPlan?.plan?.id
             ? {
@@ -684,6 +728,7 @@ const SubscriptionPlansCard = ({
         onPayStripe={payStripe}
         onPayCreem={payCreem}
         onPayEpay={payEpay}
+        onPayBalance={payBalance}
       />
     </>
   );

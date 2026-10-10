@@ -21,7 +21,6 @@ import { getRouteApi } from '@tanstack/react-router'
 import type { OnChangeFn, SortingState } from '@tanstack/react-table'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 
 import {
   DISABLED_ROW_DESKTOP,
@@ -29,10 +28,13 @@ import {
   DataTablePage,
   useDataTable,
 } from '@/components/data-table'
+import { ErrorState } from '@/components/error-state'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { formatQuota } from '@/lib/format'
+import { createServerError } from '@/lib/server-error-message'
 
-import { getUsers, searchUsers } from '../api'
+import { getUsers, searchUsers, getUserQuotaSummary } from '../api'
 import {
   USER_STATUS,
   getUserStatusOptions,
@@ -65,6 +67,10 @@ export function UsersTable() {
   const { refreshTrigger } = useUsers()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const [sorting, setSorting] = useState<SortingState>([])
+  const summary = useQuery({
+    queryKey: ['users', 'quota-summary', refreshTrigger],
+    queryFn: getUserQuotaSummary,
+  })
 
   const {
     globalFilter,
@@ -156,10 +162,10 @@ export function UsersTable() {
         : await getUsers(params)
 
       if (!result.success) {
-        toast.error(
-          result.message || `Failed to ${hasKeyword ? 'search' : 'load'} users`
+        throw createServerError(
+          result,
+          t(hasKeyword ? 'Failed to search users' : 'Failed to load users')
         )
-        return { items: [], total: 0 }
       }
 
       return {
@@ -235,14 +241,37 @@ export function UsersTable() {
           },
         ],
       }}
-      getRowClassName={(row, { isMobile }) =>
-        isDisabledUserRow(row.original)
-          ? isMobile
-            ? DISABLED_ROW_MOBILE
-            : DISABLED_ROW_DESKTOP
-          : undefined
-      }
+      getRowClassName={(row, { isMobile }) => {
+        if (!isDisabledUserRow(row.original)) return undefined
+        return isMobile ? DISABLED_ROW_MOBILE : DISABLED_ROW_DESKTOP
+      }}
       bulkActions={<DataTableBulkActions table={table} />}
+      afterTable={
+        summary.isError ? (
+          <ErrorState
+            className='min-h-0 py-4'
+            onRetry={() => void summary.refetch()}
+          />
+        ) : summary.data?.data ? (
+          <dl
+            aria-label={t('All Users')}
+            className='text-muted-foreground flex flex-wrap gap-x-6 gap-y-2 text-sm'
+          >
+            <div className='flex gap-2'>
+              <dt>{t('All Users')}</dt>
+              <dd>{summary.data.data.total_user_count}</dd>
+            </div>
+            <div className='flex gap-2'>
+              <dt>{t('Available Balance')}</dt>
+              <dd>{formatQuota(summary.data.data.total_quota)}</dd>
+            </div>
+            <div className='flex gap-2'>
+              <dt>{t('Total Used')}</dt>
+              <dd>{formatQuota(summary.data.data.total_used_quota)}</dd>
+            </div>
+          </dl>
+        ) : null
+      }
     />
   )
 }

@@ -781,6 +781,7 @@ const TopUp = () => {
             ...prev,
             hide_online_topup: data.hide_online_topup === true,
             enable_ipaynow_topup: enableIPayNowTopUp,
+            enable_creem_subscription: data.enable_creem_subscription === true,
             ipaynow_min_topup: data.ipaynow_min_topup || 1,
             enable_redemption: data.enable_redemption !== false,
             payment_compliance_confirmed:
@@ -1133,6 +1134,7 @@ const TopUp = () => {
           activeSubscriptions={activeSubscriptions}
           allSubscriptions={allSubscriptions}
           reloadSubscriptionSelf={getSubscriptionSelf}
+          onSubscriptionPurchaseSuccess={getUserQuota}
           enableRedemption={topupInfo.enable_redemption !== false}
         />
         <InvitationCard

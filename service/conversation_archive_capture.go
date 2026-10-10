@@ -115,13 +115,6 @@ func BeginConversationCapture(c *gin.Context, info *relaycommon.RelayInfo) (*con
 	if !common.ConversationLogEnabled || common.ConversationLogStoragePath == "" || !ShouldArchiveConversation(info) {
 		return nil, nil
 	}
-	store := getConversationStore()
-	if store == nil {
-		return nil, errors.New("conversation archive is enabled but not initialized")
-	}
-	if err := store.CheckWritable(0); err != nil {
-		return nil, err
-	}
 	bodyStorage, err := common.GetBodyStorage(c)
 	if err != nil {
 		return nil, fmt.Errorf("read conversation request body: %w", err)
@@ -129,6 +122,22 @@ func BeginConversationCapture(c *gin.Context, info *relaycommon.RelayInfo) (*con
 	request, err := bodyStorage.Bytes()
 	if err != nil {
 		return nil, fmt.Errorf("snapshot conversation request body: %w", err)
+	}
+	return BeginConversationCaptureWithRequest(c, info, request)
+}
+
+// BeginConversationCaptureWithRequest preserves the original client bytes when
+// the relay forwards a different body, such as a normalized WebSocket event.
+func BeginConversationCaptureWithRequest(c *gin.Context, info *relaycommon.RelayInfo, request []byte) (*conversationCapture, error) {
+	if !common.ConversationLogEnabled || common.ConversationLogStoragePath == "" || !ShouldArchiveConversation(info) {
+		return nil, nil
+	}
+	store := getConversationStore()
+	if store == nil {
+		return nil, errors.New("conversation archive is enabled but not initialized")
+	}
+	if err := store.CheckWritable(0); err != nil {
+		return nil, err
 	}
 	startedAt := info.StartTime
 	if startedAt.IsZero() {
@@ -575,6 +584,23 @@ type realtimeArchiveFrame struct {
 	Frame          json.RawMessage         `json:"frame"`
 	FrameSHA256    string                  `json:"frame_sha256"`
 	AudioOmissions []realtimeAudioOmission `json:"audio_omissions,omitempty"`
+}
+
+// CaptureConversationResponsesFrame keeps WebSocket message boundaries as NDJSON
+// while retaining the same generated-media filtering as HTTP response archives.
+func CaptureConversationResponsesFrame(ctx *gin.Context, info *relaycommon.RelayInfo, direction string, frame []byte) {
+	capture := getConversationCapture(ctx)
+	if capture == nil || len(frame) == 0 || (direction != "request" && direction != "response" && direction != "client_response") {
+		return
+	}
+	capture.setMetadata("transport", "websocket")
+	capture.setMetadata("websocket_payload_format", "ndjson")
+	payload := append(bytes.Clone(frame), '\n')
+	if direction == "client_response" {
+		capture.appendPayload("client_response", payload)
+	} else {
+		CaptureConversationUpstreamBytes(ctx, info, direction, payload)
+	}
 }
 
 type realtimeAudioOmission struct {

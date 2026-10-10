@@ -14,7 +14,7 @@ const tmlabChannelTypeMigrationKey = "MigrationTMLabSeedanceChannelType62"
 func migrateLegacyTMLabChannelType(db *gorm.DB) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		var marker Option
-		err := tx.Where("key = ?", tmlabChannelTypeMigrationKey).Take(&marker).Error
+		err := tx.Where(map[string]any{"key": tmlabChannelTypeMigrationKey}).Take(&marker).Error
 		if err == nil {
 			return nil
 		}

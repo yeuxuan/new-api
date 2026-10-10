@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -22,6 +23,14 @@ type SubscriptionCreemPayRequest struct {
 
 func SubscriptionRequestCreemPay(c *gin.Context) {
 	if !requirePaymentCompliance(c) {
+		return
+	}
+	if strings.TrimSpace(setting.CreemApiKey) == "" {
+		common.ApiErrorMsg(c, "未配置Creem API密钥")
+		return
+	}
+	if !isCreemWebhookConfigured() {
+		common.ApiErrorMsg(c, "Creem Webhook 未配置")
 		return
 	}
 
@@ -50,12 +59,8 @@ func SubscriptionRequestCreemPay(c *gin.Context) {
 		common.ApiErrorMsg(c, "套餐未启用")
 		return
 	}
-	if plan.CreemProductId == "" {
+	if strings.TrimSpace(plan.CreemProductId) == "" {
 		common.ApiErrorMsg(c, "该套餐未配置 CreemProductId")
-		return
-	}
-	if setting.CreemWebhookSecret == "" && !setting.CreemTestMode {
-		common.ApiErrorMsg(c, "Creem Webhook 未配置")
 		return
 	}
 

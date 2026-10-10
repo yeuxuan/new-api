@@ -17,20 +17,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SecureVerificationService } from '../../services/secureVerification';
 import { showError, showSuccess } from '../../helpers';
-import { isVerificationRequiredError } from '../../helpers/secureApiCall';
 
-/**
- * 通用安全验证 Hook
- * @param {Object} options - 配置选项
- * @param {Function} options.onSuccess - 验证成功回调
- * @param {Function} options.onError - 验证失败回调
- * @param {string} options.successMessage - 成功提示消息
- * @param {boolean} options.autoReset - 验证完成后是否自动重置状态，默认为 true
- */
+function operationFromOptions(options) {
+  return (
+    options.operation || {
+      scope: options.scope,
+      ...(options.context ? { context: options.context } : {}),
+    }
+  );
+}
+
 export const useSecureVerification = ({
   onSuccess,
   onError,
@@ -38,235 +38,300 @@ export const useSecureVerification = ({
   autoReset = true,
 } = {}) => {
   const { t } = useTranslation();
-
-  // 验证方式可用性状态
+  const requestRef = useRef(null);
+  const submittingRef = useRef(false);
   const [verificationMethods, setVerificationMethods] = useState({
+    scope: null,
+    methods: [],
     has2FA: false,
     hasPasskey: false,
+    hasPassword: false,
+    hasSession: false,
+    hasOAuth: false,
+    oauthProviders: [],
     passkeySupported: false,
+    passwordEncryptionEnabled: false,
   });
-
-  // 模态框状态
   const [isModalVisible, setIsModalVisible] = useState(false);
-
-  // 当前验证状态
   const [verificationState, setVerificationState] = useState({
-    method: null, // '2fa' | 'passkey'
+    method: null,
     loading: false,
     code: '',
+    password: '',
     apiCall: null,
+    operation: null,
   });
 
-  // 检查可用的验证方式
-  const checkVerificationMethods = useCallback(async () => {
+  const checkVerificationMethods = useCallback(async (scope, signal) => {
     const methods =
-      await SecureVerificationService.checkAvailableVerificationMethods();
+      await SecureVerificationService.checkAvailableVerificationMethods(
+        scope,
+        signal,
+      );
+    signal?.throwIfAborted();
     setVerificationMethods(methods);
     return methods;
   }, []);
 
-  // 初始化时检查验证方式
-  useEffect(() => {
-    checkVerificationMethods();
-  }, [checkVerificationMethods]);
+  useEffect(() => () => requestRef.current?.abort(), []);
 
-  // 重置状态
   const resetState = useCallback(() => {
+    requestRef.current?.abort();
+    requestRef.current = null;
     setVerificationState({
       method: null,
       loading: false,
       code: '',
+      password: '',
       apiCall: null,
+      operation: null,
     });
     setIsModalVisible(false);
   }, []);
 
-  // 开始验证流程
+  const finishVerifiedCall = useCallback(
+    async (apiCall, proof, method, signal) => {
+      signal.throwIfAborted();
+      const result = await apiCall(proof.proof_token, signal);
+      signal.throwIfAborted();
+      if (result?.success === false) {
+        throw new Error(result.message || t('操作失败'));
+      }
+      if (successMessage) showSuccess(successMessage);
+      onSuccess?.(result, method);
+      return result;
+    },
+    [onSuccess, successMessage, t],
+  );
+
   const startVerification = useCallback(
     async (apiCall, options = {}) => {
-      const { preferredMethod, title, description } = options;
-
-      // 检查验证方式
-      const methods = await checkVerificationMethods();
-
-      if (!methods.has2FA && !methods.hasPasskey) {
-        const errorMessage = t('您需要先启用两步验证或 Passkey 才能执行此操作');
-        showError(errorMessage);
-        onError?.(new Error(errorMessage));
+      if (submittingRef.current) return false;
+      requestRef.current?.abort();
+      const controller = new AbortController();
+      requestRef.current = controller;
+      const signal = controller.signal;
+      const operation = operationFromOptions(options);
+      if (!operation?.scope) {
+        const error = new Error(t('验证配置错误'));
+        showError(error.message);
+        onError?.(error);
         return false;
       }
 
-      // 设置默认验证方式
-      let defaultMethod = preferredMethod;
+      let methods;
+      try {
+        methods = await checkVerificationMethods(operation.scope, signal);
+        signal.throwIfAborted();
+      } catch (error) {
+        if (!signal.aborted) {
+          showError(error.message || t('验证失败，请重试'));
+          onError?.(error);
+        }
+        return false;
+      }
+      const available = new Set(
+        methods.methods
+          .filter((method) => method.available)
+          .map((method) => method.method),
+      );
+      let defaultMethod = options.preferredMethod;
+      if (defaultMethod && !available.has(defaultMethod)) {
+        defaultMethod = null;
+      }
       if (!defaultMethod) {
-        if (methods.hasPasskey && methods.passkeySupported) {
-          defaultMethod = 'passkey';
-        } else if (methods.has2FA) {
-          defaultMethod = '2fa';
+        if (available.has('session')) defaultMethod = 'session';
+        else if (available.has('passkey')) defaultMethod = 'passkey';
+        else if (available.has('2fa')) defaultMethod = '2fa';
+        else if (available.has('password')) defaultMethod = 'password';
+        else if (available.has('oauth')) defaultMethod = 'oauth';
+      }
+
+      if (!defaultMethod) {
+        const error = new Error(t('当前操作没有可用的安全验证方式'));
+        showError(error.message);
+        onError?.(error);
+        return false;
+      }
+
+      if (defaultMethod === 'session') {
+        try {
+          const proof = await SecureVerificationService.verify(
+            defaultMethod,
+            operation,
+            '',
+            '',
+            { signal },
+          );
+          const result = await finishVerifiedCall(
+            apiCall,
+            proof,
+            defaultMethod,
+            signal,
+          );
+          if (autoReset) resetState();
+          return result;
+        } catch (error) {
+          showError(error.message || t('验证失败，请重试'));
+          onError?.(error);
+          return false;
         }
       }
 
-      setVerificationState((prev) => ({
-        ...prev,
+      setVerificationState({
         method: defaultMethod,
+        loading: false,
+        code: '',
+        password: options.initialPassword || '',
         apiCall,
-        title,
-        description,
-      }));
+        operation,
+        provider: methods.oauthProviders[0]?.slug || '',
+        title: options.title,
+        description: options.description,
+      });
       setIsModalVisible(true);
-
       return true;
     },
-    [checkVerificationMethods, onError, t],
-  );
-
-  // 执行验证
-  const executeVerification = useCallback(
-    async (method, code = '') => {
-      if (!verificationState.apiCall) {
-        showError(t('验证配置错误'));
-        return;
-      }
-
-      setVerificationState((prev) => ({ ...prev, loading: true }));
-
-      try {
-        // 先调用验证 API，成功后后端会设置 session
-        await SecureVerificationService.verify(method, code);
-
-        // 验证成功，调用业务 API（此时中间件会通过）
-        const result = await verificationState.apiCall();
-
-        // 显示成功消息
-        if (successMessage) {
-          showSuccess(successMessage);
-        }
-
-        // 调用成功回调
-        onSuccess?.(result, method);
-
-        // 自动重置状态
-        if (autoReset) {
-          resetState();
-        }
-
-        return result;
-      } catch (error) {
-        showError(error.message || t('验证失败，请重试'));
-        onError?.(error);
-        throw error;
-      } finally {
-        setVerificationState((prev) => ({ ...prev, loading: false }));
-      }
-    },
     [
-      verificationState.apiCall,
-      successMessage,
-      onSuccess,
-      onError,
       autoReset,
+      checkVerificationMethods,
+      finishVerifiedCall,
+      onError,
       resetState,
       t,
     ],
   );
 
-  // 设置验证码
+  const executeVerification = useCallback(
+    async (method, code = '', password = '', provider = '') => {
+      if (!verificationState.apiCall || !verificationState.operation) {
+        showError(t('验证配置错误'));
+        return;
+      }
+      if (submittingRef.current) return;
+      const signal = requestRef.current?.signal;
+      if (!signal || signal.aborted) return;
+      submittingRef.current = true;
+      setVerificationState((prev) => ({ ...prev, loading: true }));
+      try {
+        const proof = await SecureVerificationService.verify(
+          method,
+          verificationState.operation,
+          code,
+          password || verificationState.password,
+          {
+            signal,
+            passwordEncryptionEnabled:
+              verificationMethods.passwordEncryptionEnabled,
+            provider: provider || verificationState.provider,
+          },
+        );
+        const result = await finishVerifiedCall(
+          verificationState.apiCall,
+          proof,
+          method,
+          signal,
+        );
+        if (autoReset) resetState();
+        return result;
+      } catch (error) {
+        if (!signal.aborted) {
+          showError(error.message || t('验证失败，请重试'));
+          onError?.(error);
+        }
+      } finally {
+        submittingRef.current = false;
+        if (requestRef.current?.signal === signal) {
+          setVerificationState((prev) => ({
+            ...prev,
+            loading: false,
+            code: '',
+            password: '',
+          }));
+        }
+      }
+    },
+    [
+      autoReset,
+      finishVerifiedCall,
+      onError,
+      resetState,
+      t,
+      verificationState,
+      verificationMethods.passwordEncryptionEnabled,
+    ],
+  );
+
   const setVerificationCode = useCallback((code) => {
     setVerificationState((prev) => ({ ...prev, code }));
   }, []);
 
-  // 切换验证方式
-  const switchVerificationMethod = useCallback((method) => {
-    setVerificationState((prev) => ({ ...prev, method, code: '' }));
+  const setVerificationPassword = useCallback((password) => {
+    setVerificationState((prev) => ({ ...prev, password }));
   }, []);
 
-  // 取消验证
-  const cancelVerification = useCallback(() => {
-    resetState();
-  }, [resetState]);
+  const setVerificationProvider = useCallback((provider) => {
+    setVerificationState((prev) => ({ ...prev, provider }));
+  }, []);
 
-  // 检查是否可以使用某种验证方式
+  const switchVerificationMethod = useCallback((method) => {
+    if (!submittingRef.current) {
+      setVerificationState((prev) => ({
+        ...prev,
+        method,
+        code: '',
+        password: '',
+      }));
+    }
+  }, []);
+
+  const cancelVerification = useCallback(() => resetState(), [resetState]);
+
   const canUseMethod = useCallback(
     (method) => {
-      switch (method) {
-        case '2fa':
-          return verificationMethods.has2FA;
-        case 'passkey':
-          return (
-            verificationMethods.hasPasskey &&
-            verificationMethods.passkeySupported
-          );
-        default:
-          return false;
+      if (method === 'session') return verificationMethods.hasSession;
+      if (method === 'password') return verificationMethods.hasPassword;
+      if (method === 'oauth') return verificationMethods.hasOAuth;
+      if (method === '2fa') return verificationMethods.has2FA;
+      if (method === 'passkey') {
+        return (
+          verificationMethods.hasPasskey && verificationMethods.passkeySupported
+        );
       }
+      return false;
     },
     [verificationMethods],
   );
 
-  // 获取推荐的验证方式
-  const getRecommendedMethod = useCallback(() => {
-    if (
-      verificationMethods.hasPasskey &&
-      verificationMethods.passkeySupported
-    ) {
-      return 'passkey';
-    }
-    if (verificationMethods.has2FA) {
-      return '2fa';
-    }
-    return null;
-  }, [verificationMethods]);
-
-  /**
-   * 包装 API 调用，自动处理验证错误
-   * 当 API 返回需要验证的错误时，自动弹出验证模态框
-   * @param {Function} apiCall - API 调用函数
-   * @param {Object} options - 验证选项（同 startVerification）
-   * @returns {Promise<any>}
-   */
   const withVerification = useCallback(
-    async (apiCall, options = {}) => {
-      try {
-        // 直接尝试调用 API
-        return await apiCall();
-      } catch (error) {
-        // 检查是否是需要验证的错误
-        if (isVerificationRequiredError(error)) {
-          // 自动触发验证流程
-          await startVerification(apiCall, options);
-          // 不抛出错误，让验证模态框处理
-          return null;
-        }
-        // 其他错误继续抛出
-        throw error;
-      }
-    },
+    async (apiCall, options = {}) => startVerification(apiCall, options),
     [startVerification],
   );
 
   return {
-    // 状态
     isModalVisible,
     verificationMethods,
     verificationState,
-
-    // 方法
     startVerification,
     executeVerification,
     cancelVerification,
     resetState,
     setVerificationCode,
+    setVerificationPassword,
+    setVerificationProvider,
     switchVerificationMethod,
     checkVerificationMethods,
-
-    // 辅助方法
     canUseMethod,
-    getRecommendedMethod,
-    withVerification, // 新增：自动处理验证的包装函数
-
-    // 便捷属性
+    getRecommendedMethod: () =>
+      ['session', 'passkey', '2fa', 'password', 'oauth'].find(canUseMethod) ||
+      null,
+    withVerification,
     hasAnyVerificationMethod:
-      verificationMethods.has2FA || verificationMethods.hasPasskey,
+      verificationMethods.has2FA ||
+      verificationMethods.hasPasskey ||
+      verificationMethods.hasPassword ||
+      verificationMethods.hasOAuth ||
+      verificationMethods.hasSession,
     isLoading: verificationState.loading,
     currentMethod: verificationState.method,
     code: verificationState.code,

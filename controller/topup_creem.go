@@ -161,6 +161,9 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 }
 
 func RequestCreemPay(c *gin.Context) {
+	if !requirePaymentCompliance(c) {
+		return
+	}
 	var req CreemPayRequest
 
 	// 读取body内容用于打印，同时保留原始数据供后续使用
@@ -357,19 +360,7 @@ func handleCheckoutCompleted(c *gin.Context, event *CreemWebhookEvent) {
 		return
 	}
 
-	// 处理充值，传入客户邮箱和姓名信息
-	customerEmail := event.Object.Customer.Email
-	customerName := event.Object.Customer.Name
-
-	// 防护性检查，确保邮箱和姓名不为空字符串
-	if customerEmail == "" {
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Creem 回调客户邮箱为空 trade_no=%s creem_order_id=%s", referenceId, event.Object.Order.Id))
-	}
-	if customerName == "" {
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Creem 回调客户姓名为空 trade_no=%s creem_order_id=%s", referenceId, event.Object.Order.Id))
-	}
-
-	err := model.RechargeCreem(referenceId, customerEmail, customerName, c.ClientIP())
+	err := model.RechargeCreem(referenceId, c.ClientIP())
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 充值处理失败 trade_no=%s creem_order_id=%s client_ip=%s error=%q", referenceId, event.Object.Order.Id, c.ClientIP(), err.Error()))
 		c.AbortWithStatus(http.StatusInternalServerError)

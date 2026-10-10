@@ -25,12 +25,8 @@ import {
   showError,
   showInfo,
   showSuccess,
-  updateAPI,
   getSystemName,
   getOAuthProviderIcon,
-  setUserData,
-  onDiscordOAuthClicked,
-  onCustomOAuthClicked,
 } from '../../helpers';
 import Turnstile from 'react-turnstile';
 import {
@@ -51,19 +47,16 @@ import {
   IconLock,
   IconKey,
 } from '@douyinfe/semi-icons';
-import {
-  onGitHubOAuthClicked,
-  onLinuxDOOAuthClicked,
-  onOIDCClicked,
-} from '../../helpers';
 import OIDCIcon from '../common/logo/OIDCIcon';
 import LinuxDoIcon from '../common/logo/LinuxDoIcon';
 import WeChatIcon from '../common/logo/WeChatIcon';
-import TelegramLoginButton from 'react-telegram-login/src';
 import { UserContext } from '../../context/User';
 import { StatusContext } from '../../context/Status';
 import { useTranslation } from 'react-i18next';
-import { SiDiscord } from 'react-icons/si';
+import { SiDiscord, SiTelegram } from 'react-icons/si';
+import { prepareOAuthLogin } from '../../helpers/oauthVerification';
+import TwoFAVerification from './TwoFAVerification';
+import { completeLogin, isLoginChallenge } from './loginFlow';
 
 const RegisterForm = () => {
   let navigate = useNavigate();
@@ -88,6 +81,7 @@ const RegisterForm = () => {
   const [turnstileSiteKey, setTurnstileSiteKey] = useState('');
   const [turnstileToken, setTurnstileToken] = useState('');
   const [showWeChatLoginModal, setShowWeChatLoginModal] = useState(false);
+  const [loginChallenge, setLoginChallenge] = useState(null);
   const [showEmailRegister, setShowEmailRegister] = useState(false);
   const [wechatLoading, setWechatLoading] = useState(false);
   const [githubLoading, setGithubLoading] = useState(false);
@@ -108,7 +102,7 @@ const RegisterForm = () => {
   const [hasPrivacyPolicy, setHasPrivacyPolicy] = useState(false);
   const [githubButtonState, setGithubButtonState] = useState('idle');
   const [githubButtonDisabled, setGithubButtonDisabled] = useState(false);
-  const githubTimeoutRef = useRef(null);
+  const oauthRequest = useRef(null);
   const githubButtonText = t(githubButtonTextKeyByState[githubButtonState]);
 
   const logo = getLogo();
@@ -133,13 +127,25 @@ const RegisterForm = () => {
     (status.custom_oauth_providers || []).length > 0;
   const hasOAuthRegisterOptions = Boolean(
     status.github_oauth ||
-      status.discord_oauth ||
-      status.oidc_enabled ||
-      status.wechat_login ||
-      status.linuxdo_oauth ||
-      status.telegram_oauth ||
-      hasCustomOAuthProviders,
+    status.discord_oauth ||
+    status.oidc_enabled ||
+    status.wechat_login ||
+    status.linuxdo_oauth ||
+    status.telegram_oauth ||
+    hasCustomOAuthProviders,
   );
+
+  const acceptLogin = (data) => {
+    if (isLoginChallenge(data)) {
+      setShowWeChatLoginModal(false);
+      setLoginChallenge(data);
+      return false;
+    }
+    completeLogin(data, userDispatch);
+    showSuccess(t('登录成功！'));
+    navigate('/');
+    return true;
+  };
 
   const [showEmailVerification, setShowEmailVerification] = useState(false);
 
@@ -170,9 +176,7 @@ const RegisterForm = () => {
 
   useEffect(() => {
     return () => {
-      if (githubTimeoutRef.current) {
-        clearTimeout(githubTimeoutRef.current);
-      }
+      oauthRequest.current?.abort();
     };
   }, []);
 
@@ -189,17 +193,16 @@ const RegisterForm = () => {
     }
     setWechatCodeSubmitLoading(true);
     try {
-      const res = await API.get(
-        `/api/oauth/wechat?code=${inputs.wechat_verification_code}`,
-      );
+      const res = await API.get('/api/oauth/wechat', {
+        params: { code: inputs.wechat_verification_code },
+        skipAuthRefresh: true,
+        skipErrorHandler: true,
+        singleUseAuthorization: true,
+        disableDuplicate: true,
+      });
       const { success, message, data } = res.data;
       if (success) {
-        userDispatch({ type: 'login', payload: data });
-        localStorage.setItem('user', JSON.stringify(data));
-        setUserData(data);
-        updateAPI();
-        navigate('/');
-        showSuccess('登录成功！');
+        acceptLogin(data);
         setShowWeChatLoginModal(false);
       } else {
         showError(message);
@@ -279,70 +282,56 @@ const RegisterForm = () => {
     }
   };
 
-  const handleGitHubClick = () => {
-    if (githubButtonDisabled) {
+  const handleOAuthLogin = async (provider, setLoading) => {
+    if ((hasUserAgreement || hasPrivacyPolicy) && !agreedToTerms) {
+      showInfo(t('请先阅读并同意用户协议和隐私政策'));
       return;
     }
-    setGithubLoading(true);
-    setGithubButtonDisabled(true);
-    setGithubButtonState('redirecting');
-    if (githubTimeoutRef.current) {
-      clearTimeout(githubTimeoutRef.current);
-    }
-    githubTimeoutRef.current = setTimeout(() => {
-      setGithubLoading(false);
-      setGithubButtonState('timeout');
+    if (oauthRequest.current) return;
+    const controller = new AbortController();
+    oauthRequest.current = controller;
+    setLoading(true);
+    if (provider === 'github') {
       setGithubButtonDisabled(true);
-    }, 20000);
-    try {
-      onGitHubOAuthClicked(status.github_client_id, { shouldLogout: true });
-    } finally {
-      setTimeout(() => setGithubLoading(false), 3000);
+      setGithubButtonState('redirecting');
     }
-  };
-
-  const handleDiscordClick = () => {
-    setDiscordLoading(true);
     try {
-      onDiscordOAuthClicked(status.discord_client_id, { shouldLogout: true });
-    } finally {
-      setTimeout(() => setDiscordLoading(false), 3000);
-    }
-  };
-
-  const handleOIDCClick = () => {
-    setOidcLoading(true);
-    try {
-      onOIDCClicked(
-        status.oidc_authorization_endpoint,
-        status.oidc_client_id,
-        false,
-        { shouldLogout: true },
+      const authorization = await prepareOAuthLogin(
+        provider,
+        controller.signal,
       );
+      controller.signal.throwIfAborted();
+      window.location.assign(authorization.url);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        showError(
+          t(
+            error.response?.data?.message ||
+              error.message ||
+              '登录失败，请重试',
+          ),
+        );
+      }
     } finally {
-      setTimeout(() => setOidcLoading(false), 3000);
+      if (oauthRequest.current === controller) oauthRequest.current = null;
+      setLoading(false);
+      if (provider === 'github') {
+        setGithubButtonDisabled(false);
+        setGithubButtonState('idle');
+      }
     }
   };
 
-  const handleLinuxDOClick = () => {
-    setLinuxdoLoading(true);
-    try {
-      onLinuxDOOAuthClicked(status.linuxdo_client_id, { shouldLogout: true });
-    } finally {
-      setTimeout(() => setLinuxdoLoading(false), 3000);
-    }
-  };
-
-  const handleCustomOAuthClick = (provider) => {
-    setCustomOAuthLoading((prev) => ({ ...prev, [provider.slug]: true }));
-    try {
-      onCustomOAuthClicked(provider, { shouldLogout: true });
-    } finally {
-      setTimeout(() => {
-        setCustomOAuthLoading((prev) => ({ ...prev, [provider.slug]: false }));
-      }, 3000);
-    }
-  };
+  const handleGitHubClick = () => handleOAuthLogin('github', setGithubLoading);
+  const handleDiscordClick = () =>
+    handleOAuthLogin('discord', setDiscordLoading);
+  const handleOIDCClick = () => handleOAuthLogin('oidc', setOidcLoading);
+  const handleLinuxDOClick = () =>
+    handleOAuthLogin('linuxdo', setLinuxdoLoading);
+  const handleCustomOAuthClick = (provider) =>
+    handleOAuthLogin(provider.slug, (loading) =>
+      setCustomOAuthLoading((prev) => ({ ...prev, [provider.slug]: loading })),
+    );
 
   const handleEmailRegisterClick = () => {
     setEmailRegisterLoading(true);
@@ -354,41 +343,6 @@ const RegisterForm = () => {
     setOtherRegisterOptionsLoading(true);
     setShowEmailRegister(false);
     setOtherRegisterOptionsLoading(false);
-  };
-
-  const onTelegramLoginClicked = async (response) => {
-    const fields = [
-      'id',
-      'first_name',
-      'last_name',
-      'username',
-      'photo_url',
-      'auth_date',
-      'hash',
-      'lang',
-    ];
-    const params = {};
-    fields.forEach((field) => {
-      if (response[field]) {
-        params[field] = response[field];
-      }
-    });
-    try {
-      const res = await API.get(`/api/oauth/telegram/login`, { params });
-      const { success, message, data } = res.data;
-      if (success) {
-        userDispatch({ type: 'login', payload: data });
-        localStorage.setItem('user', JSON.stringify(data));
-        showSuccess('登录成功！');
-        setUserData(data);
-        updateAPI();
-        navigate('/');
-      } else {
-        showError(message);
-      }
-    } catch (error) {
-      showError('登录失败，请重试');
-    }
   };
 
   const renderOAuthOptions = () => {
@@ -513,10 +467,20 @@ const RegisterForm = () => {
 
                 {status.telegram_oauth && (
                   <div className='flex justify-center my-2'>
-                    <TelegramLoginButton
-                      dataOnauth={onTelegramLoginClicked}
-                      botName={status.telegram_bot_name}
-                    />
+                    <Button
+                      theme='outline'
+                      className='w-full h-12 flex items-center justify-center !rounded-full'
+                      type='tertiary'
+                      icon={<SiTelegram size={20} />}
+                      onClick={() =>
+                        handleCustomOAuthClick({ slug: 'telegram' })
+                      }
+                      loading={customOAuthLoading.telegram}
+                    >
+                      <span className='ml-3'>
+                        {t('使用 {{name}} 继续', { name: 'Telegram' })}
+                      </span>
+                    </Button>
                   </div>
                 )}
 
@@ -769,6 +733,23 @@ const RegisterForm = () => {
     );
   };
 
+  const renderLoginChallenge = () => {
+    if (!loginChallenge) return null;
+    return (
+      <TwoFAVerification
+        key={loginChallenge.flow_token}
+        challenge={loginChallenge}
+        onSuccess={(data) => {
+          completeLogin(data, userDispatch);
+          setLoginChallenge(null);
+          showSuccess(t('登录成功！'));
+          navigate('/');
+        }}
+        onBack={() => setLoginChallenge(null)}
+      />
+    );
+  };
+
   return (
     <div className='classic-page-fill relative overflow-hidden bg-gray-100 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8'>
       {/* 背景模糊晕染球 */}
@@ -781,11 +762,12 @@ const RegisterForm = () => {
         style={{ top: '50%', left: '-120px' }}
       />
       <div className='w-full max-w-sm mt-[60px]'>
-        {showEmailRegister ||
-        !hasOAuthRegisterOptions
-          ? renderEmailRegisterForm()
-          : renderOAuthOptions()}
-        {renderWeChatLoginModal()}
+        {loginChallenge
+          ? renderLoginChallenge()
+          : showEmailRegister || !hasOAuthRegisterOptions
+            ? renderEmailRegisterForm()
+            : renderOAuthOptions()}
+        {!loginChallenge && renderWeChatLoginModal()}
 
         {turnstileEnabled && (
           <div className='flex justify-center mt-6'>

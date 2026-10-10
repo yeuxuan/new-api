@@ -1,6 +1,7 @@
 package model
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -8,26 +9,61 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 func TestSumUsedQuota(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			var driver gorm.Dialector
+			switch dialect {
+			case "mysql":
+				dsn := os.Getenv("TEST_MYSQL_LOG_DSN")
+				if dsn == "" {
+					t.Skip("TEST_MYSQL_LOG_DSN is not configured")
+				}
+				driver = mysql.Open(dsn)
+			case "postgres":
+				dsn := os.Getenv("TEST_POSTGRES_LOG_DSN")
+				if dsn == "" {
+					t.Skip("TEST_POSTGRES_LOG_DSN is not configured")
+				}
+				driver = postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true})
+			default:
+				driver = sqlite.Open(":memory:")
+			}
+			testSumUsedQuota(t, driver)
+		})
+	}
+}
+
+func testSumUsedQuota(t *testing.T, driver gorm.Dialector) {
+	t.Helper()
+	db, err := gorm.Open(driver, &gorm.Config{})
 	require.NoError(t, err)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(&Log{}))
+	db = db.Begin()
+	require.NoError(t, db.Error)
+	require.NoError(t, db.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&Log{}).Error)
 
 	originalDB, originalGroupCol := LOG_DB, logGroupCol
 	originalDatabaseType := common.LogDatabaseType()
 	t.Cleanup(func() {
+		require.NoError(t, db.Rollback().Error)
 		LOG_DB, logGroupCol = originalDB, originalGroupCol
 		common.SetLogDatabaseType(originalDatabaseType)
 		require.NoError(t, sqlDB.Close())
 	})
 	LOG_DB, logGroupCol = db, "`group`"
-	common.SetLogDatabaseType(common.DatabaseTypeSQLite)
-	require.NoError(t, db.AutoMigrate(&Log{}))
+	common.SetLogDatabaseType(common.DatabaseType(driver.Name()))
+	if driver.Name() == "postgres" {
+		logGroupCol = `"group"`
+	}
 
 	now := time.Now().Unix()
 	logs := []Log{

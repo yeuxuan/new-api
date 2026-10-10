@@ -17,50 +17,205 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import {
-  getUserIdFromLocalStorage,
-  showError,
-  formatMessageForAPI,
-  isValidMessage,
-} from './utils';
+import { showError, formatMessageForAPI, isValidMessage } from './utils';
 import axios from 'axios';
+import { t } from 'i18next';
 import { MESSAGE_ROLES } from '../constants/playground.constants';
+import {
+  applyAuthRotation,
+  clearAuthSession,
+  getAuthRevision,
+  getAuthState,
+  getStoredUser,
+  isAuthBundle,
+  persistAuthResponse,
+} from './authSession';
 
-export let API = axios.create({
-  baseURL: import.meta.env.VITE_REACT_APP_SERVER_URL
-    ? import.meta.env.VITE_REACT_APP_SERVER_URL
-    : '',
-  headers: {
-    'New-API-User': getUserIdFromLocalStorage(),
-    'Cache-Control': 'no-store',
-  },
+const baseURL = import.meta.env.VITE_REACT_APP_SERVER_URL || '';
+const refreshClient = axios.create({
+  baseURL,
+  withCredentials: true,
+  headers: { 'Cache-Control': 'no-cache, no-store' },
 });
+let refreshPromise = null;
 
-
-function redirectToOAuthUrl(url, options = {}) {
-  const { openInNewTab = false } = options;
-  const targetUrl = typeof url === 'string' ? url : url.toString();
-
-  if (openInNewTab) {
-    window.open(targetUrl, '_blank');
-    return;
-  }
-
-  window.location.assign(targetUrl);
+export function refreshAuthentication() {
+  if (refreshPromise) return refreshPromise;
+  const revision = getAuthRevision();
+  const storedUser = getStoredUser();
+  const refresh = async () => {
+    const response = await refreshClient.post(
+      '/api/user/auth/refresh',
+      undefined,
+      {
+        headers: storedUser?.session?.sid
+          ? { 'X-Auth-Session': storedUser.session.sid }
+          : undefined,
+      },
+    );
+    if (
+      getAuthRevision() !== revision ||
+      getStoredUser()?.id !== storedUser?.id ||
+      getStoredUser()?.session?.sid !== storedUser?.session?.sid
+    ) {
+      throw new Error('Authentication refresh was superseded');
+    }
+    const bundle = response.data?.data;
+    if (
+      !response.data?.success ||
+      !isAuthBundle(bundle) ||
+      (storedUser?.id && bundle.user.id !== storedUser.id) ||
+      (storedUser?.session?.sid &&
+        bundle.session.sid !== storedUser.session.sid)
+    ) {
+      throw new Error('Invalid authentication refresh response');
+    }
+    persistAuthResponse(bundle);
+    return bundle;
+  };
+  // Serialize refresh-cookie rotation with other tabs, without persisting tokens.
+  refreshPromise = Promise.resolve()
+    .then(() =>
+      typeof navigator !== 'undefined' && navigator.locks
+        ? navigator.locks.request('new-api:auth-refresh', refresh)
+        : refresh(),
+    )
+    .finally(() => {
+      refreshPromise = null;
+    });
+  return refreshPromise;
 }
 
+export async function getFreshAuthHeaders() {
+  let auth = getAuthState();
+  if (!auth || auth.access_expires_at <= Date.now() / 1000 + 60) {
+    auth = await refreshAuthentication();
+  }
+  return {
+    'Content-Type': 'application/json',
+    'New-API-User': String(auth.user.id),
+    Authorization: `Bearer ${auth.access_token}`,
+  };
+}
 
+export async function logoutAuthentication() {
+  const sid = getStoredUser()?.session?.sid;
+  const auth = getAuthState();
+  const response = await refreshClient.post(
+    '/api/user/auth/logout',
+    undefined,
+    {
+      headers: {
+        ...(sid ? { 'X-Auth-Session': sid } : {}),
+        ...(auth ? { Authorization: `Bearer ${auth.access_token}` } : {}),
+      },
+    },
+  );
+  if (!response.data?.success) {
+    throw new Error(response.data?.message || t('操作失败，请重试'));
+  }
+  if (getStoredUser()?.session?.sid !== sid) {
+    throw new Error(t('操作失败，请重试'));
+  }
+  clearAuthSession();
+  return response.data;
+}
+
+function createAPI() {
+  const instance = axios.create({
+    baseURL,
+    withCredentials: true,
+    headers: {
+      'Cache-Control': 'no-cache, no-store',
+    },
+  });
+
+  instance.interceptors.request.use(async (config) => {
+    const user = getStoredUser();
+    let auth = getAuthState();
+    const hasSecurityProof =
+      config.headers?.has?.('X-Security-Proof') ||
+      config.headers?.['X-Security-Proof'];
+    const singleUse = Boolean(
+      config.singleUseAuthorization || hasSecurityProof,
+    );
+    if (
+      !config.skipAuthRefresh &&
+      user &&
+      (!auth || auth.access_expires_at <= Date.now() / 1000 + 60)
+    ) {
+      auth = await refreshAuthentication();
+    }
+    if (singleUse) config.skipAuthRefresh = true;
+    config.headers = config.headers || {};
+    if (user?.id) config.headers['New-API-User'] = user.id;
+    if (auth) config.headers.Authorization = `Bearer ${auth.access_token}`;
+    return config;
+  });
+
+  instance.interceptors.response.use(
+    (response) => {
+      if (
+        response.config?.acceptAuthRotation &&
+        response.data?.success === true
+      ) {
+        applyAuthRotation(response.data?.data);
+      }
+      if (
+        response.config?.url === '/api/user/auth/logout' &&
+        response.data?.success
+      ) {
+        clearAuthSession();
+      }
+      return response;
+    },
+    async (error) => {
+      const config = error.config;
+      if (
+        error.response?.status === 401 &&
+        config &&
+        !config.skipAuthRefresh &&
+        !config.authRetry &&
+        getStoredUser()
+      ) {
+        config.authRetry = true;
+        try {
+          await refreshAuthentication();
+          return instance.request(config);
+        } catch (refreshError) {
+          if (refreshError.response?.status === 401) clearAuthSession();
+          return Promise.reject(refreshError);
+        }
+      }
+      if (error.config && error.config.skipErrorHandler) {
+        return Promise.reject(error);
+      }
+      showError(error);
+      return Promise.reject(error);
+    },
+  );
+
+  patchAPIInstance(instance);
+  return instance;
+}
+
+export let API = createAPI();
 function patchAPIInstance(instance) {
   const originalGet = instance.get.bind(instance);
   const inFlightGetRequests = new Map();
 
   const genKey = (url, config = {}) => {
     const params = config.params ? JSON.stringify(config.params) : '{}';
-    return `${url}?${params}`;
+    const user = getStoredUser();
+    return `${user?.session?.sid || user?.id || 'anonymous'}:${url}?${params}`;
   };
 
   instance.get = (url, config = {}) => {
-    if (config?.disableDuplicate) {
+    if (
+      config?.disableDuplicate ||
+      config.singleUseAuthorization ||
+      config.headers?.['X-Security-Proof']
+    ) {
       return originalGet(url, config);
     }
 
@@ -78,33 +233,9 @@ function patchAPIInstance(instance) {
   };
 }
 
-patchAPIInstance(API);
-
 export function updateAPI() {
-  API = axios.create({
-    baseURL: import.meta.env.VITE_REACT_APP_SERVER_URL
-      ? import.meta.env.VITE_REACT_APP_SERVER_URL
-      : '',
-    headers: {
-      'New-API-User': getUserIdFromLocalStorage(),
-      'Cache-Control': 'no-store',
-    },
-  });
-
-  patchAPIInstance(API);
+  API = createAPI();
 }
-
-API.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    // 如果请求配置中显式要求跳过全局错误处理，则不弹出默认错误提示
-    if (error.config && error.config.skipErrorHandler) {
-      return Promise.reject(error);
-    }
-    showError(error);
-    return Promise.reject(error);
-  },
-);
 
 // playground
 
@@ -237,135 +368,6 @@ export const processGroupsData = (data, userGroup) => {
 
   return groupOptions;
 };
-
-// 原来components中的utils.js
-
-export async function getOAuthState() {
-  let path = '/api/oauth/state';
-  let affCode = localStorage.getItem('aff');
-  if (affCode && affCode.length > 0) {
-    path += `?aff=${affCode}`;
-  }
-  const res = await API.get(path);
-  const { success, message, data } = res.data;
-  if (success) {
-    return data;
-  } else {
-    showError(message);
-    return '';
-  }
-}
-
-async function prepareOAuthState(options = {}) {
-  const { shouldLogout = false } = options;
-  if (shouldLogout) {
-    try {
-      await API.get('/api/user/logout', { skipErrorHandler: true });
-    } catch (err) {}
-    localStorage.removeItem('user');
-    updateAPI();
-  }
-  return await getOAuthState();
-}
-
-export async function onDiscordOAuthClicked(client_id, options = {}) {
-  const state = await prepareOAuthState(options);
-  if (!state) return;
-  const redirect_uri = `${window.location.origin}/oauth/discord`;
-  const response_type = 'code';
-  const scope = 'identify+openid';
-  redirectToOAuthUrl(
-    `https://discord.com/oauth2/authorize?client_id=${client_id}&redirect_uri=${redirect_uri}&response_type=${response_type}&scope=${scope}&state=${state}`,
-  );
-}
-
-export async function onOIDCClicked(
-  auth_url,
-  client_id,
-  openInNewTab = false,
-  options = {},
-) {
-  const state = await prepareOAuthState(options);
-  if (!state) return;
-  const url = new URL(auth_url);
-  url.searchParams.set('client_id', client_id);
-  url.searchParams.set('redirect_uri', `${window.location.origin}/oauth/oidc`);
-  url.searchParams.set('response_type', 'code');
-  url.searchParams.set('scope', 'openid profile email');
-  url.searchParams.set('state', state);
-  redirectToOAuthUrl(url, { openInNewTab });
-}
-
-export async function onGitHubOAuthClicked(github_client_id, options = {}) {
-  const state = await prepareOAuthState(options);
-  if (!state) return;
-  redirectToOAuthUrl(
-    `https://github.com/login/oauth/authorize?client_id=${github_client_id}&state=${state}&scope=user:email`,
-  );
-}
-
-export async function onLinuxDOOAuthClicked(
-  linuxdo_client_id,
-  options = { shouldLogout: false },
-) {
-  const state = await prepareOAuthState(options);
-  if (!state) return;
-  redirectToOAuthUrl(
-    `https://connect.linux.do/oauth2/authorize?response_type=code&client_id=${linuxdo_client_id}&state=${state}`,
-  );
-}
-
-/**
- * Initiate custom OAuth login
- * @param {Object} provider - Custom OAuth provider config from status API
- * @param {string} provider.slug - Provider slug (used for callback URL)
- * @param {string} provider.client_id - OAuth client ID
- * @param {string} provider.authorization_endpoint - Authorization URL
- * @param {string} provider.scopes - OAuth scopes (space-separated)
- * @param {Object} options - Options
- * @param {boolean} options.shouldLogout - Whether to logout first
- */
-export async function onCustomOAuthClicked(provider, options = {}) {
-  const state = await prepareOAuthState(options);
-  if (!state) return;
-
-  try {
-    const redirect_uri = `${window.location.origin}/oauth/${provider.slug}`;
-
-    // Check if authorization_endpoint is a full URL or relative path
-    let authUrl;
-    if (
-      provider.authorization_endpoint.startsWith('http://') ||
-      provider.authorization_endpoint.startsWith('https://')
-    ) {
-      authUrl = new URL(provider.authorization_endpoint);
-    } else {
-      // Relative path - this is a configuration error, show error message
-      console.error(
-        'Custom OAuth authorization_endpoint must be a full URL:',
-        provider.authorization_endpoint,
-      );
-      showError(
-        'OAuth 配置错误：授权端点必须是完整的 URL（以 http:// 或 https:// 开头）',
-      );
-      return;
-    }
-
-    authUrl.searchParams.set('client_id', provider.client_id);
-    authUrl.searchParams.set('redirect_uri', redirect_uri);
-    authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set(
-      'scope',
-      provider.scopes || 'openid profile email',
-    );
-    authUrl.searchParams.set('state', state);
-
-    redirectToOAuthUrl(authUrl);
-  } catch (error) {
-    console.error('Failed to initiate custom OAuth:', error);
-    showError('OAuth 登录失败：' + (error.message || '未知错误'));
-  }
-}
 
 let channelModels = undefined;
 export async function loadChannelModels() {

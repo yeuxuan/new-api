@@ -153,8 +153,10 @@ func sanitizeGeneratedMediaUnit(data []byte) ([]byte, int, bool) {
 	if len(trimmed) == 0 {
 		return data, 0, true
 	}
-	prefix := []byte(nil)
-	suffix := []byte(nil)
+	start := len(data) - len(bytes.TrimLeft(data, " \t\r\n"))
+	end := len(bytes.TrimRight(data, " \t\r\n"))
+	prefix := data[:start]
+	suffix := data[end:]
 	jsonData := trimmed
 	if bytes.HasPrefix(trimmed, []byte("data:")) {
 		colon := bytes.IndexByte(data, ':')

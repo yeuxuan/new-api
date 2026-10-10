@@ -20,7 +20,6 @@ For commercial licensing, please contact support@quantumnous.com
 import React from 'react';
 import { Button, Input, Modal } from '@douyinfe/semi-ui';
 import { IconMail, IconKey } from '@douyinfe/semi-icons';
-import Turnstile from 'react-turnstile';
 
 const EmailBindModal = ({
   t,
@@ -33,9 +32,7 @@ const EmailBindModal = ({
   disableButton,
   loading,
   countdown,
-  turnstileEnabled,
-  turnstileSiteKey,
-  setTurnstileToken,
+  flow,
 }) => {
   return (
     <Modal
@@ -48,6 +45,8 @@ const EmailBindModal = ({
       visible={showEmailBindModal}
       onCancel={() => setShowEmailBindModal(false)}
       onOk={bindEmail}
+      confirmLoading={loading}
+      okButtonProps={{ disabled: loading }}
       size={'small'}
       centered={true}
       maskClosable={false}
@@ -57,6 +56,9 @@ const EmailBindModal = ({
         <div className='flex gap-3'>
           <Input
             placeholder={t('输入邮箱地址')}
+            aria-label={t('邮箱地址')}
+            value={inputs.email}
+            disabled={loading}
             onChange={(value) => handleInputChange('email', value)}
             name='email'
             type='email'
@@ -79,7 +81,10 @@ const EmailBindModal = ({
         </div>
 
         <Input
-          placeholder={t('验证码')}
+          placeholder={flow ? `${flow.email} ${t('验证码')}` : t('验证码')}
+          aria-label={flow ? `${flow.email} ${t('验证码')}` : t('验证码')}
+          disabled={!flow || loading}
+          autoComplete='one-time-code'
           name='email_verification_code'
           value={inputs.email_verification_code}
           onChange={(value) =>
@@ -90,15 +95,21 @@ const EmailBindModal = ({
           prefix={<IconKey />}
         />
 
-        {turnstileEnabled && (
-          <div className='flex justify-center'>
-            <Turnstile
-              sitekey={turnstileSiteKey}
-              onVerify={(token) => {
-                setTurnstileToken(token);
-              }}
-            />
-          </div>
+        {flow?.old_email_required && (
+          <Input
+            placeholder={`${flow.current_email} ${t('验证码')}`}
+            aria-label={`${flow.current_email} ${t('验证码')}`}
+            name='old_email_verification_code'
+            value={inputs.old_email_verification_code}
+            onChange={(value) =>
+              handleInputChange('old_email_verification_code', value)
+            }
+            disabled={loading}
+            autoComplete='one-time-code'
+            size='large'
+            className='!rounded-lg'
+            prefix={<IconKey />}
+          />
         )}
       </div>
     </Modal>

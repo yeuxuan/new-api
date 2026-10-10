@@ -1,13 +1,181 @@
 package model
 
 import (
+	"fmt"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
+
+func TestApplyTaskWalletQuotaDatabaseMatrix(t *testing.T) {
+	for _, dialect := range []struct {
+		name common.DatabaseType
+		env  string
+	}{
+		{common.DatabaseTypeSQLite, ""},
+		{common.DatabaseTypeMySQL, "TEST_FIXED_MYSQL_DSN"},
+		{common.DatabaseTypePostgreSQL, "TEST_FIXED_POSTGRES_DSN"},
+	} {
+		t.Run(string(dialect.name), func(t *testing.T) {
+			var driver gorm.Dialector = sqlite.Open(":memory:")
+			if dialect.env != "" {
+				dsn := os.Getenv(dialect.env)
+				if dsn == "" {
+					t.Skip(dialect.env + " is not configured")
+				}
+				if dialect.name == common.DatabaseTypeMySQL {
+					driver = mysql.Open(dsn)
+				} else {
+					driver = postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true})
+				}
+			}
+			db, err := gorm.Open(driver, &gorm.Config{})
+			require.NoError(t, err)
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			sqlDB.SetMaxOpenConns(1)
+			t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+			oldDB, oldRedis := DB, common.RedisEnabled
+			oldMain, oldLog := common.MainDatabaseType(), common.LogDatabaseType()
+			DB, common.RedisEnabled = db, false
+			common.SetDatabaseTypes(dialect.name, oldLog)
+			setting := operation_setting.GetBonusQuotaSetting()
+			oldModels := setting.AllowedModels
+			setting.AllowedModels = "allowed-model"
+			t.Cleanup(func() {
+				DB, common.RedisEnabled = oldDB, oldRedis
+				common.SetDatabaseTypes(oldMain, oldLog)
+				setting.AllowedModels = oldModels
+			})
+			require.NoError(t, db.AutoMigrate(&User{}, &Token{}, &Channel{}, &Task{}, &BonusQuotaGrant{}))
+			query := "select version()"
+			if dialect.name == common.DatabaseTypeSQLite {
+				query = "select sqlite_version()"
+			}
+			var version string
+			require.NoError(t, db.Raw(query).Scan(&version).Error)
+			t.Logf("database: %s", version)
+			for _, tc := range []struct {
+				name, status                  string
+				remaining, actual, wantWallet int
+				wantBonus, wantDeductions     int
+				due, denied, foreignToken     bool
+				walletOverflow                bool
+			}{
+				{name: "live grant full refund", status: BonusQuotaStatusActive, remaining: 40, wantWallet: 140, wantBonus: 100},
+				{name: "depleted grant full refund", status: BonusQuotaStatusDepleted, wantWallet: 140, wantBonus: 60},
+				{name: "expired grant never becomes cash", status: BonusQuotaStatusExpired, wantWallet: 140},
+				{name: "cleared grant never revives or becomes cash", status: BonusQuotaStatusCleared, wantWallet: 140},
+				{name: "due depleted grant never revives", status: BonusQuotaStatusDepleted, due: true, wantWallet: 140},
+				{name: "partial bonus refund", status: BonusQuotaStatusActive, remaining: 40, actual: 60, wantWallet: 100, wantBonus: 80, wantDeductions: 20},
+				{name: "unchanged quota preserves settlement snapshot", status: BonusQuotaStatusActive, remaining: 40, actual: 100, wantWallet: 100, wantBonus: 40, wantDeductions: 60},
+				{name: "additional charge uses live bonus", status: BonusQuotaStatusActive, remaining: 40, actual: 130, wantWallet: 100, wantBonus: 10, wantDeductions: 90},
+				{name: "raw model restriction preserved", status: BonusQuotaStatusActive, remaining: 40, actual: 130, denied: true, wantWallet: 70, wantBonus: 40, wantDeductions: 60},
+				{name: "token ownership failure rolls back all balances", status: BonusQuotaStatusActive, remaining: 40, foreignToken: true},
+				{name: "wallet overflow rolls back grant refund", status: BonusQuotaStatusActive, remaining: 40, walletOverflow: true},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					user := User{Username: "task_" + common.GetUUID(), Quota: 100, UsedQuota: 100, RequestCount: 1}
+					if tc.walletOverflow {
+						user.Quota = common.MaxWalletQuota
+					}
+					require.NoError(t, db.Create(&user).Error)
+					t.Cleanup(func() { require.NoError(t, db.Unscoped().Delete(&user).Error) })
+					channel := Channel{Name: "wallet_matrix", Key: "test", UsedQuota: 100}
+					require.NoError(t, db.Create(&channel).Error)
+					t.Cleanup(func() { require.NoError(t, db.Delete(&channel).Error) })
+					token := Token{UserId: user.Id, Key: common.GetUUID(), RemainQuota: 900, UsedQuota: 100}
+					if tc.foreignToken {
+						token.UserId++
+					}
+					require.NoError(t, db.Create(&token).Error)
+					t.Cleanup(func() { require.NoError(t, db.Unscoped().Delete(&token).Error) })
+					grant := BonusQuotaGrant{UserId: user.Id, Source: BonusQuotaSourceCheckin,
+						SourceRef: "matrix", AmountTotal: 60 + tc.remaining, AmountRemaining: tc.remaining, Status: tc.status}
+					if tc.due {
+						grant.ExpiresAt = time.Now().Unix() - 1
+					}
+					require.NoError(t, db.Create(&grant).Error)
+					t.Cleanup(func() { require.NoError(t, db.Delete(&grant).Error) })
+					modelName := "allowed-model"
+					if tc.denied {
+						modelName = "allowed-model-high"
+					}
+					task := Task{TaskID: fmt.Sprintf("wallet_%s", common.GetUUID()), UserId: user.Id, ChannelId: channel.Id, Quota: 100,
+						Properties: Properties{OriginModelName: modelName},
+						PrivateData: TaskPrivateData{BillingSource: "wallet", TokenId: token.Id,
+							BonusQuotaDeducts: []BonusQuotaDeduction{{GrantId: grant.Id, Amount: 60}}}}
+					require.NoError(t, db.Create(&task).Error)
+					t.Cleanup(func() { require.NoError(t, db.Delete(&task).Error) })
+					stale := task
+					task.PrivateData.BillingContext = &TaskBillingContext{OriginModelName: modelName, ModelPrice: 1.25}
+					applied, err := ApplyTaskWalletQuota(&task, tc.actual)
+					if tc.foreignToken || tc.walletOverflow {
+						require.Error(t, err)
+						assert.False(t, applied)
+						var persisted Task
+						require.NoError(t, db.First(&persisted, task.ID).Error)
+						assert.Equal(t, 100, persisted.Quota)
+						assert.Equal(t, stale.PrivateData.BonusQuotaDeducts, persisted.PrivateData.BonusQuotaDeducts)
+						assert.Nil(t, persisted.PrivateData.BillingContext)
+						var got User
+						require.NoError(t, db.First(&got, user.Id).Error)
+						assert.Equal(t, user.Quota, got.Quota)
+						assert.Equal(t, 100, got.UsedQuota)
+						require.NoError(t, db.First(&grant, grant.Id).Error)
+						assert.Equal(t, tc.remaining, grant.AmountRemaining)
+						assert.Equal(t, tc.status, grant.Status)
+						return
+					}
+					require.NoError(t, err)
+					assert.Equal(t, tc.actual != 100, applied)
+					applied, err = ApplyTaskWalletQuota(&stale, tc.actual)
+					require.NoError(t, err)
+					assert.False(t, applied, "stale replay cannot move funds twice")
+					var persisted Task
+					require.NoError(t, db.First(&persisted, task.ID).Error)
+					assert.Equal(t, tc.actual, persisted.Quota)
+					require.NotNil(t, persisted.PrivateData.BillingContext)
+					assert.Equal(t, modelName, persisted.PrivateData.BillingContext.OriginModelName)
+					assert.Equal(t, 1.25, persisted.PrivateData.BillingContext.ModelPrice)
+					total := 0
+					for _, d := range persisted.PrivateData.BonusQuotaDeducts {
+						total += d.Amount
+					}
+					assert.Equal(t, tc.wantDeductions, total)
+					require.NoError(t, db.First(&user, user.Id).Error)
+					assert.Equal(t, tc.wantWallet, user.Quota)
+					assert.Equal(t, tc.actual, user.UsedQuota)
+					assert.Equal(t, 1, user.RequestCount)
+					require.NoError(t, db.First(&channel, channel.Id).Error)
+					assert.Equal(t, int64(tc.actual), channel.UsedQuota)
+					require.NoError(t, db.First(&token, token.Id).Error)
+					assert.Equal(t, 1000-tc.actual, token.RemainQuota)
+					assert.Equal(t, tc.actual, token.UsedQuota)
+					require.NoError(t, db.First(&grant, grant.Id).Error)
+					assert.Equal(t, tc.wantBonus, grant.AmountRemaining)
+					if tc.status == BonusQuotaStatusCleared || tc.status == BonusQuotaStatusExpired || tc.due {
+						assert.Equal(t, tc.status, grant.Status)
+						// The synchronous funding caller must obey the same tombstones.
+						require.NoError(t, RefundBonusQuota([]BonusQuotaDeduction{{GrantId: grant.Id, Amount: 60}}))
+						require.NoError(t, db.First(&grant, grant.Id).Error)
+						assert.Zero(t, grant.AmountRemaining)
+						assert.Equal(t, tc.status, grant.Status)
+					}
+				})
+			}
+		})
+	}
+}
 
 func setupBonusQuotaTestDB(t *testing.T) *gorm.DB {
 	t.Helper()

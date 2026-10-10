@@ -57,5 +57,15 @@ export function setStatusData(data) {
 }
 
 export function setUserData(data) {
-  localStorage.setItem('user', JSON.stringify(data));
+  if (!data || typeof data !== 'object') return;
+  if (data.access_token && data.user && data.session?.sid) {
+    const { token, access_token, refresh_token, ...user } = data.user;
+    localStorage.setItem(
+      'user',
+      JSON.stringify({ ...user, session: { sid: data.session.sid } }),
+    );
+    return;
+  }
+  const { token, access_token, refresh_token, ...user } = data;
+  localStorage.setItem('user', JSON.stringify(user));
 }

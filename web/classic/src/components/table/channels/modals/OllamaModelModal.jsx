@@ -45,8 +45,7 @@ import {
 } from '@douyinfe/semi-icons';
 import {
   API,
-  authHeader,
-  getUserIdFromLocalStorage,
+  getFreshAuthHeaders,
   showError,
   showSuccess,
 } from '../../../../helpers';
@@ -330,24 +329,26 @@ const OllamaModelModal = ({
       setEventSource(closable);
 
       // 使用 fetch 请求 SSE 流
-      const authHeaders = authHeader();
-      const userId = getUserIdFromLocalStorage();
+      const authHeaders = await getFreshAuthHeaders();
+      controller.signal.throwIfAborted();
       const fetchHeaders = {
-        'Content-Type': 'application/json',
         Accept: 'text/event-stream',
-        'New-API-User': String(userId),
         ...authHeaders,
       };
 
-      const response = await fetch('/api/channel/ollama/pull/stream', {
-        method: 'POST',
-        headers: fetchHeaders,
-        body: JSON.stringify({
-          channel_id: channelId,
-          model_name: pullModelName.trim(),
-        }),
-        signal: controller.signal,
-      });
+      const response = await fetch(
+        API.getUri({ url: '/api/channel/ollama/pull/stream' }),
+        {
+          method: 'POST',
+          headers: fetchHeaders,
+          credentials: 'include',
+          body: JSON.stringify({
+            channel_id: channelId,
+            model_name: pullModelName.trim(),
+          }),
+          signal: controller.signal,
+        },
+      );
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);

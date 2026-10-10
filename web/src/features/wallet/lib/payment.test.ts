@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { describe, expect, test } from 'vitest'
 
+import { subscriptionBalanceQuota } from '../../../../shared/subscription-balance'
 import { PAYMENT_TYPES } from '../constants'
 import type { TopupInfo } from '../types'
 import {
@@ -38,6 +39,21 @@ describe('payment type classification', () => {
     expect(isStripePayment(PAYMENT_TYPES.STRIPE)).toBe(true)
     expect(isIPayNowPayment(PAYMENT_TYPES.IPAYNOW)).toBe(true)
   })
+})
+
+test.each([
+  [0.07, 100, 7],
+  [1.1, 3, 4],
+  [0.0000001, 10000000, 1],
+  [1.000001, 500000, 500001],
+  [0, 500000, 0],
+  [Number.MAX_SAFE_INTEGER, 1, Number.MAX_SAFE_INTEGER],
+  [Number.MAX_SAFE_INTEGER, 2, Number.POSITIVE_INFINITY],
+  [-1, 500000, Number.POSITIVE_INFINITY],
+  [Number.NaN, 500000, Number.POSITIVE_INFINITY],
+  [1, 0, Number.POSITIVE_INFINITY],
+])('subscription decimal quota for %s * %s is %s', (price, unit, expected) => {
+  expect(subscriptionBalanceQuota(price, unit)).toBe(expected)
 })
 
 describe('minimum top-up selection', () => {

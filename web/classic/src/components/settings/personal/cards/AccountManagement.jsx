@@ -40,18 +40,21 @@ import {
 } from '@douyinfe/semi-icons';
 import { SiTelegram, SiWechat, SiLinux, SiDiscord } from 'react-icons/si';
 import { UserPlus, ShieldCheck } from 'lucide-react';
-import TelegramLoginButton from 'react-telegram-login';
 import {
   API,
   showError,
   showSuccess,
-  onGitHubOAuthClicked,
-  onOIDCClicked,
-  onLinuxDOOAuthClicked,
-  onDiscordOAuthClicked,
-  onCustomOAuthClicked,
+  showWarning,
   getOAuthProviderIcon,
+  renderQuota,
 } from '../../../../helpers';
+import {
+  prepareOAuthBinding,
+  bindOAuthAccount,
+  unbindOAuthAccount,
+} from '../../../../helpers/oauthVerification';
+import { useSecureVerification } from '../../../../hooks/common/useSecureVerification';
+import SecureVerificationModal from '../../../common/modals/SecureVerificationModal';
 import TwoFASetting from '../components/TwoFASetting';
 
 const AccountManagement = ({
@@ -71,6 +74,7 @@ const AccountManagement = ({
   passkeyDeleteLoading,
   onPasskeyRegister,
   onPasskeyDelete,
+  onUpdate,
 }) => {
   const renderAccountInfo = (accountId, label) => {
     if (!accountId || accountId === '') {
@@ -97,10 +101,81 @@ const AccountManagement = ({
     );
   };
   const isBound = (accountId) => Boolean(accountId);
-  const [showTelegramBindModal, setShowTelegramBindModal] =
-    React.useState(false);
   const [customOAuthBindings, setCustomOAuthBindings] = React.useState([]);
-  const [customOAuthLoading, setCustomOAuthLoading] = React.useState({});
+  const [bindingPending, setBindingPending] = React.useState(false);
+  const [preparedBinding, setPreparedBinding] = React.useState(null);
+  const [unbindTarget, setUnbindTarget] = React.useState(null);
+  const bindingRequest = React.useRef(null);
+  const security = useSecureVerification({ onError: () => cancelBinding() });
+
+  const cancelBinding = () => {
+    bindingRequest.current?.abort();
+    bindingRequest.current = null;
+    setPreparedBinding(null);
+    setUnbindTarget(null);
+    setBindingPending(false);
+    security.cancelVerification();
+  };
+
+  React.useEffect(() => {
+    cancelBinding();
+    return () => bindingRequest.current?.abort();
+  }, [userState.user?.id, userState.user?.session?.sid]);
+
+  const startOAuthBinding = async (provider) => {
+    if (bindingRequest.current) return;
+    const controller = new AbortController();
+    bindingRequest.current = controller;
+    setBindingPending(true);
+    const result = await security.startVerification(
+      async (proof, signal) => {
+        const authorization = await prepareOAuthBinding(
+          provider,
+          proof,
+          signal,
+        );
+        controller.signal.throwIfAborted();
+        // Open the popup on the next user click, not after asynchronous verification.
+        setPreparedBinding({ provider, ...authorization });
+      },
+      { scope: 'account.binding.bind', context: { provider } },
+    );
+    if (result === false) cancelBinding();
+  };
+
+  const completeOAuthBinding = async () => {
+    if (!preparedBinding || !bindingRequest.current) return;
+    const prepared = preparedBinding;
+    const controller = bindingRequest.current;
+    setPreparedBinding(null);
+    try {
+      const result = await bindOAuthAccount(
+        prepared.provider,
+        undefined,
+        controller.signal,
+        prepared,
+      );
+      controller.signal.throwIfAborted();
+      showSuccess(t('绑定成功！'));
+      if (result?.notification_warning) {
+        showWarning(
+          t(
+            'The change succeeded, but the notification email could not be sent.',
+          ),
+        );
+      }
+      await onUpdate?.();
+      await loadCustomOAuthBindings();
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        showError(
+          t(error.response?.data?.message || error.message || '操作失败'),
+        );
+      }
+    } finally {
+      if (bindingRequest.current === controller) cancelBinding();
+    }
+  };
 
   // Fetch custom OAuth bindings
   const loadCustomOAuthBindings = async () => {
@@ -112,51 +187,67 @@ const AccountManagement = ({
         showError(res.data.message || t('获取绑定信息失败'));
       }
     } catch (error) {
-      showError(error.response?.data?.message || error.message || t('获取绑定信息失败'));
+      showError(
+        error.response?.data?.message || error.message || t('获取绑定信息失败'),
+      );
     }
   };
 
-  // Unbind custom OAuth provider
-  const handleUnbindCustomOAuth = async (providerId, providerName) => {
-    Modal.confirm({
-      title: t('确认解绑'),
-      content: t('确定要解绑 {{name}} 吗？', { name: providerName }),
-      okText: t('确认'),
-      cancelText: t('取消'),
-      onOk: async () => {
-        setCustomOAuthLoading((prev) => ({ ...prev, [providerId]: true }));
-        try {
-          const res = await API.delete(`/api/user/oauth/bindings/${providerId}`);
-          if (res.data.success) {
-            showSuccess(t('解绑成功'));
-            await loadCustomOAuthBindings();
-          } else {
-            showError(res.data.message);
-          }
-        } catch (error) {
-          showError(error.response?.data?.message || error.message || t('操作失败'));
-        } finally {
-          setCustomOAuthLoading((prev) => ({ ...prev, [providerId]: false }));
+  const handleUnbindCustomOAuth = (providerId, providerName) => {
+    if (!bindingRequest.current) setUnbindTarget({ providerId, providerName });
+  };
+
+  const confirmOAuthUnbinding = async () => {
+    if (!unbindTarget || bindingRequest.current) return;
+    const { providerId } = unbindTarget;
+    setUnbindTarget(null);
+    const controller = new AbortController();
+    bindingRequest.current = controller;
+    setBindingPending(true);
+    const result = await security.startVerification(
+      async (proof, signal) => {
+        const result = await unbindOAuthAccount(providerId, proof, signal);
+        controller.signal.throwIfAborted();
+        showSuccess(t('解绑成功'));
+        if (result?.notification_warning) {
+          showWarning(
+            t(
+              'The change succeeded, but the notification email could not be sent.',
+            ),
+          );
         }
+        await onUpdate?.();
+        await loadCustomOAuthBindings();
+        bindingRequest.current = null;
+        setBindingPending(false);
       },
-    });
+      {
+        scope: 'account.binding.unbind',
+        context: { provider_id: Number(providerId) },
+      },
+    );
+    if (result === false) cancelBinding();
   };
 
   // Handle bind custom OAuth
   const handleBindCustomOAuth = (provider) => {
-    onCustomOAuthClicked(provider);
+    return startOAuthBinding(provider.slug);
   };
 
   // Check if custom OAuth provider is bound
   const isCustomOAuthBound = (providerId) => {
     const normalizedId = Number(providerId);
-    return customOAuthBindings.some((b) => Number(b.provider_id) === normalizedId);
+    return customOAuthBindings.some(
+      (b) => Number(b.provider_id) === normalizedId,
+    );
   };
 
   // Get binding info for a provider
   const getCustomOAuthBinding = (providerId) => {
     const normalizedId = Number(providerId);
-    return customOAuthBindings.find((b) => Number(b.provider_id) === normalizedId);
+    return customOAuthBindings.find(
+      (b) => Number(b.provider_id) === normalizedId,
+    );
   };
 
   React.useEffect(() => {
@@ -223,7 +314,9 @@ const AccountManagement = ({
                         (status.email_bind_reward_quota ?? 0) > 0 && (
                           <div className='text-xs text-blue-600 dark:text-blue-400 mt-1'>
                             {t('Bind to receive {{amount}} bonus quota', {
-                              amount: renderQuota(status.email_bind_reward_quota),
+                              amount: renderQuota(
+                                status.email_bind_reward_quota,
+                              ),
                             })}
                             {(status.bonus_quota_validity_days ?? 0) > 0
                               ? ` · ${t('Valid for {{days}} days', {
@@ -317,10 +410,9 @@ const AccountManagement = ({
                       type='primary'
                       theme='outline'
                       size='small'
-                      onClick={() =>
-                        onGitHubOAuthClicked(status.github_client_id)
-                      }
+                      onClick={() => startOAuthBinding('github')}
                       disabled={
+                        bindingPending ||
                         isBound(userState.user?.github_id) ||
                         !status.github_oauth
                       }
@@ -358,10 +450,9 @@ const AccountManagement = ({
                       type='primary'
                       theme='outline'
                       size='small'
-                      onClick={() =>
-                        onDiscordOAuthClicked(status.discord_client_id)
-                      }
+                      onClick={() => startOAuthBinding('discord')}
                       disabled={
+                        bindingPending ||
                         isBound(userState.user?.discord_id) ||
                         !status.discord_oauth
                       }
@@ -399,14 +490,11 @@ const AccountManagement = ({
                       type='primary'
                       theme='outline'
                       size='small'
-                      onClick={() =>
-                        onOIDCClicked(
-                          status.oidc_authorization_endpoint,
-                          status.oidc_client_id,
-                        )
-                      }
+                      onClick={() => startOAuthBinding('oidc')}
                       disabled={
-                        isBound(userState.user?.oidc_id) || !status.oidc_enabled
+                        bindingPending ||
+                        isBound(userState.user?.oidc_id) ||
+                        !status.oidc_enabled
                       }
                     >
                       {status.oidc_enabled ? t('绑定') : t('未启用')}
@@ -453,7 +541,8 @@ const AccountManagement = ({
                           type='primary'
                           theme='outline'
                           size='small'
-                          onClick={() => setShowTelegramBindModal(true)}
+                          onClick={() => startOAuthBinding('telegram')}
+                          disabled={bindingPending}
                         >
                           {t('绑定')}
                         </Button>
@@ -471,24 +560,6 @@ const AccountManagement = ({
                   </div>
                 </div>
               </Card>
-              <Modal
-                title={t('绑定 Telegram')}
-                visible={showTelegramBindModal}
-                onCancel={() => setShowTelegramBindModal(false)}
-                footer={null}
-              >
-                <div className='my-3 text-sm text-gray-600'>
-                  {t('点击下方按钮通过 Telegram 完成绑定')}
-                </div>
-                <div className='flex justify-center'>
-                  <div className='scale-90'>
-                    <TelegramLoginButton
-                      dataAuthUrl='/api/oauth/telegram/bind'
-                      botName={status.telegram_bot_name}
-                    />
-                  </div>
-                </div>
-              </Modal>
 
               {/* LinuxDO绑定 */}
               <Card className='!rounded-xl'>
@@ -517,10 +588,9 @@ const AccountManagement = ({
                       type='primary'
                       theme='outline'
                       size='small'
-                      onClick={() =>
-                        onLinuxDOOAuthClicked(status.linuxdo_client_id)
-                      }
+                      onClick={() => startOAuthBinding('linuxdo')}
                       disabled={
+                        bindingPending ||
                         isBound(userState.user?.linux_do_id) ||
                         !status.linuxdo_oauth
                       }
@@ -566,9 +636,12 @@ const AccountManagement = ({
                               type='danger'
                               theme='outline'
                               size='small'
-                              loading={customOAuthLoading[provider.id]}
+                              disabled={bindingPending}
                               onClick={() =>
-                                handleUnbindCustomOAuth(provider.id, provider.name)
+                                handleUnbindCustomOAuth(
+                                  provider.id,
+                                  provider.name,
+                                )
                               }
                             >
                               {t('解绑')}
@@ -579,6 +652,7 @@ const AccountManagement = ({
                               theme='outline'
                               size='small'
                               onClick={() => handleBindCustomOAuth(provider)}
+                              disabled={bindingPending}
                             >
                               {t('绑定')}
                             </Button>
@@ -781,6 +855,39 @@ const AccountManagement = ({
           </div>
         </TabPane>
       </Tabs>
+      <Modal
+        title={t('确认解绑')}
+        visible={Boolean(unbindTarget)}
+        onCancel={() => setUnbindTarget(null)}
+        onOk={confirmOAuthUnbinding}
+        okText={t('确认')}
+        cancelText={t('取消')}
+      >
+        {t('确定要解绑 {{name}} 吗？', {
+          name: unbindTarget?.providerName || '',
+        })}
+      </Modal>
+      <SecureVerificationModal
+        visible={security.isModalVisible}
+        verificationMethods={security.verificationMethods}
+        verificationState={security.verificationState}
+        onVerify={security.executeVerification}
+        onCancel={cancelBinding}
+        onCodeChange={security.setVerificationCode}
+        onPasswordChange={security.setVerificationPassword}
+        onProviderChange={security.setVerificationProvider}
+        onMethodSwitch={security.switchVerificationMethod}
+      />
+      <Modal
+        title={t('账户绑定')}
+        visible={Boolean(preparedBinding)}
+        onCancel={cancelBinding}
+        onOk={completeOAuthBinding}
+        okText={t('继续')}
+        cancelText={t('取消')}
+      >
+        {t('验证成功！')}
+      </Modal>
     </Card>
   );
 };

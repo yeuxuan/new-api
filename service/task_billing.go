@@ -3,12 +3,15 @@ package service
 import (
 	"context"
 	"fmt"
+	"maps"
+	"math"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -41,20 +44,20 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 			logContent = fmt.Sprintf("%s, 计算参数：%s", logContent, strings.Join(contents, ", "))
 		}
 	}
-	other := make(map[string]interface{})
-	other["is_task"] = true
-	other["request_path"] = c.Request.URL.Path
-	other["model_price"] = info.PriceData.ModelPrice
+	other := model.NewLogOther()
+	other.SetPublic("is_task", true)
+	other.SetPublic("request_path", c.Request.URL.Path)
+	other.SetPublic("model_price", info.PriceData.ModelPrice)
 	if info.PriceData.ModelRatio > 0 {
-		other["model_ratio"] = info.PriceData.ModelRatio
+		other.SetPublic("model_ratio", info.PriceData.ModelRatio)
 	}
-	other["group_ratio"] = info.PriceData.GroupRatioInfo.GroupRatio
+	other.SetPublic("group_ratio", info.PriceData.GroupRatioInfo.GroupRatio)
 	if info.PriceData.GroupRatioInfo.HasSpecialRatio {
-		other["user_group_ratio"] = info.PriceData.GroupRatioInfo.GroupSpecialRatio
+		other.SetPublic("user_group_ratio", info.PriceData.GroupRatioInfo.GroupSpecialRatio)
 	}
 	if info.IsModelMapped {
-		other["is_model_mapped"] = true
-		other["upstream_model_name"] = info.UpstreamModelName
+		other.SetPublic("is_model_mapped", true)
+		other.SetPublic("upstream_model_name", info.UpstreamModelName)
 	}
 	InjectTieredBillingInfo(other, info, nil)
 	appendTaskLogInfo(task, other)
@@ -126,17 +129,19 @@ func taskAdjustTokenQuota(ctx context.Context, task *model.Task, delta int) {
 }
 
 // taskBillingOther 从 task 的 BillingContext 构建日志 Other 字段。
-func taskBillingOther(task *model.Task) map[string]interface{} {
-	other := make(map[string]interface{})
+func taskBillingOther(task *model.Task) *model.LogOther {
+	other := model.NewLogOther()
 	if bc := task.PrivateData.BillingContext; bc != nil {
-		other["model_price"] = bc.ModelPrice
+		other.SetPublic("model_price", bc.ModelPrice)
 		if bc.ModelRatio > 0 {
-			other["model_ratio"] = bc.ModelRatio
+			other.SetPublic("model_ratio", bc.ModelRatio)
 		}
-		other["group_ratio"] = bc.GroupRatio
+		other.SetPublic("group_ratio", bc.GroupRatio)
 		if priceData := taskBillingContextPriceData(bc); priceData != nil {
 			for k, v := range priceData.OtherRatios() {
-				other[k] = v
+				if !other.SetPublic(k, v) {
+					common.SysError("task billing other ratio key rejected: " + k)
+				}
 			}
 		}
 		snap := bc.TieredSnapshot
@@ -149,19 +154,19 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 	}
 	props := task.Properties
 	if props.UpstreamModelName != "" && props.UpstreamModelName != props.OriginModelName {
-		other["is_model_mapped"] = true
-		other["upstream_model_name"] = props.UpstreamModelName
+		other.SetPublic("is_model_mapped", true)
+		other.SetPublic("upstream_model_name", props.UpstreamModelName)
 	}
 	appendTaskLogInfo(task, other)
 	return other
 }
 
-func appendTaskLogInfo(task *model.Task, other map[string]interface{}) {
+func appendTaskLogInfo(task *model.Task, other *model.LogOther) {
 	if task == nil || other == nil {
 		return
 	}
 	if task.TaskID != "" {
-		other["task_id"] = task.TaskID
+		other.SetPublic("task_id", task.TaskID)
 	}
 	if task.PrivateData.Execution != nil {
 		AppendTaskPluginAuditInfo(other, task.PrivateData.Execution.TaskPlugin)
@@ -169,16 +174,11 @@ func appendTaskLogInfo(task *model.Task, other map[string]interface{}) {
 	if task.PrivateData.UpstreamTaskID == "" && task.PrivateData.NodeName == "" {
 		return
 	}
-	rootInfo, ok := other["root_info"].(map[string]interface{})
-	if !ok || rootInfo == nil {
-		rootInfo = map[string]interface{}{}
-		other["root_info"] = rootInfo
-	}
 	if task.PrivateData.UpstreamTaskID != "" {
-		rootInfo["upstream_task_id"] = task.PrivateData.UpstreamTaskID
+		other.SetRoot("upstream_task_id", task.PrivateData.UpstreamTaskID)
 	}
 	if task.PrivateData.NodeName != "" {
-		rootInfo["node_name"] = task.PrivateData.NodeName
+		other.SetRoot("node_name", task.PrivateData.NodeName)
 	}
 }
 
@@ -211,22 +211,34 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 	}
 
 	// 1. 退还资金来源（钱包或订阅）
-	if err := taskAdjustFunding(task, -quota); err != nil {
-		logger.LogWarn(ctx, fmt.Sprintf("退还资金来源失败 task %s: %s", task.TaskID, err.Error()))
+	var fundingErr error
+	if taskIsSubscription(task) {
+		fundingErr = taskAdjustFunding(task, -quota)
+	} else {
+		var applied bool
+		applied, fundingErr = model.ApplyTaskWalletQuota(task, 0)
+		if fundingErr == nil && !applied {
+			return task.Quota == 0
+		}
+	}
+	if fundingErr != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("退还资金来源失败 task %s: %s", task.TaskID, fundingErr.Error()))
 		return false
 	}
 
 	// 2. 退还令牌额度
-	taskAdjustTokenQuota(ctx, task, -quota)
+	if taskIsSubscription(task) {
+		taskAdjustTokenQuota(ctx, task, -quota)
 
-	// 3. 回减预扣时累计的用户和渠道用量，请求次数保持不变
-	model.UpdateUserUsedQuota(task.UserId, -quota)
-	model.UpdateChannelUsedQuota(task.ChannelId, -quota)
+		// 3. 回减预扣时累计的用户和渠道用量，请求次数保持不变
+		model.UpdateUserUsedQuota(task.UserId, -quota)
+		model.UpdateChannelUsedQuota(task.ChannelId, -quota)
+	}
 
 	// 4. 记录日志
 	other := taskBillingOther(task)
-	other["task_id"] = task.TaskID
-	other["reason"] = reason
+	other.SetPublic("task_id", task.TaskID)
+	other.SetPublic("reason", reason)
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
 		UserId:    task.UserId,
 		LogType:   model.LogTypeRefund,
@@ -241,9 +253,11 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 
 	// 5. 资金退款完成后再清除持久化标记。
 	// 回写失败必须显式告警，避免漏掉潜在的重复退款风险。
-	task.Quota = 0
-	if err := task.UpdateQuota(); err != nil {
-		logger.LogError(ctx, fmt.Sprintf("退款成功但清除 task quota 失败 task %s: %s", task.TaskID, err.Error()))
+	if taskIsSubscription(task) {
+		task.Quota = 0
+		if err := task.UpdateQuota(); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("退款成功但清除 task quota 失败 task %s: %s", task.TaskID, err.Error()))
+		}
 	}
 	return true
 }
@@ -260,6 +274,11 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	quotaDelta := actualQuota - preConsumedQuota
 
 	if quotaDelta == 0 {
+		if task.ID != 0 && !taskIsSubscription(task) {
+			if _, err := model.ApplyTaskWalletQuota(task, actualQuota); err != nil {
+				logger.LogWarn(ctx, fmt.Sprintf("任务 %s 结算快照回写失败: %s", task.TaskID, err.Error()))
+			}
+		}
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 预扣费准确（%s，%s）",
 			task.TaskID, logger.LogQuota(actualQuota), reason))
 		return
@@ -274,22 +293,34 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	))
 
 	// 调整资金来源
-	if err := taskAdjustFunding(task, quotaDelta); err != nil {
-		logger.LogError(ctx, fmt.Sprintf("差额结算资金调整失败 task %s: %s", task.TaskID, err.Error()))
+	var fundingErr error
+	if taskIsSubscription(task) {
+		fundingErr = taskAdjustFunding(task, quotaDelta)
+	} else {
+		var applied bool
+		applied, fundingErr = model.ApplyTaskWalletQuota(task, actualQuota)
+		if fundingErr == nil && !applied {
+			return
+		}
+	}
+	if fundingErr != nil {
+		logger.LogError(ctx, fmt.Sprintf("差额结算资金调整失败 task %s: %s", task.TaskID, fundingErr.Error()))
 		return
 	}
 
 	// 调整令牌额度
-	taskAdjustTokenQuota(ctx, task, quotaDelta)
+	if taskIsSubscription(task) {
+		taskAdjustTokenQuota(ctx, task, quotaDelta)
 
-	task.Quota = actualQuota
-	if err := task.UpdateQuota(); err != nil {
-		logger.LogError(ctx, fmt.Sprintf("差额结算回写 quota 失败 task %s: %s", task.TaskID, err.Error()))
+		task.Quota = actualQuota
+		if err := task.UpdateQuota(); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("差额结算回写 quota 失败 task %s: %s", task.TaskID, err.Error()))
+		}
+
+		// 提交阶段已经累计过一次请求；结算阶段只调整最终用量。
+		model.UpdateUserUsedQuota(task.UserId, quotaDelta)
+		model.UpdateChannelUsedQuota(task.ChannelId, quotaDelta)
 	}
-
-	// 提交阶段已经累计过一次请求；结算阶段只调整最终用量。
-	model.UpdateUserUsedQuota(task.UserId, quotaDelta)
-	model.UpdateChannelUsedQuota(task.ChannelId, quotaDelta)
 
 	var logType int
 	var logQuota int
@@ -301,9 +332,9 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		logQuota = -quotaDelta
 	}
 	other := taskBillingOther(task)
-	other["task_id"] = task.TaskID
-	other["pre_consumed_quota"] = preConsumedQuota
-	other["actual_quota"] = actualQuota
+	other.SetPublic("task_id", task.TaskID)
+	other.SetPublic("pre_consumed_quota", preConsumedQuota)
+	other.SetPublic("actual_quota", actualQuota)
 	for _, clamp := range clamps {
 		attachQuotaSaturationToOther(other, clamp)
 	}
@@ -372,4 +403,21 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, modelRatio, finalGroupRatio, otherMultiplier)
 	RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
 	return true
+}
+
+// EvaluateTaskCompletionUsage evaluates actual facts against the frozen task
+// expression. It neither mutates the snapshot nor moves funds: synchronous
+// submission and polling have different persistence and settlement barriers.
+func EvaluateTaskCompletionUsage(snap *billingexpr.BillingSnapshot, facts map[string]any) (billingexpr.TieredResult, map[string]any, error) {
+	if snap == nil {
+		return billingexpr.TieredResult{}, nil, fmt.Errorf("task billing snapshot is missing")
+	}
+	usage := make(map[string]any, len(snap.UsageFacts)+len(facts))
+	maps.Copy(usage, snap.UsageFacts)
+	maps.Copy(usage, facts)
+	result, err := billingexpr.ComputeTieredQuotaWithRequest(snap, billingexpr.TokenParams{}, billingexpr.RequestInput{Usage: usage})
+	if err == nil && (result.ActualQuotaBeforeGroup < 0 || math.IsNaN(result.ActualQuotaBeforeGroup)) {
+		err = fmt.Errorf("task completion expression produced an invalid cost")
+	}
+	return result, usage, err
 }

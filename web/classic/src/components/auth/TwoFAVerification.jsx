@@ -16,228 +16,102 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { API, showError, showSuccess } from '../../helpers';
-import {
-  Button,
-  Card,
-  Divider,
-  Form,
-  Input,
-  Typography,
-} from '@douyinfe/semi-ui';
-import React, { useState } from 'react';
 
-const { Title, Text, Paragraph } = Typography;
+import React, { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { showError } from '../../helpers';
+import { getAuthState } from '../../helpers/authSession';
+import { isPasskeySupported } from '../../helpers/passkey';
+import SecureVerificationModal from '../common/modals/SecureVerificationModal';
+import { isLoginChallenge, verifyLoginChallenge } from './loginFlow';
 
-const TwoFAVerification = ({ onSuccess, onBack, isModal = false }) => {
+const TwoFAVerification = ({ challenge, onSuccess, onBack }) => {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
-  const [useBackupCode, setUseBackupCode] = useState(false);
-  const [verificationCode, setVerificationCode] = useState('');
+  const [passkeySupported, setPasskeySupported] = useState(false);
+  const [code, setCode] = useState('');
+  const has2FA = challenge?.methods?.some(
+    (item) => item.method === '2fa' && item.available,
+  );
+  const hasPasskey = challenge?.methods?.some(
+    (item) => item.method === 'passkey' && item.available,
+  );
+  const [method, setMethod] = useState(has2FA ? '2fa' : 'passkey');
+  const request = useRef(null);
+  const initialSession = useRef(getAuthState()?.session?.sid);
 
-  const handleSubmit = async () => {
-    if (!verificationCode) {
-      showError('请输入验证码');
+  useEffect(() => {
+    let active = true;
+    isPasskeySupported()
+      .then((supported) => {
+        if (active) setPasskeySupported(supported);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      request.current?.abort();
+    };
+  }, []);
+
+  const handleVerify = async (selectedMethod, verificationCode = '') => {
+    if (request.current) return;
+    if (
+      !isLoginChallenge(challenge) ||
+      challenge.expires_at * 1000 <= Date.now() ||
+      getAuthState()?.session?.sid !== initialSession.current
+    ) {
+      showError(t('验证失败，请重试'));
+      onBack?.();
       return;
     }
-    // Validate code format
-    if (useBackupCode && verificationCode.length !== 8) {
-      showError('备用码必须是8位');
-      return;
-    } else if (!useBackupCode && !/^\d{6}$/.test(verificationCode)) {
-      showError('验证码必须是6位数字');
-      return;
-    }
-
+    const controller = new AbortController();
+    request.current = controller;
     setLoading(true);
     try {
-      const res = await API.post('/api/user/login/2fa', {
-        code: verificationCode,
-      });
-
-      if (res.data.success) {
-        showSuccess('登录成功');
-        // 保存用户信息到本地存储
-        localStorage.setItem('user', JSON.stringify(res.data.data));
-        if (onSuccess) {
-          onSuccess(res.data.data);
-        }
-      } else {
-        showError(res.data.message);
-      }
+      const bundle = await verifyLoginChallenge(
+        challenge,
+        selectedMethod,
+        verificationCode,
+        controller.signal,
+      );
+      controller.signal.throwIfAborted();
+      if (getAuthState()?.session?.sid !== initialSession.current) return;
+      onSuccess?.(bundle);
     } catch (error) {
-      showError('验证失败，请重试');
+      if (!controller.signal.aborted)
+        showError(t(error.message || '验证失败，请重试'));
     } finally {
-      setLoading(false);
+      if (request.current === controller) {
+        request.current = null;
+        setLoading(false);
+      }
     }
   };
-
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter') {
-      handleSubmit();
-    }
-  };
-
-  if (isModal) {
-    return (
-      <div className='space-y-4'>
-        <Paragraph className='text-gray-600 dark:text-gray-300'>
-          请输入认证器应用显示的验证码完成登录
-        </Paragraph>
-
-        <Form onSubmit={handleSubmit}>
-          <Form.Input
-            field='code'
-            label={useBackupCode ? '备用码' : '验证码'}
-            placeholder={useBackupCode ? '请输入8位备用码' : '请输入6位验证码'}
-            value={verificationCode}
-            onChange={setVerificationCode}
-            onKeyPress={handleKeyPress}
-            size='large'
-            style={{ marginBottom: 16 }}
-            autoFocus
-          />
-
-          <Button
-            htmlType='submit'
-            type='primary'
-            loading={loading}
-            block
-            size='large'
-            style={{ marginBottom: 16 }}
-          >
-            验证并登录
-          </Button>
-        </Form>
-
-        <Divider />
-
-        <div style={{ textAlign: 'center' }}>
-          <Button
-            theme='borderless'
-            type='tertiary'
-            onClick={() => {
-              setUseBackupCode(!useBackupCode);
-              setVerificationCode('');
-            }}
-            style={{ marginRight: 16, color: '#1890ff', padding: 0 }}
-          >
-            {useBackupCode ? '使用认证器验证码' : '使用备用码'}
-          </Button>
-
-          {onBack && (
-            <Button
-              theme='borderless'
-              type='tertiary'
-              onClick={onBack}
-              style={{ color: '#1890ff', padding: 0 }}
-            >
-              返回登录
-            </Button>
-          )}
-        </div>
-
-        <div className='bg-gray-50 dark:bg-gray-800 rounded-lg p-3'>
-          <Text size='small' type='secondary'>
-            <strong>提示：</strong>
-            <br />
-            • 验证码每30秒更新一次
-            <br />
-            • 如果无法获取验证码，请使用备用码
-            <br />• 每个备用码只能使用一次
-          </Text>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        minHeight: '60vh',
+    <SecureVerificationModal
+      visible
+      title={t('两步验证')}
+      verificationMethods={{
+        has2FA,
+        hasPasskey,
+        passkeySupported,
+        hasPassword: false,
       }}
-    >
-      <Card style={{ width: 400, padding: 24 }}>
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <Title heading={3}>两步验证</Title>
-          <Paragraph type='secondary'>
-            请输入认证器应用显示的验证码完成登录
-          </Paragraph>
-        </div>
-
-        <Form onSubmit={handleSubmit}>
-          <Form.Input
-            field='code'
-            label={useBackupCode ? '备用码' : '验证码'}
-            placeholder={useBackupCode ? '请输入8位备用码' : '请输入6位验证码'}
-            value={verificationCode}
-            onChange={setVerificationCode}
-            onKeyPress={handleKeyPress}
-            size='large'
-            style={{ marginBottom: 16 }}
-            autoFocus
-          />
-
-          <Button
-            htmlType='submit'
-            type='primary'
-            loading={loading}
-            block
-            size='large'
-            style={{ marginBottom: 16 }}
-          >
-            验证并登录
-          </Button>
-        </Form>
-
-        <Divider />
-
-        <div style={{ textAlign: 'center' }}>
-          <Button
-            theme='borderless'
-            type='tertiary'
-            onClick={() => {
-              setUseBackupCode(!useBackupCode);
-              setVerificationCode('');
-            }}
-            style={{ marginRight: 16, color: '#1890ff', padding: 0 }}
-          >
-            {useBackupCode ? '使用认证器验证码' : '使用备用码'}
-          </Button>
-
-          {onBack && (
-            <Button
-              theme='borderless'
-              type='tertiary'
-              onClick={onBack}
-              style={{ color: '#1890ff', padding: 0 }}
-            >
-              返回登录
-            </Button>
-          )}
-        </div>
-
-        <div
-          style={{
-            marginTop: 24,
-            padding: 16,
-            background: '#f6f8fa',
-            borderRadius: 6,
-          }}
-        >
-          <Text size='small' type='secondary'>
-            <strong>提示：</strong>
-            <br />
-            • 验证码每30秒更新一次
-            <br />
-            • 如果无法获取验证码，请使用备用码
-            <br />• 每个备用码只能使用一次
-          </Text>
-        </div>
-      </Card>
-    </div>
+      verificationState={{ method, loading, code, password: '' }}
+      onVerify={handleVerify}
+      onCancel={() => {
+        request.current?.abort();
+        setCode('');
+        onBack?.();
+      }}
+      onCodeChange={setCode}
+      onMethodSwitch={(nextMethod) => {
+        if (loading) return;
+        setMethod(nextMethod);
+        setCode('');
+      }}
+    />
   );
 };
 

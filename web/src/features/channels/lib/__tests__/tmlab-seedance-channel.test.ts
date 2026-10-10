@@ -72,8 +72,8 @@ describe('TMLab Seedance channel', () => {
       'Enter API key for this channel'
     )
     assert.equal(
-      getChannelTypeConfig(CHANNEL_TYPE_TMLAB_SEEDANCE).defaultBaseUrl,
-      'https://api.tmlab.store'
+      getChannelTypeConfig(CHANNEL_TYPE_TMLAB_SEEDANCE).hints?.baseUrl,
+      'Default: https://api.tmlab.store'
     )
   })
 

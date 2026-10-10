@@ -25,6 +25,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatLogQuota } from '@/lib/format'
+import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
 import { getLogStats, getUserLogStats } from '../api'
@@ -73,8 +74,8 @@ export function CommonLogsStats() {
       })
 
       const result = isAdmin
-        ? await getLogStats(params)
-        : await getUserLogStats(params)
+        ? requireServerSuccess(await getLogStats(params))
+        : requireServerSuccess(await getUserLogStats(params))
 
       if (
         !result.success ||

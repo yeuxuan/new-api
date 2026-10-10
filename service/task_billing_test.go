@@ -229,7 +229,7 @@ func TestTaskBillingOtherFiltersHistoricalOtherRatios(t *testing.T) {
 		"inf":      math.Inf(1),
 	}
 
-	other := taskBillingOther(task)
+	other := taskBillingOther(task).Snapshot()
 
 	assert.Equal(t, 2.0, other["seconds"])
 	assert.Equal(t, 1.0, other["identity"])
@@ -255,7 +255,7 @@ func TestTaskBillingOtherIncludesTieredSnapshotAndKeepsUsageFactsNested(t *testi
 		},
 	}
 
-	other := taskBillingOther(task)
+	other := taskBillingOther(task).Snapshot()
 
 	assert.Equal(t, "tiered_expr", other["billing_mode"])
 	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte(expression)), other["expr_b64"])
@@ -279,7 +279,7 @@ func TestTaskBillingOtherOmitsEmptyUsageFacts(t *testing.T) {
 		UsageFacts:    map[string]any{},
 	}
 
-	other := taskBillingOther(task)
+	other := taskBillingOther(task).Snapshot()
 
 	assert.Equal(t, "tiered_expr", other["billing_mode"])
 	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte(expression)), other["expr_b64"])
@@ -403,25 +403,25 @@ func TestTaskBillingOtherSeparatesPluginAndRootDiagnostics(t *testing.T) {
 		},
 	}
 
-	other := taskBillingOther(task)
+	other := taskBillingOther(task).Snapshot()
 
 	assert.Equal(t, "task_public", other["task_id"])
-	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	adminInfo, ok := other["admin_info"].(map[string]any)
 	require.True(t, ok)
-	pluginInfo, ok := adminInfo["task_plugin"].(map[string]interface{})
+	pluginInfo, ok := adminInfo["task_plugin"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "document-parser", pluginInfo["key"])
 	assert.Equal(t, "1.2.3", pluginInfo["version"])
-	assert.Equal(t, map[string]interface{}{
+	assert.Equal(t, map[string]any{
 		"name": "Community Author",
 		"url":  "https://plugins.example/author",
 	}, pluginInfo["author"])
 
-	rootInfo, ok := other["root_info"].(map[string]interface{})
+	rootInfo, ok := other["root_info"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "upstream-private", rootInfo["upstream_task_id"])
 	assert.Equal(t, "node-a", rootInfo["node_name"])
-	runtimeInfo, ok := rootInfo["task_plugin"].(map[string]interface{})
+	runtimeInfo, ok := rootInfo["task_plugin"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, uint64(42), runtimeInfo["generation"])
 	assert.NotContains(t, runtimeInfo, "author")
@@ -435,7 +435,7 @@ func TestTaskBillingOtherIncludesTieredSnapshot(t *testing.T) {
 		EstimatedTier: "base",
 	}
 
-	other := taskBillingOther(task)
+	other := taskBillingOther(task).Snapshot()
 
 	assert.Equal(t, "tiered_expr", other["billing_mode"])
 	assert.Equal(t, "base", other["matched_tier"])
@@ -996,6 +996,7 @@ func TestRecalculate_PositiveDelta(t *testing.T) {
 	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	require.NoError(t, model.DB.Create(task).Error)
 
 	RecalculateTaskQuota(ctx, task, actualQuota, "adaptor adjustment")
 
@@ -1035,6 +1036,7 @@ func TestRecalculate_NegativeDelta(t *testing.T) {
 	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	require.NoError(t, model.DB.Create(task).Error)
 
 	RecalculateTaskQuota(ctx, task, actualQuota, "adaptor adjustment")
 
@@ -1134,6 +1136,7 @@ func TestRecalculate_Subscription_NegativeDelta(t *testing.T) {
 	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceSubscription, subID)
+	require.NoError(t, model.DB.Create(task).Error)
 
 	RecalculateTaskQuota(ctx, task, actualQuota, "subscription over-charge")
 
@@ -1360,10 +1363,12 @@ type mockAdaptor struct {
 }
 
 func (m *mockAdaptor) Init(_ *relaycommon.RelayInfo) {}
-func (m *mockAdaptor) FetchTask(string, string, map[string]any, string) (*http.Response, error) {
+func (m *mockAdaptor) FetchTask(string, string, *model.Task, string) (*http.Response, error) {
 	return nil, nil
 }
-func (m *mockAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) { return nil, nil }
+func (m *mockAdaptor) ParseTaskResult(*model.Task, *http.Response, []byte) (*relaycommon.TaskInfo, error) {
+	return nil, nil
+}
 func (m *mockAdaptor) AdjustBillingOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) int {
 	return m.adjustReturn
 }
@@ -1443,6 +1448,7 @@ func TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment(t *testing.T) {
 
 	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
 	// PerCallBilling defaults to false
+	require.NoError(t, model.DB.Create(task).Error)
 
 	adaptor := &mockAdaptor{adjustReturn: adaptorQuota}
 	taskResult := &relaycommon.TaskInfo{Status: model.TaskStatusSuccess}
@@ -1545,6 +1551,7 @@ func TestSettle_TieredSuccessStillRecomputes(t *testing.T) {
 		EstimatedTier:    "base",
 	}
 
+	require.NoError(t, model.DB.Create(task).Error)
 	settled := settleTaskBillingOnComplete(
 		ctx,
 		&mockAdaptor{adjustReturn: 1},
@@ -1557,6 +1564,11 @@ func TestSettle_TieredSuccessStillRecomputes(t *testing.T) {
 	assert.Equal(t, map[string]any{"seconds": float64(8), "clips": float64(2)}, task.PrivateData.BillingContext.TieredSnapshot.UsageFacts)
 	assert.Equal(t, "base", task.PrivateData.BillingContext.TieredSnapshot.EstimatedTier)
 	assert.Equal(t, initialQuota+(preConsumed-28), getUserQuota(t, userID))
+	var persisted model.Task
+	require.NoError(t, model.DB.First(&persisted, task.ID).Error)
+	require.NotNil(t, persisted.PrivateData.BillingContext)
+	require.NotNil(t, persisted.PrivateData.BillingContext.TieredSnapshot)
+	assert.Equal(t, map[string]any{"seconds": float64(8), "clips": float64(2)}, persisted.PrivateData.BillingContext.TieredSnapshot.UsageFacts)
 
 	log := getLastLog(t)
 	require.NotNil(t, log)
@@ -1618,6 +1630,7 @@ func TestSettle_TieredUsageFactsMergeCompletionOverSubmission(t *testing.T) {
 				EstimatedTier:    "base",
 			}
 
+			require.NoError(t, model.DB.Create(task).Error)
 			settled := settleTaskBillingOnComplete(
 				context.Background(),
 				&mockAdaptor{},
@@ -1666,6 +1679,7 @@ func TestSettle_TieredSnapshotWriteBackUsesSettledFactsAndMatchedTier(t *testing
 		UsageFacts:       map[string]any{"resolution": "720P", "seconds": float64(5)},
 		EstimatedTier:    "720P",
 	}
+	require.NoError(t, model.DB.Create(task).Error)
 
 	settled := settleTaskBillingOnComplete(
 		context.Background(),
@@ -1743,6 +1757,7 @@ func TestSettle_TokenRecalcFallsBackToCompletionTokens(t *testing.T) {
 			seedChannel(t, channelID)
 
 			task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+			require.NoError(t, model.DB.Create(task).Error)
 			settled := settleTaskBillingOnComplete(
 				context.Background(),
 				&mockAdaptor{},

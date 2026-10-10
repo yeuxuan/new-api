@@ -43,7 +43,11 @@ func isCreemWebhookConfigured() bool {
 }
 
 func isCreemWebhookEnabled() bool {
-	return isCreemTopUpEnabled() && isCreemWebhookConfigured()
+	return isPaymentComplianceConfirmed() && isCreemWebhookConfigured()
+}
+
+func isCreemSubscriptionEnabled() bool {
+	return isCreemWebhookEnabled() && strings.TrimSpace(setting.CreemApiKey) != ""
 }
 
 func isWaffoTopUpEnabled() bool {

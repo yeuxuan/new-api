@@ -21,15 +21,15 @@ const (
 
 // BonusQuotaGrant 奖励额度发放记录
 type BonusQuotaGrant struct {
-	Id               int    `json:"id" gorm:"primaryKey;autoIncrement"`
-	UserId           int    `json:"user_id" gorm:"not null;index:idx_bonus_quota_user_status_expires;uniqueIndex:idx_bonus_quota_user_source_ref"`
-	Source           string `json:"source" gorm:"type:varchar(32);not null;uniqueIndex:idx_bonus_quota_user_source_ref"`
-	SourceRef        string `json:"source_ref" gorm:"type:varchar(32);default:'';uniqueIndex:idx_bonus_quota_user_source_ref"`
-	AmountTotal      int    `json:"amount_total" gorm:"not null"`
-	AmountRemaining  int    `json:"amount_remaining" gorm:"not null"`
-	ExpiresAt        int64  `json:"expires_at" gorm:"bigint;default:0;index:idx_bonus_quota_user_status_expires"`
-	Status           string `json:"status" gorm:"type:varchar(16);not null;default:active;index:idx_bonus_quota_user_status_expires"`
-	CreatedAt        int64  `json:"created_at" gorm:"bigint"`
+	Id              int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserId          int    `json:"user_id" gorm:"not null;index:idx_bonus_quota_user_status_expires;uniqueIndex:idx_bonus_quota_user_source_ref"`
+	Source          string `json:"source" gorm:"type:varchar(32);not null;uniqueIndex:idx_bonus_quota_user_source_ref"`
+	SourceRef       string `json:"source_ref" gorm:"type:varchar(32);default:'';uniqueIndex:idx_bonus_quota_user_source_ref"`
+	AmountTotal     int    `json:"amount_total" gorm:"not null"`
+	AmountRemaining int    `json:"amount_remaining" gorm:"not null"`
+	ExpiresAt       int64  `json:"expires_at" gorm:"bigint;default:0;index:idx_bonus_quota_user_status_expires"`
+	Status          string `json:"status" gorm:"type:varchar(16);not null;default:active;index:idx_bonus_quota_user_status_expires"`
+	CreatedAt       int64  `json:"created_at" gorm:"bigint"`
 }
 
 func (BonusQuotaGrant) TableName() string {
@@ -167,88 +167,14 @@ func GetUserBonusQuotaGrantSummaries(userId int) ([]BonusQuotaGrantSummary, erro
 	return summaries, nil
 }
 
-// ConsumeBonusQuota 按先过期先扣（expires_at=0 最后）消费奖励额度。
-// 若可用奖励不足 amount，则扣完即止（返回 consumed < amount），由调用方补扣钱包。
+// ConsumeBonusQuota uses expiring grants first, then leaves any remainder to the wallet.
 func ConsumeBonusQuota(userId int, modelName string, amount int) ([]BonusQuotaDeduction, int, error) {
-	if amount <= 0 {
-		return nil, 0, nil
-	}
-	if !bonusQuotaModelAllowed(modelName) {
-		return nil, 0, nil
-	}
-
 	var deductions []BonusQuotaDeduction
-	consumed := 0
+	var consumed int
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		remaining := amount
-		const maxRetries = 64
-		for remaining > 0 {
-			now := time.Now().Unix()
-			var grant BonusQuotaGrant
-			err := tx.Where("user_id = ? AND status = ? AND amount_remaining > 0", userId, BonusQuotaStatusActive).
-				Where("(expires_at = 0 OR expires_at > ?)", now).
-				Order("CASE WHEN expires_at = 0 THEN 1 ELSE 0 END, expires_at ASC, id ASC").
-				First(&grant).Error
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				break
-			}
-			if err != nil {
-				return err
-			}
-
-			deduct := grant.AmountRemaining
-			if deduct > remaining {
-				deduct = remaining
-			}
-			newRemaining := grant.AmountRemaining - deduct
-			status := BonusQuotaStatusActive
-			if newRemaining == 0 {
-				status = BonusQuotaStatusDepleted
-			}
-
-			applied := false
-			for attempt := 0; attempt < maxRetries; attempt++ {
-				result := tx.Model(&BonusQuotaGrant{}).
-					Where("id = ? AND amount_remaining = ?", grant.Id, grant.AmountRemaining).
-					Updates(map[string]interface{}{
-						"amount_remaining": newRemaining,
-						"status":           status,
-					})
-				if result.Error != nil {
-					return result.Error
-				}
-				if result.RowsAffected > 0 {
-					applied = true
-					break
-				}
-				if err := tx.Where("id = ?", grant.Id).First(&grant).Error; err != nil {
-					if errors.Is(err, gorm.ErrRecordNotFound) {
-						break
-					}
-					return err
-				}
-				if grant.AmountRemaining <= 0 {
-					break
-				}
-				deduct = grant.AmountRemaining
-				if deduct > remaining {
-					deduct = remaining
-				}
-				newRemaining = grant.AmountRemaining - deduct
-				status = BonusQuotaStatusActive
-				if newRemaining == 0 {
-					status = BonusQuotaStatusDepleted
-				}
-			}
-			if !applied {
-				return fmt.Errorf("奖励额度并发更新失败")
-			}
-
-			deductions = append(deductions, BonusQuotaDeduction{GrantId: grant.Id, Amount: deduct})
-			consumed += deduct
-			remaining -= deduct
-		}
-		return nil
+		var err error
+		deductions, consumed, err = consumeBonusQuotaTx(tx, userId, modelName, amount)
+		return err
 	})
 	if err != nil {
 		return nil, 0, err
@@ -256,54 +182,90 @@ func ConsumeBonusQuota(userId int, modelName string, amount int) ([]BonusQuotaDe
 	return deductions, consumed, nil
 }
 
-// RefundBonusQuota 退还奖励额度到指定 grant；若 grant 已被清除或已过期则退至普通钱包。
+func consumeBonusQuotaTx(tx *gorm.DB, userId int, modelName string, amount int) ([]BonusQuotaDeduction, int, error) {
+	if amount <= 0 || !bonusQuotaModelAllowed(modelName) {
+		return nil, 0, nil
+	}
+	var deductions []BonusQuotaDeduction
+	remaining := amount
+	for remaining > 0 {
+		now := time.Now().Unix()
+		var grant BonusQuotaGrant
+		err := lockForUpdate(tx).Where("user_id = ? AND status = ? AND amount_remaining > 0", userId, BonusQuotaStatusActive).
+			Where("(expires_at = 0 OR expires_at > ?)", now).
+			Order("CASE WHEN expires_at = 0 THEN 1 ELSE 0 END, expires_at ASC, id ASC").
+			First(&grant).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			break
+		}
+		if err != nil {
+			return nil, 0, err
+		}
+		deduct := min(grant.AmountRemaining, remaining)
+		newRemaining := grant.AmountRemaining - deduct
+		status := BonusQuotaStatusActive
+		if newRemaining == 0 {
+			status = BonusQuotaStatusDepleted
+		}
+		result := tx.Model(&BonusQuotaGrant{}).
+			Where("id = ? AND amount_remaining = ? AND status = ?", grant.Id, grant.AmountRemaining, BonusQuotaStatusActive).
+			Where("(expires_at = 0 OR expires_at > ?)", now).
+			Updates(map[string]any{"amount_remaining": newRemaining, "status": status})
+		if result.Error != nil {
+			return nil, 0, result.Error
+		}
+		if result.RowsAffected != 1 {
+			return nil, 0, errors.New("bonus quota changed during consumption")
+		}
+		deductions = append(deductions, BonusQuotaDeduction{GrantId: grant.Id, Amount: deduct})
+		remaining -= deduct
+	}
+	return deductions, amount - remaining, nil
+}
+
+// RefundBonusQuota returns live credits to their original grants. Expired or
+// administratively cleared credits never become unrestricted wallet funds.
 func RefundBonusQuota(deductions []BonusQuotaDeduction) error {
 	if len(deductions) == 0 {
 		return nil
 	}
-	walletRefunds := make(map[int]int)
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		now := time.Now().Unix()
-		for _, d := range deductions {
-			if d.Amount <= 0 {
-				continue
-			}
-			var grant BonusQuotaGrant
-			if err := tx.Where("id = ?", d.GrantId).First(&grant).Error; err != nil {
-				return err
-			}
-			if grant.Status == BonusQuotaStatusCleared ||
-				(grant.ExpiresAt > 0 && grant.ExpiresAt <= now) {
-				walletRefunds[grant.UserId] += d.Amount
-				continue
-			}
-			newRemaining := grant.AmountRemaining + d.Amount
-			if newRemaining > grant.AmountTotal {
-				newRemaining = grant.AmountTotal
-			}
-			status := BonusQuotaStatusActive
-			if newRemaining == 0 {
-				status = BonusQuotaStatusDepleted
-			}
-			if err := tx.Model(&BonusQuotaGrant{}).Where("id = ?", d.GrantId).
-				Updates(map[string]interface{}{
-					"amount_remaining": newRemaining,
-					"status":           status,
-				}).Error; err != nil {
-				return err
-			}
-		}
-		return nil
+	return DB.Transaction(func(tx *gorm.DB) error {
+		return refundBonusQuotaTx(tx, 0, deductions)
 	})
-	if err != nil {
-		return err
-	}
-	for userId, amount := range walletRefunds {
-		if amount <= 0 {
+}
+
+func refundBonusQuotaTx(tx *gorm.DB, userId int, deductions []BonusQuotaDeduction) error {
+	now := time.Now().Unix()
+	for _, d := range deductions {
+		if d.Amount <= 0 {
 			continue
 		}
-		if err := increaseUserQuota(userId, amount); err != nil {
+		var grant BonusQuotaGrant
+		if err := lockForUpdate(tx).Where("id = ?", d.GrantId).First(&grant).Error; err != nil {
 			return err
+		}
+		if userId != 0 && grant.UserId != userId {
+			return errors.New("bonus grant does not belong to task user")
+		}
+		if grant.Status == BonusQuotaStatusCleared || grant.Status == BonusQuotaStatusExpired ||
+			(grant.ExpiresAt > 0 && grant.ExpiresAt <= now) {
+			continue
+		}
+		if grant.AmountRemaining < 0 || grant.AmountRemaining > grant.AmountTotal {
+			return errors.New("invalid bonus grant balance")
+		}
+		amount := min(d.Amount, grant.AmountTotal-grant.AmountRemaining)
+		if amount == 0 {
+			continue
+		}
+		result := tx.Model(&BonusQuotaGrant{}).
+			Where("id = ? AND amount_remaining = ? AND status = ?", grant.Id, grant.AmountRemaining, grant.Status).
+			Updates(map[string]any{"amount_remaining": grant.AmountRemaining + amount, "status": BonusQuotaStatusActive})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return errors.New("bonus quota changed during refund")
 		}
 	}
 	return nil

@@ -125,7 +125,7 @@ func seoForPath(path, baseURL, systemName string) seoPage {
 func isPrivateWebPath(path string) bool {
 	privatePrefixes := []string{
 		"/dashboard", "/console", "/wallet", "/profile", "/usage-logs",
-		"/system-settings", "/channels", "/keys", "/logs", "/sign-in", "/sign-up",
+		"/system-settings", "/models", "/channels", "/keys", "/logs", "/sign-in", "/sign-up",
 	}
 	for _, prefix := range privatePrefixes {
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {
@@ -248,6 +248,7 @@ func serveRobots(c *gin.Context) {
 		"Disallow: /profile/\n" +
 		"Disallow: /usage-logs/\n" +
 		"Disallow: /system-settings/\n" +
+		"Disallow: /models/\n" +
 		"Disallow: /sign-in\n" +
 		"Disallow: /sign-up\n" +
 		"Sitemap: " + baseURL + "/sitemap.xml\n"

@@ -17,6 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { API, showError, showSuccess, showWarning } from '../../../../helpers';
+import { useSecureVerification } from '../../../../hooks/common/useSecureVerification';
+import SecureVerificationModal from '../../../common/modals/SecureVerificationModal';
 import {
   Banner,
   Button,
@@ -37,7 +39,7 @@ import {
   IconRefresh,
   IconCopy,
 } from '@douyinfe/semi-icons';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -53,7 +55,6 @@ const TwoFASetting = ({ t }) => {
 
   // 模态框状态
   const [setupModalVisible, setSetupModalVisible] = useState(false);
-  const [enableModalVisible, setEnableModalVisible] = useState(false);
   const [disableModalVisible, setDisableModalVisible] = useState(false);
   const [backupModalVisible, setBackupModalVisible] = useState(false);
 
@@ -63,6 +64,8 @@ const TwoFASetting = ({ t }) => {
   const [backupCodes, setBackupCodes] = useState([]);
   const [confirmDisable, setConfirmDisable] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
+  const verification = useSecureVerification();
+  const enrollmentRequest = useRef(null);
 
   // 获取2FA状态
   const fetchStatus = async () => {
@@ -78,20 +81,40 @@ const TwoFASetting = ({ t }) => {
 
   useEffect(() => {
     fetchStatus();
+    return () => enrollmentRequest.current?.abort();
   }, []);
 
   // 初始化2FA设置
   const handleSetup2FA = async () => {
     setLoading(true);
     try {
-      const res = await API.post('/api/user/2fa/setup');
-      if (res.data.success) {
-        setSetupData(res.data.data);
-        setSetupModalVisible(true);
-        setCurrentStep(0);
-      } else {
-        showError(res.data.message);
-      }
+      await verification.startVerification(
+        async (proofToken, signal) => {
+          const res = await API.post('/api/user/2fa/setup', undefined, {
+            headers: { 'X-Security-Proof': proofToken },
+            singleUseAuthorization: true,
+            skipErrorHandler: true,
+            signal,
+          });
+          if (!res.data.success)
+            throw new Error(res.data.message || t('设置2FA失败'));
+          signal?.throwIfAborted();
+          const data = res.data.data;
+          if (
+            !data?.flow_token ||
+            !Number.isFinite(data.expires_at) ||
+            data.expires_at * 1000 <= Date.now() ||
+            !Array.isArray(data.backup_codes)
+          ) {
+            throw new Error(t('设置2FA失败'));
+          }
+          setSetupData(data);
+          setVerificationCode('');
+          setSetupModalVisible(true);
+          setCurrentStep(0);
+        },
+        { scope: '2fa.setup' },
+      );
     } catch (error) {
       showError(t('设置2FA失败'));
     } finally {
@@ -101,19 +124,41 @@ const TwoFASetting = ({ t }) => {
 
   // 启用2FA
   const handleEnable2FA = async () => {
-    if (!verificationCode) {
+    if (enrollmentRequest.current) return;
+    if (!/^\d{6}$/.test(verificationCode.trim())) {
       showWarning(t('请输入验证码'));
       return;
     }
 
+    if (!setupData?.flow_token || setupData.expires_at * 1000 <= Date.now()) {
+      setSetupData(null);
+      setSetupModalVisible(false);
+      setVerificationCode('');
+      showError(t('启用2FA失败'));
+      return;
+    }
+
+    const controller = new AbortController();
+    enrollmentRequest.current = controller;
     setLoading(true);
     try {
-      const res = await API.post('/api/user/2fa/enable', {
-        code: verificationCode,
-      });
+      const res = await API.post(
+        '/api/user/2fa/enable',
+        {
+          code: verificationCode.trim(),
+          flow_token: setupData.flow_token,
+        },
+        {
+          acceptAuthRotation: true,
+          singleUseAuthorization: true,
+          skipErrorHandler: true,
+          signal: controller.signal,
+        },
+      );
+      controller.signal.throwIfAborted();
       if (res.data.success) {
         showSuccess(t('两步验证启用成功！'));
-        setEnableModalVisible(false);
+        setSetupData(null);
         setSetupModalVisible(false);
         setVerificationCode('');
         setCurrentStep(0);
@@ -122,38 +167,44 @@ const TwoFASetting = ({ t }) => {
         showError(res.data.message);
       }
     } catch (error) {
-      showError(t('启用2FA失败'));
+      if (!controller.signal.aborted) showError(t('启用2FA失败'));
     } finally {
+      enrollmentRequest.current = null;
       setLoading(false);
     }
   };
 
   // 禁用2FA
   const handleDisable2FA = async () => {
-    if (!verificationCode) {
-      showWarning(t('请输入验证码或备用码'));
-      return;
-    }
-
     if (!confirmDisable) {
       showWarning(t('请确认您已了解禁用两步验证的后果'));
       return;
     }
 
     setLoading(true);
+    setDisableModalVisible(false);
     try {
-      const res = await API.post('/api/user/2fa/disable', {
-        code: verificationCode,
-      });
-      if (res.data.success) {
-        showSuccess(t('两步验证已禁用'));
-        setDisableModalVisible(false);
-        setVerificationCode('');
-        setConfirmDisable(false);
-        fetchStatus();
-      } else {
-        showError(res.data.message);
-      }
+      await verification.startVerification(
+        async (proofToken, signal) => {
+          const res = await API.post('/api/user/2fa/disable', undefined, {
+            headers: { 'X-Security-Proof': proofToken },
+            acceptAuthRotation: true,
+            singleUseAuthorization: true,
+            skipErrorHandler: true,
+            signal,
+          });
+          if (!res.data.success)
+            throw new Error(res.data.message || t('禁用2FA失败'));
+          signal?.throwIfAborted();
+          showSuccess(t('两步验证已禁用'));
+          setVerificationCode('');
+          setSetupData(null);
+          setBackupCodes([]);
+          setConfirmDisable(false);
+          fetchStatus();
+        },
+        { scope: '2fa.disable' },
+      );
     } catch (error) {
       showError(t('禁用2FA失败'));
     } finally {
@@ -163,24 +214,29 @@ const TwoFASetting = ({ t }) => {
 
   // 重新生成备用码
   const handleRegenerateBackupCodes = async () => {
-    if (!verificationCode) {
-      showWarning(t('请输入验证码'));
-      return;
-    }
-
     setLoading(true);
+    setBackupModalVisible(false);
     try {
-      const res = await API.post('/api/user/2fa/backup_codes', {
-        code: verificationCode,
-      });
-      if (res.data.success) {
-        setBackupCodes(res.data.data.backup_codes);
-        showSuccess(t('备用码重新生成成功'));
-        setVerificationCode('');
-        fetchStatus();
-      } else {
-        showError(res.data.message);
-      }
+      await verification.startVerification(
+        async (proofToken, signal) => {
+          const res = await API.post('/api/user/2fa/backup_codes', undefined, {
+            headers: { 'X-Security-Proof': proofToken },
+            acceptAuthRotation: true,
+            singleUseAuthorization: true,
+            skipErrorHandler: true,
+            signal,
+          });
+          if (!res.data.success)
+            throw new Error(res.data.message || t('重新生成备用码失败'));
+          signal?.throwIfAborted();
+          setBackupCodes(res.data.data.backup_codes);
+          setBackupModalVisible(true);
+          showSuccess(t('备用码重新生成成功'));
+          setVerificationCode('');
+          fetchStatus();
+        },
+        { scope: '2fa.backup_codes.regenerate' },
+      );
     } catch (error) {
       showError(t('重新生成备用码失败'));
     } finally {
@@ -309,7 +365,7 @@ const TwoFASetting = ({ t }) => {
           type='danger'
           theme='solid'
           loading={loading}
-          disabled={!confirmDisable || !verificationCode}
+          disabled={!confirmDisable || loading}
           onClick={handleDisable2FA}
           className='!rounded-lg !bg-slate-500 hover:!bg-slate-600'
         >
@@ -354,7 +410,7 @@ const TwoFASetting = ({ t }) => {
           type='primary'
           theme='solid'
           loading={loading}
-          disabled={!verificationCode}
+          disabled={loading}
           onClick={handleRegenerateBackupCodes}
           className='!rounded-lg !bg-slate-600 hover:!bg-slate-700'
         >
@@ -419,6 +475,7 @@ const TwoFASetting = ({ t }) => {
                 size='default'
                 onClick={handleSetup2FA}
                 loading={loading}
+                disabled={verification.isModalVisible}
                 className='!rounded-lg !bg-slate-600 hover:!bg-slate-700'
                 icon={<IconShield />}
               >
@@ -431,6 +488,7 @@ const TwoFASetting = ({ t }) => {
                   theme='solid'
                   size='default'
                   onClick={() => setDisableModalVisible(true)}
+                  disabled={loading || verification.isModalVisible}
                   className='!rounded-lg !bg-slate-500 hover:!bg-slate-600'
                   icon={<IconAlertTriangle />}
                 >
@@ -441,6 +499,7 @@ const TwoFASetting = ({ t }) => {
                   theme='solid'
                   size='default'
                   onClick={() => setBackupModalVisible(true)}
+                  disabled={loading || verification.isModalVisible}
                   className='!rounded-lg'
                   icon={<IconRefresh />}
                 >
@@ -461,7 +520,10 @@ const TwoFASetting = ({ t }) => {
           </div>
         }
         visible={setupModalVisible}
+        closeOnEsc={!loading}
+        maskClosable={!loading}
         onCancel={() => {
+          if (loading) return;
           setSetupModalVisible(false);
           setSetupData(null);
           setCurrentStep(0);
@@ -606,22 +668,6 @@ const TwoFASetting = ({ t }) => {
 
             <div className='space-y-4'>
               <div>
-                <Text
-                  strong
-                  className='block mb-2 text-slate-700 dark:text-slate-200'
-                >
-                  {t('验证身份')}
-                </Text>
-                <Input
-                  placeholder={t('请输入认证器验证码或备用码')}
-                  value={verificationCode}
-                  onChange={setVerificationCode}
-                  size='large'
-                  className='!rounded-lg'
-                />
-              </div>
-
-              <div>
                 <Checkbox
                   checked={confirmDisable}
                   onChange={(e) => setConfirmDisable(e.target.checked)}
@@ -668,25 +714,6 @@ const TwoFASetting = ({ t }) => {
                   className='!rounded-lg'
                 />
               </div>
-
-              {/* 验证区域 */}
-              <div className='space-y-4'>
-                <div>
-                  <Text
-                    strong
-                    className='block mb-2 text-slate-700 dark:text-slate-200'
-                  >
-                    {t('验证身份')}
-                  </Text>
-                  <Input
-                    placeholder={t('请输入认证器验证码')}
-                    value={verificationCode}
-                    onChange={setVerificationCode}
-                    size='large'
-                    className='!rounded-lg'
-                  />
-                </div>
-              </div>
             </>
           ) : (
             <>
@@ -716,6 +743,18 @@ const TwoFASetting = ({ t }) => {
           )}
         </div>
       </Modal>
+      <SecureVerificationModal
+        visible={verification.isModalVisible}
+        verificationMethods={verification.verificationMethods}
+        verificationState={verification.verificationState}
+        onVerify={(...args) =>
+          verification.executeVerification(...args).catch(() => {})
+        }
+        onCancel={verification.cancelVerification}
+        onCodeChange={verification.setVerificationCode}
+        onPasswordChange={verification.setVerificationPassword}
+        onMethodSwitch={verification.switchVerificationMethod}
+      />
     </>
   );
 };

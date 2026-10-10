@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -32,8 +33,14 @@ func TestSEOForPath(t *testing.T) {
 	})
 
 	t.Run("private app route", func(t *testing.T) {
-		page := seoForPath("/dashboard", "https://computetoken.ai", "Compute Token")
-		assert.Equal(t, "noindex, nofollow", page.robots)
+		for _, path := range []string{
+			"/dashboard", "/users", "/users/42", "/security", "/subscriptions",
+			"/redemption-codes", "/task-plugins", "/task-plugins/plugin-id",
+			"/system-info", "/playground", "/chat", "/chat2link",
+		} {
+			page := seoForPath(path, "https://computetoken.ai", "Compute Token")
+			assert.Equal(t, "noindex, nofollow", page.robots, path)
+		}
 	})
 
 	t.Run("model management stays private while model docs remain indexable", func(t *testing.T) {
@@ -92,4 +99,40 @@ func TestSiteBaseURL(t *testing.T) {
 	context.Request = request
 
 	assert.Equal(t, "https://computetoken.ai", siteBaseURL(context))
+}
+
+func TestWebFallbackRejectsMissingBuildFilesAndPreservesPages(t *testing.T) {
+	previousMode := gin.Mode()
+	previousWebLimit, previousStaticLimit := common.GlobalWebRateLimitEnable, common.GlobalStaticRateLimitEnable
+	gin.SetMode(gin.TestMode)
+	common.GlobalWebRateLimitEnable, common.GlobalStaticRateLimitEnable = false, false
+	t.Cleanup(func() {
+		gin.SetMode(previousMode)
+		common.GlobalWebRateLimitEnable, common.GlobalStaticRateLimitEnable = previousWebLimit, previousStaticLimit
+	})
+
+	engine := gin.New()
+	SetWebRouter(engine, WebAssets{IndexPage: []byte(`<html><head><!--seo:start--><title>New API</title><!--seo:end--></head><body>dashboard-shell</body></html>`)}, func(*gin.Context) {})
+	for _, tc := range []struct {
+		path   string
+		status int
+	}{
+		{"/static/js/previous-build.js", http.StatusNotFound},
+		{"/static/css/previous-build.css?version=old", http.StatusNotFound},
+		{"/assets/missing.js", http.StatusNotFound},
+		{"/dashboard", http.StatusOK},
+		{"/pricing/claude-opus-4.8", http.StatusOK},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, tc.path, nil))
+			require.Equal(t, tc.status, response.Code)
+			if tc.status == http.StatusOK {
+				assert.Contains(t, response.Body.String(), "dashboard-shell")
+				assert.Equal(t, "no-cache", response.Header().Get("Cache-Control"))
+			} else {
+				assert.NotContains(t, response.Body.String(), "dashboard-shell")
+			}
+		})
+	}
 }

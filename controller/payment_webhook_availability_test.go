@@ -2,18 +2,22 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
+	"github.com/Calcium-Ion/go-epay/epay"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,6 +61,9 @@ func TestStripeWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 
 func TestCreemAvailabilitySeparatesCatalogCheckoutAndCallback(t *testing.T) {
 	confirmPaymentComplianceForTest(t)
+	originalHidden := common.HideOnlineTopUp
+	common.HideOnlineTopUp = true
+	t.Cleanup(func() { common.HideOnlineTopUp = originalHidden })
 	originalAPIKey := setting.CreemApiKey
 	originalProducts := setting.CreemProducts
 	originalWebhookSecret := setting.CreemWebhookSecret
@@ -73,7 +80,8 @@ func TestCreemAvailabilitySeparatesCatalogCheckoutAndCallback(t *testing.T) {
 		{"configured", "key", `[{"productId":"prod"}]`, "secret", operation_setting.CurrentComplianceTermsVersion, true, true, true, true},
 		{"no recharge catalog", "key", "[]", "secret", operation_setting.CurrentComplianceTermsVersion, true, false, true, true},
 		{"settle existing orders without API key", "", "", "secret", operation_setting.CurrentComplianceTermsVersion, true, false, false, true},
-		{"missing webhook secret", "key", "[]", " ", operation_setting.CurrentComplianceTermsVersion, true, false, false, false},
+		{"missing webhook secret with recharge catalog", "key", `[{"productId":"prod"}]`, "", operation_setting.CurrentComplianceTermsVersion, true, false, false, false},
+		{"blank webhook secret with recharge catalog", "key", `[{"productId":"prod"}]`, " ", operation_setting.CurrentComplianceTermsVersion, true, false, false, false},
 		{"unconfirmed compliance", "key", "[]", "secret", operation_setting.CurrentComplianceTermsVersion, false, false, false, false},
 		{"outdated compliance", "key", "[]", "secret", "old-terms", true, false, false, false},
 	} {
@@ -147,6 +155,13 @@ func TestCreemPaidTopupDoesNotBindEmailOrConsumeFirstBindReward(t *testing.T) {
 			for range 2 {
 				require.Equal(t, http.StatusOK, sendCreemWebhookForTest(t, event, true).Code)
 			}
+			// A different process can already have observed the pending row.
+			// Model settlement must also acknowledge a duplicate without a new credit.
+			require.NoError(t, model.RechargeCreem(order.TradeNo, "127.0.0.1"))
+			var logs []model.Log
+			require.NoError(t, model.LOG_DB.Where("user_id = ? AND type = ?", user.Id, model.LogTypeTopup).Find(&logs).Error)
+			require.Len(t, logs, 1)
+			assert.Equal(t, 12345, logs[0].Quota)
 			require.NoError(t, model.DB.First(user, user.Id).Error)
 			assert.Equal(t, 12345, user.Quota, "duplicate callbacks must not credit twice")
 			require.Equal(t, email, user.Email, "checkout email is not verified account identity")
@@ -168,6 +183,71 @@ type creemCheckoutTestTransport func(*http.Request) (*http.Response, error)
 
 func (f creemCheckoutTestTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
+}
+
+func TestCreemTopupPreflightAndHiddenOnlineCheckout(t *testing.T) {
+	user, identity := setupCreemPaymentTest(t)
+	originalQuotaPerUnit, originalHidden := common.QuotaPerUnit, common.HideOnlineTopUp
+	common.QuotaPerUnit, common.HideOnlineTopUp = 500000, true
+	t.Cleanup(func() {
+		common.QuotaPerUnit, common.HideOnlineTopUp = originalQuotaPerUnit, originalHidden
+	})
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+	checkoutCalls := 0
+	http.DefaultTransport = creemCheckoutTestTransport(func(request *http.Request) (*http.Response, error) {
+		checkoutCalls++
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"checkout_url":"https://checkout.example.test/topup"}`)), Header: make(http.Header)}, nil
+	})
+	for _, tc := range []struct {
+		name, key, products, secret string
+	}{
+		{"missing webhook secret in test mode", "test-key", `[{"productId":"prod","quota":1}]`, ""},
+		{"blank webhook secret in test mode", "test-key", `[{"productId":"prod","quota":1}]`, " "},
+		{"missing API key", " ", `[{"productId":"prod","quota":1}]`, "test-secret"},
+		{"no recharge catalog", "test-key", "[]", "test-secret"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setting.CreemApiKey, setting.CreemProducts, setting.CreemWebhookSecret = tc.key, tc.products, tc.secret
+			response := securityEnrollmentRequest(http.MethodPost, "/api/user/creem/pay", `{"product_id":"prod","payment_method":"creem"}`, "", identity, RequestCreemPay)
+			assert.JSONEq(t, `{"message":"error","data":"Creem top-up is not available","message_key":"Creem top-up is not available"}`, response.Body.String())
+			// The adaptor is another entry point and must enforce the same preflight.
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/api/user/creem/pay", nil)
+			ctx.Set("id", user.Id)
+			creemAdaptor.RequestPay(ctx, &CreemPayRequest{ProductId: "prod", PaymentMethod: "creem"})
+			assert.JSONEq(t, response.Body.String(), recorder.Body.String())
+			var count int64
+			require.NoError(t, model.DB.Model(&model.TopUp{}).Count(&count).Error)
+			assert.Zero(t, count)
+			assert.Zero(t, checkoutCalls)
+		})
+	}
+	setting.CreemApiKey, setting.CreemWebhookSecret = "test-key", " "
+	_, err := genCreemLink(context.Background(), "ref", &CreemProduct{ProductId: "prod"}, "", user.Username)
+	require.EqualError(t, err, "Creem webhook is not configured")
+	assert.Zero(t, checkoutCalls)
+
+	setting.CreemApiKey, setting.CreemWebhookSecret = "test-key", "test-secret"
+	setting.CreemProducts = `[{"productId":"prod","price":0.99,"quota":0.14}]`
+	response := securityEnrollmentRequest(http.MethodPost, "/api/user/creem/pay", `{"product_id":"prod","payment_method":"creem"}`, "", identity, RequestCreemPay)
+	require.Contains(t, response.Body.String(), `"message":"success"`)
+	assert.Equal(t, 1, checkoutCalls)
+	var order model.TopUp
+	require.NoError(t, model.DB.Where("user_id = ?", user.Id).First(&order).Error)
+	assert.EqualValues(t, 70000, order.Amount, "CREEM stores internal quota, not dollars")
+	assert.Equal(t, 0.99, order.Money)
+	for range 2 {
+		require.NoError(t, model.ManualCompleteTopUp(order.TradeNo, "127.0.0.1"))
+	}
+	require.NoError(t, model.DB.First(user, user.Id).Error)
+	assert.Equal(t, 70000, user.Quota, "manual settlement must not multiply CREEM quota again")
+	var logs []model.Log
+	require.NoError(t, model.LOG_DB.Where("type = ?", model.LogTypeTopup).Find(&logs).Error)
+	require.Len(t, logs, 1, "duplicate manual settlement must not write a phantom credit log")
+	assert.Equal(t, user.Id, logs[0].UserId)
+	assert.Equal(t, 70000, logs[0].Quota)
 }
 
 func TestCreemSubscriptionCheckoutAndCallbackWithoutRechargeCatalog(t *testing.T) {
@@ -417,4 +497,111 @@ func TestEpayWebhookEnabledRequiresTopUpAndWebhookConfig(t *testing.T) {
 
 	operation_setting.PayMethods = nil
 	require.False(t, isEpayWebhookEnabled())
+}
+
+func TestEpayCallbacksVerifyBeforeSettlement(t *testing.T) {
+	confirmPaymentComplianceForTest(t)
+	originalPayAddress := operation_setting.PayAddress
+	originalEpayID := operation_setting.EpayId
+	originalEpayKey := operation_setting.EpayKey
+	originalPayMethods := operation_setting.PayMethods
+	originalServerAddress := system_setting.ServerAddress
+	originalDB := model.DB
+	t.Cleanup(func() {
+		operation_setting.PayAddress = originalPayAddress
+		operation_setting.EpayId = originalEpayID
+		operation_setting.EpayKey = originalEpayKey
+		operation_setting.PayMethods = originalPayMethods
+		system_setting.ServerAddress = originalServerAddress
+		model.DB = originalDB
+	})
+	operation_setting.PayAddress = "https://pay.example.com"
+	operation_setting.EpayId = "epay_id"
+	operation_setting.EpayKey = "test-key"
+	operation_setting.PayMethods = []map[string]string{{"type": "alipay"}}
+	system_setting.ServerAddress = "https://dashboard.example.com"
+	// Rejected callbacks and valid non-success events must never reach settlement.
+	// A nil database makes an accidental attempt to settle fail the test.
+	model.DB = nil
+	require.True(t, isEpayWebhookEnabled())
+
+	// Both ambiguous maps below had this same valid signing string in v0.0.4.
+	// This must fail because of parameter ambiguity, not a mismatched signature.
+	ambiguousSign := epay.MD5String("money=1.00&name=item&out_trade_no=other&out_trade_no=order&pid=epay_id&trade_status=TRADE_SUCCESS&type=alipay", "test-key")
+	pendingSign := epay.MD5String("money=1.00&name=item%26other&out_trade_no=order&pid=epay_id&trade_status=WAIT_BUYER_PAY&type=alipay", "test-key")
+	cases := []struct {
+		name         string
+		productName  string
+		tradeNo      string
+		status       string
+		sign         string
+		validPending bool
+	}{
+		{"separator in product name", "item&out_trade_no=other", "order", epay.StatusTradeSuccess, ambiguousSign, false},
+		{"separator in order number", "item", "other&out_trade_no=order", epay.StatusTradeSuccess, ambiguousSign, false},
+		{"invalid signature", "item", "order", epay.StatusTradeSuccess, "invalid", false},
+		{"missing signature", "item", "order", epay.StatusTradeSuccess, "", false},
+		{"valid pending with literal percent escape", "item%26other", "order", "WAIT_BUYER_PAY", pendingSign, true},
+	}
+	endpoints := []struct {
+		name             string
+		path             string
+		handler          gin.HandlerFunc
+		status           int
+		rejectedBody     string
+		pendingBody      string
+		rejectedLocation string
+		pendingLocation  string
+	}{
+		{
+			name: "topup notify", path: "/api/user/epay/notify", handler: EpayNotify,
+			status: http.StatusOK, rejectedBody: "fail", pendingBody: "success",
+		},
+		{
+			name: "subscription notify", path: "/api/subscription/epay/notify", handler: SubscriptionEpayNotify,
+			status: http.StatusOK, rejectedBody: "fail", pendingBody: "fail",
+		},
+		{
+			name: "subscription return", path: "/api/subscription/epay/return", handler: SubscriptionEpayReturn,
+			status:           http.StatusFound,
+			rejectedLocation: "https://dashboard.example.com/wallet?pay=fail",
+			pendingLocation:  "https://dashboard.example.com/wallet?pay=pending",
+		},
+	}
+	router := gin.New()
+	for _, endpoint := range endpoints {
+		router.Any(endpoint.path, endpoint.handler)
+	}
+	for _, endpoint := range endpoints {
+		for _, method := range []string{http.MethodGet, http.MethodPost} {
+			for _, tc := range cases {
+				t.Run(endpoint.name+"/"+method+"/"+tc.name, func(t *testing.T) {
+					params := url.Values{
+						"pid": {"epay_id"}, "type": {"alipay"}, "money": {"1.00"},
+						"name": {tc.productName}, "out_trade_no": {tc.tradeNo},
+						"trade_status": {tc.status}, "sign_type": {"MD5"},
+					}
+					if tc.sign != "" {
+						params.Set("sign", tc.sign)
+					}
+					request := httptest.NewRequest(method, endpoint.path+"?"+params.Encode(), nil)
+					if method == http.MethodPost {
+						request = httptest.NewRequest(method, endpoint.path, strings.NewReader(params.Encode()))
+						request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+					}
+					recorder := httptest.NewRecorder()
+					require.NotPanics(t, func() { router.ServeHTTP(recorder, request) })
+					assert.Equal(t, endpoint.status, recorder.Code)
+					wantBody, wantLocation := endpoint.rejectedBody, endpoint.rejectedLocation
+					if tc.validPending {
+						wantBody, wantLocation = endpoint.pendingBody, endpoint.pendingLocation
+					}
+					if wantBody != "" {
+						assert.Equal(t, wantBody, recorder.Body.String())
+					}
+					assert.Equal(t, wantLocation, recorder.Header().Get("Location"))
+				})
+			}
+		}
+	}
 }

@@ -34,7 +34,15 @@ type RealtimeEvent struct {
 }
 
 type RealtimeResponse struct {
-	Usage *RealtimeUsage `json:"usage"`
+	Usage         *RealtimeUsage                 `json:"usage"`
+	Status        string                         `json:"status,omitempty"`
+	StatusDetails *RealtimeResponseStatusDetails `json:"status_details,omitempty"`
+}
+
+type RealtimeResponseStatusDetails struct {
+	Type   string             `json:"type,omitempty"`
+	Reason string             `json:"reason,omitempty"`
+	Error  *types.OpenAIError `json:"error,omitempty"`
 }
 
 type RealtimeUsage struct {

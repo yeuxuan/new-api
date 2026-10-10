@@ -2,8 +2,11 @@ package media
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
@@ -54,4 +57,22 @@ func ResolveMimeTypeByExtension(ext string) string {
 		return ""
 	}
 	return resolver(ext)
+}
+
+// IsTextMimeType reports whether a MIME type is plain text that a target can
+// carry as text: text/* and application/json, ignoring parameters.
+func IsTextMimeType(mimeType string) bool {
+	mediaType, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(mimeType)), ";")
+	mediaType = strings.TrimSpace(mediaType)
+	return strings.HasPrefix(mediaType, "text/") || mediaType == "application/json"
+}
+
+// DecodeText decodes base64 file data as text. It reports false when the data
+// is not valid base64 or the bytes are not UTF-8.
+func DecodeText(base64Data string) (string, bool) {
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(base64Data))
+	if err != nil || !utf8.Valid(decoded) {
+		return "", false
+	}
+	return string(decoded), true
 }

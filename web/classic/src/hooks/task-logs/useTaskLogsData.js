@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '@douyinfe/semi-ui';
 import {
@@ -30,6 +30,16 @@ import {
 } from '../../helpers';
 import { ITEMS_PER_PAGE } from '../../constants';
 import { useTableCompactMode } from '../common/useTableCompactMode';
+
+const isTaskPreviewUrl = (value) => {
+  if (typeof value !== 'string' || !/^https?:\/\//i.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return !url.username && !url.password && !url.hash;
+  } catch {
+    return false;
+  }
+};
 
 export const useTaskLogsData = () => {
   const { t } = useTranslation();
@@ -75,6 +85,7 @@ export const useTaskLogsData = () => {
   // Audio preview modal state
   const [isAudioModalOpen, setIsAudioModalOpen] = useState(false);
   const [audioClips, setAudioClips] = useState([]);
+  const pendingPreviews = useRef(new Set());
 
   // User info modal state
   const [showUserInfo, setShowUserInfoModal] = useState(false);
@@ -275,16 +286,79 @@ export const useTaskLogsData = () => {
     setIsModalOpen(true);
   };
 
-  // 新增：打开视频预览弹窗
-  const openVideoModal = (url) => {
-    setVideoUrl(url);
-    setIsVideoModalOpen(true);
+  // List rows deliberately omit media; fetch only when a preview is requested.
+  const openTaskPreview = async (record, type) => {
+    if (
+      record?.status !== 'SUCCESS' ||
+      record.result_discarded === true ||
+      !record.task_id ||
+      pendingPreviews.current.has(record.task_id)
+    ) {
+      return;
+    }
+    pendingPreviews.current.add(record.task_id);
+    try {
+      const res = await API.get(
+        `/api/task/${encodeURIComponent(record.task_id)}/artifacts`,
+        { skipErrorHandler: true },
+      );
+      if (!res.data.success) {
+        showError(res.data);
+        return;
+      }
+      const projection = res.data.data || {};
+      const artifacts = Array.isArray(projection.artifacts)
+        ? projection.artifacts
+        : [];
+      if (type === 'audio') {
+        const clips = Array.isArray(projection.legacy_audio_clips)
+          ? projection.legacy_audio_clips.filter((clip) =>
+              isTaskPreviewUrl(clip?.audio_url),
+            )
+          : [];
+        const playableClips = clips.length
+          ? clips
+          : artifacts
+              .filter(
+                (item) =>
+                  item?.type === 'audio' && isTaskPreviewUrl(item.content_url),
+              )
+              .map((item) => ({
+                clip_id: item.key,
+                audio_url: item.content_url,
+              }));
+        if (playableClips.length) {
+          setAudioClips(playableClips);
+          setIsAudioModalOpen(true);
+          return;
+        }
+      } else {
+        const video = artifacts.find(
+          (item) =>
+            item?.type === 'video' && isTaskPreviewUrl(item.content_url),
+        );
+        const url = video?.content_url || projection.legacy_content_url;
+        if (isTaskPreviewUrl(url)) {
+          setVideoUrl(url);
+          setIsVideoModalOpen(true);
+          return;
+        }
+      }
+      showError(t('Failed to load artifacts'));
+    } catch (error) {
+      const message = error.response?.data?.message;
+      if (error.response?.status !== 401 && typeof message === 'string') {
+        showError(t(message, { skipInterpolation: true }));
+      } else {
+        showError(error);
+      }
+    } finally {
+      pendingPreviews.current.delete(record.task_id);
+    }
   };
 
-  const openAudioModal = (clips) => {
-    setAudioClips(clips);
-    setIsAudioModalOpen(true);
-  };
+  const openVideoModal = (record) => openTaskPreview(record, 'video');
+  const openAudioModal = (record) => openTaskPreview(record, 'audio');
 
   // User info function
   const showUserInfoFunc = async (userId) => {

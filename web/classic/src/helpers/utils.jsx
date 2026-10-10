@@ -24,6 +24,7 @@ import {
   BILLING_VAR_REGEX,
 } from '../constants';
 import React from 'react';
+import { t } from 'i18next';
 import { toast } from 'react-toastify';
 import {
   THINK_TAG_REGEX,
@@ -123,7 +124,27 @@ if (isMobileScreen) {
   // showNoticeOptions.transition = 'flip';
 }
 
+export function getServerMessage(value, translate = t) {
+  if (typeof value?.message_key === 'string' && value.message_key) {
+    const params = value.message_params;
+    return translate(
+      value.message_key,
+      params && typeof params === 'object' && !Array.isArray(params)
+        ? params
+        : {},
+    );
+  }
+  const message = typeof value === 'string' ? value : value?.message;
+  return typeof message === 'string'
+    ? translate(message, { skipInterpolation: true })
+    : '';
+}
+
 export function showError(error) {
+  if (error?.response?.status !== 401 && error?.response?.data?.message_key) {
+    Toast.error('错误：' + getServerMessage(error.response.data));
+    return;
+  }
   if (error.message) {
     if (error.name === 'AxiosError') {
       switch (error.response?.status) {
@@ -143,13 +164,16 @@ export function showError(error) {
           Toast.info('本站仅作演示之用，无服务端！');
           break;
         default:
-          Toast.error('错误：' + error.message);
+          Toast.error(
+            '错误：' +
+              (getServerMessage(error.response?.data) || error.message),
+          );
       }
       return;
     }
-    Toast.error('错误：' + error.message);
+    Toast.error('错误：' + getServerMessage(error));
   } else {
-    Toast.error('错误：' + error);
+    Toast.error('错误：' + (getServerMessage(error) || t('操作失败，请重试')));
   }
 }
 

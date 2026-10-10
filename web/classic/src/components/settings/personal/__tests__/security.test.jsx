@@ -146,6 +146,27 @@ beforeEach(() => {
         case '/api/user/2fa/status':
           data = success({ enabled: false });
           break;
+        case '/api/user/access_tokens/catalog':
+          data = success({
+            default_expiry_days: 30,
+            max_tokens: 10,
+            groups: [
+              {
+                group: 'personal',
+                resources: [
+                  {
+                    resource: 'profile',
+                    label_key: 'Profile',
+                    actions: [
+                      { action: 'read', label_key: 'View' },
+                      { action: 'write', label_key: 'Edit' },
+                    ],
+                  },
+                ],
+              },
+            ],
+          });
+          break;
         case '/api/verify/methods':
           data = success({
             scope: config.params.scope,
@@ -220,41 +241,140 @@ function confirmDialog() {
   );
 }
 
-test('personal token generation waits for a scoped password proof and keeps plaintext out of storage', async () => {
+async function selectTokenGrant() {
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Create access token', exact: true }),
+  );
+  await screen.findByLabelText('Token name');
+  const dialog = screen.getByRole('dialog');
+  fireEvent.change(screen.getByLabelText('Token name'), {
+    target: { value: 'Classic CLI' },
+  });
+  expect(
+    screen.getByRole('checkbox', { name: 'Profile / View' }),
+  ).not.toBeChecked();
+  expect(
+    screen.getByRole('checkbox', { name: 'Profile / Edit' }),
+  ).not.toBeChecked();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Profile / View' }));
+  fireEvent.click(screen.getByRole('radio', { name: 'Valid for 90 days' }));
+  fireEvent.click(
+    within(dialog).getByRole('button', {
+      name: 'Create access token',
+      exact: true,
+    }),
+  );
+}
+
+test('personal token creation binds the selected grant and expiry to the proof and keeps plaintext out of storage', async () => {
+  vi.spyOn(Date, 'now').mockReturnValue(1800000000000);
   respond = ({ url }) =>
-    url === '/api/user/token' ? success('personal-access-token') : undefined;
+    url === '/api/user/access_tokens'
+      ? success({ token: 'personal-access-token' })
+      : undefined;
   await openPersonalSettings();
   await securityTab();
-  fireEvent.click(screen.getByRole('button', { name: /生成令牌/ }));
+  await selectTokenGrant();
   await screen.findByPlaceholderText('请输入当前密码');
-  expect(requests.filter(({ url }) => url === '/api/user/token')).toHaveLength(
-    0,
-  );
+  expect(
+    requests.filter(({ url }) => url === '/api/user/access_tokens'),
+  ).toHaveLength(0);
   await verifyPassword();
   await screen.findByDisplayValue('personal-access-token');
-  const request = requests.find(({ url }) => url === '/api/user/token');
+  const request = requests.find(({ url }) => url === '/api/user/access_tokens');
   expect(request.method).toBe('post');
+  expect(request.body).toEqual({
+    name: 'Classic CLI',
+    scopes: ['profile:read'],
+    expires_at: 1800000000 + 90 * 86400,
+  });
   expect(request.config.headers.get('X-Security-Proof')).toBe('one-use-proof');
   expect(request.config.singleUseAuthorization).toBe(true);
   expect(requests.find(({ url }) => url === '/api/verify').body).toMatchObject({
     method: 'password',
     password: 'current-password',
     scope: 'access_token.generate',
+    context: {
+      scopes: request.body.scopes,
+      expires_at: request.body.expires_at,
+    },
   });
   expect(localStorage.getItem('user')).not.toContain('personal-access-token');
   expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
     'personal-access-token',
   );
+  expect(requests.some(({ url }) => url === '/api/user/token')).toBe(false);
+  expect(JSON.stringify(sessionStorage)).not.toContain('personal-access-token');
 });
 
 test('cancelling token verification sends no token mutation', async () => {
   await openPersonalSettings();
   await securityTab();
-  fireEvent.click(screen.getByRole('button', { name: /生成令牌/ }));
+  await selectTokenGrant();
   await screen.findByPlaceholderText('请输入当前密码');
   fireEvent.click(screen.getByRole('button', { name: /取消|cancel/ }));
-  expect(requests.filter(({ url }) => url === '/api/user/token')).toHaveLength(
-    0,
+  expect(
+    requests.filter(({ url }) => url === '/api/user/access_tokens'),
+  ).toHaveLength(0);
+});
+
+test('the token form only offers catalog permissions and requires an explicit selection', async () => {
+  await openPersonalSettings();
+  await securityTab();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Create access token', exact: true }),
+  );
+  await screen.findByLabelText('Token name');
+  fireEvent.change(screen.getByLabelText('Token name'), {
+    target: { value: 'CLI' },
+  });
+  const dialog = screen.getByRole('dialog');
+  expect(within(dialog).getAllByRole('checkbox')).toHaveLength(2);
+  expect(
+    within(dialog).getByRole('button', {
+      name: 'Create access token',
+      exact: true,
+    }),
+  ).toBeDisabled();
+  fireEvent.click(
+    within(dialog).getByRole('button', { name: '取消', exact: true }),
+  );
+  expect(requests.some(({ url }) => url === '/api/verify')).toBe(false);
+  expect(requests.some(({ url }) => url === '/api/user/access_tokens')).toBe(
+    false,
+  );
+});
+
+test('a failed catalog load does not start verification or use a fallback full grant', async () => {
+  respond = ({ url }) =>
+    url === '/api/user/access_tokens/catalog'
+      ? { success: false, message: 'catalog unavailable' }
+      : undefined;
+  await openPersonalSettings();
+  await securityTab();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Create access token', exact: true }),
+  );
+  await screen.findByText(/catalog unavailable/);
+  expect(screen.queryByLabelText('Token name')).toBeNull();
+  expect(requests.some(({ url }) => url === '/api/verify/methods')).toBe(false);
+  expect(requests.some(({ url }) => url === '/api/user/access_tokens')).toBe(
+    false,
+  );
+});
+
+test('a rejected security proof cannot create a token', async () => {
+  respond = ({ url }) =>
+    url === '/api/verify'
+      ? { success: false, code: 'AUTH_PROOF_EXPIRED', message: 'proof expired' }
+      : undefined;
+  await openPersonalSettings();
+  await securityTab();
+  await selectTokenGrant();
+  await verifyPassword();
+  await screen.findByText(/proof expired/);
+  expect(requests.some(({ url }) => url === '/api/user/access_tokens')).toBe(
+    false,
   );
 });
 

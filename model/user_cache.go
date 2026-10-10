@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -14,16 +15,17 @@ import (
 const userCacheSchemaVersion = 2
 
 type UserBase struct {
-	Id          int    `json:"id"`
-	Group       string `json:"group"`
-	Email       string `json:"email"`
-	Quota       int    `json:"quota"`
-	Status      int    `json:"status"`
-	Role        int    `json:"role"`
-	Username    string `json:"username"`
-	Setting     string `json:"setting"`
-	AuthVersion int64  `json:"-"`
-	CacheSchema int    `json:"-"`
+	Id              int    `json:"id"`
+	Group           string `json:"group"`
+	Email           string `json:"email"`
+	Quota           int    `json:"quota"`
+	Status          int    `json:"status"`
+	Role            int    `json:"role"`
+	Username        string `json:"username"`
+	Setting         string `json:"setting"`
+	AuthVersion     int64  `json:"-"`
+	CacheSchema     int    `json:"-"`
+	QuotaGeneration string `json:"-"`
 }
 
 func (user *UserBase) WriteContext(c *gin.Context) {
@@ -40,7 +42,7 @@ func (user *UserBase) GetSetting() dto.UserSetting {
 	if user.Setting != "" {
 		err := common.Unmarshal([]byte(user.Setting), &setting)
 		if err != nil {
-			common.SysLog("failed to unmarshal setting: " + err.Error())
+			common.SysLog(common.LogText("failed to unmarshal setting: %s", err.Error()))
 		}
 	}
 	return setting
@@ -68,10 +70,71 @@ func invalidateUserCache(userId int) error {
 }
 
 func populateUserCache(user User) error {
+	userQuotaCacheMu.Lock()
+	if batchUserQuotaPendingLocked(user.Id) {
+		userQuotaCacheMu.Unlock()
+		common.SysLog(common.LogText("user quota cache rebuild blocked while batch accounting is pending: user=%d", user.Id))
+		return ErrUserQuotaCacheUnavailable
+	}
 	if !common.RedisEnabled {
+		userQuotaCacheMu.Unlock()
 		return nil
 	}
-	return writeUserCache(user.ToBaseUser(), true)
+	if !common.BatchUpdateEnabled {
+		defer userQuotaCacheMu.Unlock()
+		return writeUserCache(user.ToBaseUser(), true)
+	}
+	state := batchUserQuotaStates[user.Id]
+	if state != nil && state.hydrating {
+		userQuotaCacheMu.Unlock()
+		return ErrUserQuotaCacheUnavailable
+	}
+	if state == nil {
+		state = &batchUserQuotaState{}
+		batchUserQuotaStates[user.Id] = state
+	}
+	state.hydrating = true
+	revision := state.revision
+	userQuotaCacheMu.Unlock()
+	// Callers may hold a snapshot read before the previous batch committed.
+	// Do not hold the cache mutex during DB reads: a purchasing transaction
+	// can hold a connection while waiting to reserve from the cache.
+	fresh, err := GetUserById(user.Id, false)
+	userQuotaCacheMu.Lock()
+	defer userQuotaCacheMu.Unlock()
+	state.hydrating = false
+	defer finishBatchUserQuotaStateLocked(user.Id)
+	if err != nil {
+		return err
+	}
+	if state.revision != revision || batchUserQuotaPendingLocked(user.Id) {
+		return ErrUserQuotaCacheUnavailable
+	}
+	// Another caller may have filled a healthy hash while this DB read ran.
+	// Preserve its live quota, including reservations from other processes.
+	var live UserBase
+	if !state.dirty && common.RedisHGetObj(getUserCacheKey(user.Id), &live) == nil &&
+		live.Id == user.Id && live.CacheSchema == userCacheSchemaVersion && live.AuthVersion > 0 &&
+		live.QuotaGeneration != "" && (state.generation == "" || state.generation == live.QuotaGeneration) {
+		state.generation = live.QuotaGeneration
+		return writeUserCache(fresh.ToBaseUser(), false)
+	}
+	// A batch hash must come from this guarded, fresh snapshot, not an old
+	// hash lacking a generation or an asynchronous credit/debit callback.
+	if err := invalidateUserCache(user.Id); err != nil {
+		return err
+	}
+	if err := writeUserCache(fresh.ToBaseUser(), true); err != nil {
+		return err
+	}
+	generation := common.GetUUID()
+	if err := common.RDB.HSet(context.Background(), getUserCacheKey(user.Id), "QuotaGeneration", generation).Err(); err != nil {
+		state.dirty = true
+		return err
+	}
+	state.generation = generation
+	state.dirty = false
+	return nil
 }
 
 // updateUserCache refreshes non-quota user cache fields.
@@ -91,24 +154,37 @@ func GetUserCache(userId int) (*UserBase, error) {
 	if err == nil {
 		return userCache, nil
 	}
+	userQuotaCacheMu.Lock()
+	pendingQuota := batchUserQuotaPendingLocked(userId)
+	userQuotaCacheMu.Unlock()
+	if pendingQuota || errors.Is(err, ErrUserQuotaCacheUnavailable) || (common.BatchUpdateEnabled && !common.RedisEnabled) {
+		return nil, ErrUserQuotaCacheUnavailable
+	}
 
-	// Redis misses and read failures both fall back to the shared database. A
-	// version fence newer than the database is the one exception: allowing that
-	// snapshot would re-authorize a user while a restrictive update is pending.
+	// Batch quota must not fall back to a database snapshot while deltas are
+	// pending. Authentication version fences retain their existing checks below.
 	user, err := GetUserById(userId, false)
 	if err != nil {
 		return nil, err
 	}
 	if common.RedisEnabled {
 		floor, floorErr := getUserAuthVersionFloor(userId)
+		if floorErr != nil && common.BatchUpdateEnabled {
+			return nil, ErrUserQuotaCacheUnavailable
+		}
 		if floorErr == nil && floor > user.AuthVersion {
 			return nil, ErrUserAuthCachePending
 		}
 		if err := populateUserCache(*user); err != nil {
-			if errors.Is(err, ErrUserAuthCachePending) {
+			if errors.Is(err, ErrUserAuthCachePending) || errors.Is(err, ErrUserQuotaCacheUnavailable) {
 				return nil, err
 			}
-			common.SysLog("failed to synchronously populate user cache: " + err.Error())
+			common.SysLog(common.LogText("failed to synchronously populate user cache: %s", err.Error()))
+			if common.BatchUpdateEnabled {
+				return nil, ErrUserQuotaCacheUnavailable
+			}
+		} else if common.BatchUpdateEnabled {
+			return cacheGetUserBase(userId)
 		}
 	}
 	return user.ToBaseUser(), nil
@@ -127,6 +203,20 @@ func cacheGetUserBase(userId int) (*UserBase, error) {
 	if userCache.Id != userId || userCache.CacheSchema != userCacheSchemaVersion || userCache.AuthVersion <= 0 {
 		return nil, fmt.Errorf("user cache schema is stale")
 	}
+	userQuotaCacheMu.Lock()
+	state := batchUserQuotaStates[userId]
+	blocked := state != nil && (state.dirty || state.hydrating || (state.generation != "" && state.generation != userCache.QuotaGeneration))
+	recoverable := blocked && !state.hydrating && !batchUserQuotaPendingLocked(userId)
+	userQuotaCacheMu.Unlock()
+	if blocked {
+		if recoverable {
+			return nil, fmt.Errorf("user quota cache requires a fresh database snapshot")
+		}
+		return nil, ErrUserQuotaCacheUnavailable
+	}
+	if common.BatchUpdateEnabled && userCache.QuotaGeneration == "" {
+		return nil, fmt.Errorf("user quota cache generation is missing")
+	}
 	floor, err := getUserAuthVersionFloor(userId)
 	if err != nil {
 		return nil, err
@@ -144,6 +234,17 @@ func cacheIncrUserQuota(userId int, delta int64) error {
 	if !common.RedisEnabled {
 		return nil
 	}
+	if common.BatchUpdateEnabled {
+		userQuotaCacheMu.Lock()
+		defer userQuotaCacheMu.Unlock()
+		if state := batchUserQuotaStates[userId]; state != nil {
+			state.revision++
+			state.dirty = true
+		}
+		// Already-committed deltas can arrive after fresh cache hydration.
+		// Queued deltas use queueUserQuotaDelta instead, without this callback.
+		return invalidateUserCache(userId)
+	}
 	_, err := cacheApplyUserQuotaDelta(userId, delta)
 	return err
 }
@@ -152,15 +253,14 @@ func cacheDecrUserQuota(userId int, delta int64) error {
 	return cacheIncrUserQuota(userId, -delta)
 }
 
-// syncCreditUserQuotaCache 在授信事务（充值/兑换等）提交后同步把增量补进缓存
-// 余额。预扣以缓存值为准（存在期间），授信不能绕过它，否则新到账的额度在
-// 缓存过期前不可用；缓存未命中无需处理，下次读取会从已提交的数据库余额水合。
+// Committed credits update synchronous-mode caches. Batch mode invalidates the
+// snapshot; queued deltas must finish before the committed balance is hydrated.
 func syncCreditUserQuotaCache(userId int, quota int, operation string) {
 	if quota <= 0 {
 		return
 	}
 	if err := cacheIncrUserQuota(userId, int64(quota)); err != nil {
-		common.SysLog(fmt.Sprintf("failed to sync %s credit to user quota cache: %s", operation, err.Error()))
+		common.SysLog(common.LogText("failed to sync %s credit to user quota cache: %s", operation, err.Error()))
 	}
 }
 

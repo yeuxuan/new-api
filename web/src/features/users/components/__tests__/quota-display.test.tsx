@@ -261,7 +261,7 @@ async function renderUsersList(
   initialEntry = '/users/'
 ) {
   useAuthStore.getState().auth.setUser({ id: 1, username: 'admin', role: 100 })
-  const response = {
+  const usersResponse = {
     data: {
       success: true,
       data: {
@@ -287,22 +287,24 @@ async function renderUsersList(
       },
     },
   }
-  const get = vi
-    .spyOn(api, 'get')
-    .mockImplementation(async (url) =>
-      url === '/api/user/quota_summary'
-        ? {
-            data: {
-              success: true,
-              data: {
-                total_user_count: 12,
-                total_quota: 500000,
-                total_used_quota: 0,
-              },
-            },
-          }
-        : response
-    )
+  const get = vi.spyOn(api, 'get').mockImplementation(async (url) => {
+    if (url === '/api/user/quota_summary') {
+      return {
+        data: {
+          success: true,
+          data: {
+            total_user_count: 12,
+            total_quota: 500000,
+            total_used_quota: 0,
+          },
+        },
+      }
+    }
+    if (url === '/api/group/') {
+      return { data: { success: true, data: ['default'] } }
+    }
+    return usersResponse
+  })
   const root = createRootRoute()
   const auth = createRoute({ getParentRoute: () => root, id: '_authenticated' })
   const users = createRoute({

@@ -200,7 +200,8 @@ func TestUserRewardsEmailRejectsInvalidAuthorization(t *testing.T) {
 				case "other session":
 					identity.SessionID = "another-session"
 				case "deleted account":
-					require.NoError(t, user.Delete())
+					_, err := user.Delete()
+					require.NoError(t, err)
 				case "attempt limit":
 					for range model.EmailBindingMaxAttempts {
 						_, err := service.FinishEmailBinding(identity, flow.FlowToken, "invalid", "")

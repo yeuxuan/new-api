@@ -779,8 +779,37 @@ func (c *conversationCapture) Finish(ctx *gin.Context, relayErr *types.NewAPIErr
 	metadata["completed_at"] = completedAt.UTC().Format(time.RFC3339Nano)
 	metadata["client_status"] = strconv.Itoa(ctx.Writer.Status())
 	metadata["training_consent"] = "unknown"
+	archiveErrorCode, archiveErrorType := "", ""
+	if relayErr != nil {
+		archiveErrorCode = string(relayErr.GetErrorCode())
+		archiveErrorType = string(relayErr.GetErrorType())
+	}
 	if info.IsStream && info.StreamStatus != nil {
-		endReason := info.StreamStatus.EndReason
+		outcome := info.StreamStatus.OutcomeSnapshot()
+		if outcome.Response != relaycommon.ResponseOutcomeUnknown {
+			metadata["response_outcome"] = string(outcome.Response)
+		}
+		if outcome.ErrorCode != "" {
+			metadata["stream_error_code"] = outcome.ErrorCode
+		}
+		if outcome.ErrorType != "" {
+			metadata["stream_error_type"] = outcome.ErrorType
+		}
+		if outcome.ErrorStatus != 0 {
+			metadata["stream_error_status"] = strconv.Itoa(outcome.ErrorStatus)
+		}
+		if outcome.IncompleteReason != "" {
+			metadata["stream_incomplete_reason"] = outcome.IncompleteReason
+		}
+		// Protocol failures can have billed usage and deliberately return no relay error.
+		if relayErr == nil && outcome.Response == relaycommon.ResponseOutcomeFailed {
+			archiveErrorCode = outcome.ErrorCode
+			if archiveErrorCode == "" {
+				archiveErrorCode = string(types.ErrorCodeBadResponse)
+			}
+			archiveErrorType = string(types.ErrorTypeOpenAIError)
+		}
+		endReason := outcome.EndReason
 		if endReason != relaycommon.StreamEndReasonNone {
 			metadata["stream_end_reason"] = string(endReason)
 			if !info.StreamStatus.IsNormalEnd() {
@@ -807,9 +836,9 @@ func (c *conversationCapture) Finish(ctx *gin.Context, relayErr *types.NewAPIErr
 	if mediaOmitted > 0 {
 		metadata["generated_media_omissions"] = generatedMediaMetadata(mediaOmitted)
 	}
-	if relayErr != nil {
-		metadata["relay_error_code"] = string(relayErr.GetErrorCode())
-		metadata["relay_error_type"] = string(relayErr.GetErrorType())
+	if relayErr != nil || archiveErrorCode != "" {
+		metadata["relay_error_code"] = archiveErrorCode
+		metadata["relay_error_type"] = archiveErrorType
 	}
 	conversion, _ := common.Marshal(info.RequestConversionChain)
 	metadata["request_conversion_chain"] = string(conversion)
@@ -848,6 +877,7 @@ func (c *conversationCapture) Finish(ctx *gin.Context, relayErr *types.NewAPIErr
 		CreatedAt:            c.startedAt.Unix(),
 		CompletedAt:          completedAt.Unix(),
 		StatusCode:           ctx.Writer.Status(),
+		ErrorCode:            archiveErrorCode,
 		IsStream:             info.IsStream,
 		Complete:             complete,
 		TrainingConsent:      "unknown",
@@ -858,9 +888,6 @@ func (c *conversationCapture) Finish(ctx *gin.Context, relayErr *types.NewAPIErr
 		StoredBytes:          result.StoredBytes,
 		RequestConversion:    requestConversion,
 		ArchiveFormatVersion: conversationarchive.CurrentVersion,
-	}
-	if relayErr != nil {
-		archive.ErrorCode = string(relayErr.GetErrorCode())
 	}
 	if err := model.InsertConversationArchive(archive); err != nil {
 		logger.LogError(ctx, "conversation archive index insert failed: "+err.Error())

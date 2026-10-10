@@ -18,6 +18,9 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { beforeAll, beforeEach, expect, mock, test } from 'bun:test';
 import axios from 'axios';
+import i18next from 'i18next';
+import en from '../../i18n/locales/en.json';
+import zh from '../../i18n/locales/zh-CN.json';
 import {
   applyAuthRotation,
   clearAuthSession,
@@ -101,6 +104,54 @@ test('keeps login tokens in memory and stores only user metadata', () => {
   expect(getAuthState().access_token).toBe('test-access');
   clearAuthSession();
   expect(getAuthState()).toBeNull();
+});
+
+test('translates typed response text without changing payment or boolean status contracts', async () => {
+  await i18next.init({
+    lng: 'zh-CN',
+    keySeparator: false,
+    resources: { en, 'zh-CN': zh },
+  });
+  const messages = [
+    {
+      success: false,
+      code: 'REJECTED',
+      message: 'Email binding bonus $1',
+      message_key: 'Email binding bonus {{quota}}',
+      message_params: { quota: '$1' },
+    },
+    {
+      message: 'error',
+      data: 'Creem top-up is not available',
+      message_key: 'Creem top-up is not available',
+    },
+    {
+      success: true,
+      data: {
+        message: 'Email binding bonus $1',
+        message_key: 'Email binding bonus {{quota}}',
+        message_params: { quota: '$1' },
+      },
+    },
+  ];
+  for (const body of messages) {
+    respond = (config) => reply(config, structuredClone(body));
+    const { data } = await API.post('/api/test/messages', undefined, {
+      skipAuthRefresh: true,
+    });
+    expect(data.success).toBe(body.success);
+    expect(data.code).toBe(body.code);
+    expect(data.message_key).toBe(body.message_key);
+    if (body.message === 'error') {
+      expect(data.message).toBe('error');
+      expect(data.data).toBe('Creem 充值不可用');
+    } else if (body.success === true) {
+      expect(data.data.message).toBe('绑定邮箱赠送 $1');
+    } else {
+      expect(data.message).toBe('绑定邮箱赠送 $1');
+      expect(data.message_params).toEqual({ quota: '$1' });
+    }
+  }
 });
 
 test('accepts rotation only for the active session and valid expiry', () => {

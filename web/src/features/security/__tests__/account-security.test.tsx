@@ -26,9 +26,13 @@ import {
   within,
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { createInstance } from 'i18next'
+import { I18nextProvider, initReactI18next } from 'react-i18next'
 import { toast } from 'sonner'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+import en from '@/i18n/locales/en.json'
+import zh from '@/i18n/locales/zh.json'
 import { api } from '@/lib/api'
 import { STATUS_QUERY_KEY } from '@/lib/status-query'
 import { useAuthStore } from '@/stores/auth-store'
@@ -38,6 +42,7 @@ import { DeleteAccountDialog } from '../components/dialogs/delete-account-dialog
 import { EmailBindDialog } from '../components/dialogs/email-bind-dialog'
 import { TwoFABackupDialog } from '../components/dialogs/two-fa-backup-dialog'
 import { TwoFADisableDialog } from '../components/dialogs/two-fa-disable-dialog'
+import { TwoFASetupDialog } from '../components/dialogs/two-fa-setup-dialog'
 
 const { navigate } = vi.hoisted(() => ({ navigate: vi.fn() }))
 vi.mock('@tanstack/react-router', async (importOriginal) => ({
@@ -679,93 +684,192 @@ it.each([
   { quota: 500000, expires: 0, warning: false, rejected: false },
   { quota: 0, expires: 0, warning: false, rejected: false },
   { quota: 500000, expires: 0, warning: false, rejected: true },
-])('confirms verified email changes and reports only server-awarded quota ($quota, $expires, $rejected)', async ({ quota, expires, warning, rejected }) => {
-  const successToast = vi.spyOn(toast, 'success')
-  const warningToast = vi.spyOn(toast, 'warning')
-  vi.spyOn(api, 'get').mockResolvedValue({
-    data: {
-      success: true,
+])(
+  'confirms verified email changes and reports only server-awarded quota ($quota, $expires, $rejected)',
+  async ({ quota, expires, warning, rejected }) => {
+    const successToast = vi.spyOn(toast, 'success')
+    const warningToast = vi.spyOn(toast, 'warning')
+    vi.spyOn(api, 'get').mockResolvedValue({
       data: {
-        scope: 'account.binding.bind',
-        methods: [{ method: 'password', available: true }],
-        oauth_providers: [],
-        password_encryption_enabled: false,
+        success: true,
+        data: {
+          scope: 'account.binding.bind',
+          methods: [{ method: 'password', available: true }],
+          oauth_providers: [],
+          password_encryption_enabled: false,
+        },
       },
-    },
-  })
-  const post = vi.spyOn(api, 'post').mockImplementation(async (url) => {
-    if (url === '/api/verify') {
+    })
+    const post = vi.spyOn(api, 'post').mockImplementation(async (url) => {
+      if (url === '/api/verify') {
+        return {
+          data: {
+            success: true,
+            data: {
+              scope: 'account.binding.bind',
+              method: 'password',
+              proof_token: 'email-proof',
+              expires_at: Math.floor(Date.now() / 1000) + 60,
+            },
+          },
+        }
+      }
+      if (url === '/api/oauth/email/bind/start') {
+        return {
+          data: {
+            success: true,
+            data: {
+              flow_token: 'email-flow',
+              email: 'new@example.com',
+              current_email: 'o***@example.com',
+              old_email_required: true,
+              expires_at: Math.floor(Date.now() / 1000) + 600,
+              resend_at: Math.floor(Date.now() / 1000) + 60,
+            },
+          },
+        }
+      }
       return {
         data: {
-          success: true,
+          success: !rejected,
+          code: rejected ? 'AUTH_FLOW_INVALID' : undefined,
           data: {
-            scope: 'account.binding.bind',
-            method: 'password',
-            proof_token: 'email-proof',
-            expires_at: Math.floor(Date.now() / 1000) + 60,
+            quota_awarded: quota,
+            expires_at: expires,
+            notification_warning: warning,
           },
         },
       }
-    }
-    if (url === '/api/oauth/email/bind/start') {
-      return {
-        data: {
-          success: true,
-          data: {
-            flow_token: 'email-flow',
-            email: 'new@example.com',
-            current_email: 'o***@example.com',
-            old_email_required: true,
-            expires_at: Math.floor(Date.now() / 1000) + 600,
-            resend_at: Math.floor(Date.now() / 1000) + 60,
-          },
-        },
+    })
+    const onSuccess = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <EmailBindDialog
+        open
+        currentEmail='old@example.com'
+        onOpenChange={vi.fn()}
+        onSuccess={onSuccess}
+      />
+    )
+    await user.type(screen.getByLabelText('Email Address'), 'new@example.com')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.type(
+      await screen.findByLabelText('Password', { selector: 'input' }),
+      'current-password'
+    )
+    await user.click(screen.getByRole('button', { name: 'Verify' }))
+    expect(await screen.findByLabelText('Email Address')).toBeDisabled()
+    await user.type(
+      await screen.findByLabelText('New email verification code'),
+      '123456'
+    )
+    await user.type(
+      screen.getByLabelText('Current email verification code'),
+      '654321'
+    )
+    await user.click(screen.getByRole('button', { name: 'Confirm email' }))
+    if (rejected) {
+      expect(
+        await screen.findByRole('button', { name: 'Start again' })
+      ).toBeVisible()
+      expect(onSuccess).not.toHaveBeenCalled()
+      expect(successToast).not.toHaveBeenCalled()
+      expect(
+        post.mock.calls.filter(([url]) => url === '/api/oauth/email/bind')
+      ).toHaveLength(1)
+      expect(
+        screen.queryByRole('button', { name: 'Confirm email' })
+      ).not.toBeInTheDocument()
+    } else {
+      await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce())
+      expect(successToast).toHaveBeenCalledWith(
+        expect.stringContaining(
+          quota > 0 ? 'bonus quota' : 'Email bound successfully!'
+        )
+      )
+      if (quota > 0) {
+        expect(successToast).toHaveBeenCalledWith(
+          expect.stringContaining(expires > 0 ? 'valid until' : 'never expires')
+        )
+      }
+      if (warning) {
+        expect(warningToast).toHaveBeenCalledWith(
+          'The change succeeded, but the notification email could not be sent.'
+        )
       }
     }
-    return { data: { success: !rejected, code: rejected ? 'AUTH_FLOW_INVALID' : undefined, data: { quota_awarded: quota, expires_at: expires, notification_warning: warning } } }
+    expect(post).toHaveBeenCalledWith(
+      '/api/oauth/email/bind',
+      { flow_token: 'email-flow', new_code: '123456', old_code: '654321' },
+      expect.objectContaining({ singleUseAuthorization: true })
+    )
+  }
+)
+
+it('translates the delete confirmation as a sentence and preserves the literal username on language change', async () => {
+  const i18n = createInstance()
+  await i18n.use(initReactI18next).init({
+    lng: 'zh',
+    fallbackLng: false,
+    nsSeparator: false,
+    resources: { en, zh },
+    interpolation: { escapeValue: false },
   })
-  const onSuccess = vi.fn()
+  const username = 'admin <b>name</b>'
+  render(
+    <I18nextProvider i18n={i18n}>
+      <DeleteAccountDialog open username={username} onOpenChange={vi.fn()} />
+    </I18nextProvider>
+  )
+  expect(
+    screen.getByRole('textbox', { name: `输入 ${username} 以确认` })
+  ).toBeVisible()
+  await act(() => i18n.changeLanguage('en'))
+  expect(
+    screen.getByRole('textbox', { name: `Type ${username} to confirm` })
+  ).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Delete Account' })).toBeDisabled()
+})
+
+it('shows complete translated 2FA step descriptions and updates every step on language change', async () => {
+  const i18n = createInstance()
+  await i18n.use(initReactI18next).init({
+    lng: 'zh',
+    fallbackLng: false,
+    nsSeparator: false,
+    resources: { en, zh },
+    interpolation: { escapeValue: false },
+  })
   const user = userEvent.setup()
   render(
-    <EmailBindDialog
-      open
-      currentEmail='old@example.com'
-      onOpenChange={vi.fn()}
-      onSuccess={onSuccess}
-    />
+    <I18nextProvider i18n={i18n}>
+      <TwoFASetupDialog
+        open
+        setupData={{
+          secret: 'EXAMPLE',
+          qr_code_data: 'otpauth://totp/example',
+          backup_codes: ['EXAMPLE-CODE'],
+          flow_token: 'example-flow',
+          expires_at: 1234567890,
+        }}
+        loading={false}
+        initializing={false}
+        onCancel={vi.fn()}
+        onEnable={vi.fn()}
+      />
+    </I18nextProvider>
   )
-  await user.type(screen.getByLabelText('Email Address'), 'new@example.com')
-  await user.click(screen.getByRole('button', { name: 'Continue' }))
-  await user.type(
-    await screen.findByLabelText('Password', { selector: 'input' }),
-    'current-password'
-  )
-  await user.click(screen.getByRole('button', { name: 'Verify' }))
-  expect(await screen.findByLabelText('Email Address')).toBeDisabled()
-  await user.type(
-    await screen.findByLabelText('New email verification code'),
-    '123456'
-  )
-  await user.type(
-    screen.getByLabelText('Current email verification code'),
-    '654321'
-  )
-  await user.click(screen.getByRole('button', { name: 'Confirm email' }))
-  if (rejected) {
-    expect(await screen.findByRole('button', { name: 'Start again' })).toBeVisible()
-    expect(onSuccess).not.toHaveBeenCalled()
-    expect(successToast).not.toHaveBeenCalled()
-    expect(post.mock.calls.filter(([url]) => url === '/api/oauth/email/bind')).toHaveLength(1)
-    expect(screen.queryByRole('button', { name: 'Confirm email' })).not.toBeInTheDocument()
-  } else {
-    await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce())
-    expect(successToast).toHaveBeenCalledWith(expect.stringContaining(quota > 0 ? 'bonus quota' : 'Email bound successfully!'))
-    if (quota > 0) expect(successToast).toHaveBeenCalledWith(expect.stringContaining(expires > 0 ? 'valid until' : 'never expires'))
-    if (warning) expect(warningToast).toHaveBeenCalledWith('The change succeeded, but the notification email could not be sent.')
+  const descriptions = [
+    ['第 1 步，共 3 步：扫描二维码', 'Step 1 of 3: Scan QR Code'],
+    ['第 2 步，共 3 步：保存备份代码', 'Step 2 of 3: Save Backup Codes'],
+    ['第 3 步，共 3 步：验证设置', 'Step 3 of 3: Verify Setup'],
+  ]
+  for (const [chinese, english] of descriptions) {
+    await act(() => i18n.changeLanguage('zh'))
+    expect(screen.getByRole('dialog')).toHaveAccessibleDescription(chinese)
+    await act(() => i18n.changeLanguage('en'))
+    expect(screen.getByRole('dialog')).toHaveAccessibleDescription(english)
+    const next = screen.queryByRole('button', { name: 'Next' })
+    if (next) await user.click(next)
   }
-  expect(post).toHaveBeenCalledWith(
-    '/api/oauth/email/bind',
-    { flow_token: 'email-flow', new_code: '123456', old_code: '654321' },
-    expect.objectContaining({ singleUseAuthorization: true })
-  )
 })

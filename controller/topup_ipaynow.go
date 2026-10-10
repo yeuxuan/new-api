@@ -57,7 +57,7 @@ func IsIPayNowEnabled() bool {
 func RequestIPayNowPay(c *gin.Context) {
 	var req IPayNowPayRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(200, gin.H{"message": "error", "data": "参数错误"})
+		paymentError(c, common.NewMessage("Invalid parameters"))
 		return
 	}
 	iPayNowAdaptor.RequestPay(c, &req)
@@ -66,7 +66,7 @@ func RequestIPayNowPay(c *gin.Context) {
 func RequestIPayNowAmount(c *gin.Context) {
 	var req IPayNowPayRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
+		paymentError(c, common.NewMessage("Invalid parameters"))
 		return
 	}
 	iPayNowAdaptor.RequestAmount(c, &req)
@@ -74,7 +74,7 @@ func RequestIPayNowAmount(c *gin.Context) {
 
 func (*IPayNowAdaptor) RequestAmount(c *gin.Context, req *IPayNowPayRequest) {
 	if req.Amount < getIPayNowMinTopup() {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", getIPayNowMinTopup())})
+		paymentError(c, common.NewMessage("Top-up amount cannot be less than {{min}}", map[string]any{"min": getIPayNowMinTopup()}))
 		return
 	}
 
@@ -84,13 +84,13 @@ func (*IPayNowAdaptor) RequestAmount(c *gin.Context, req *IPayNowPayRequest) {
 	}
 	group, err := model.GetUserGroup(userId, true)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
+		paymentError(c, common.NewMessage("Failed to get the user group"))
 		return
 	}
 
 	payMoney := getPayMoney(req.Amount, group)
 	if payMoney <= 0.01 {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
+		paymentError(c, common.NewMessage("Payment amount is too low"))
 		return
 	}
 
@@ -106,15 +106,15 @@ func (*IPayNowAdaptor) RequestPay(c *gin.Context, req *IPayNowPayRequest) {
 		return
 	}
 	if req.PaymentMethod != PaymentMethodIPayNow {
-		c.JSON(200, gin.H{"message": "error", "data": "不支持的支付渠道"})
+		paymentError(c, common.NewMessage("Unsupported payment channel"))
 		return
 	}
 	if !IsIPayNowEnabled() {
-		c.JSON(200, gin.H{"message": "error", "data": "当前管理员未配置 iPayNow 支付"})
+		paymentError(c, common.NewMessage("iPayNow payment is not configured"))
 		return
 	}
 	if req.Amount < getIPayNowMinTopup() {
-		c.JSON(200, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", getIPayNowMinTopup())})
+		paymentError(c, common.NewMessage("Top-up amount cannot be less than {{min}}", map[string]any{"min": getIPayNowMinTopup()}))
 		return
 	}
 
@@ -124,20 +124,20 @@ func (*IPayNowAdaptor) RequestPay(c *gin.Context, req *IPayNowPayRequest) {
 	}
 	group, err := model.GetUserGroup(userId, true)
 	if err != nil {
-		c.JSON(200, gin.H{"message": "error", "data": "获取用户分组失败"})
+		paymentError(c, common.NewMessage("Failed to get the user group"))
 		return
 	}
 
 	payMoney := getPayMoney(req.Amount, group)
 	if payMoney < 0.01 {
-		c.JSON(200, gin.H{"message": "error", "data": "充值金额过低"})
+		paymentError(c, common.NewMessage("Payment amount is too low"))
 		return
 	}
 
 	// 以"分"为单位向 iPayNow 提交
 	amountFen := decimal.NewFromFloat(payMoney).Mul(decimal.NewFromInt(100)).Round(0).IntPart()
 	if amountFen <= 0 {
-		c.JSON(200, gin.H{"message": "error", "data": "充值金额过低"})
+		paymentError(c, common.NewMessage("Payment amount is too low"))
 		return
 	}
 
@@ -164,7 +164,7 @@ func (*IPayNowAdaptor) RequestPay(c *gin.Context, req *IPayNowPayRequest) {
 	}
 	if err := topUp.Insert(); err != nil {
 		common.SysError("iPayNow 创建充值订单失败: " + err.Error())
-		c.JSON(200, gin.H{"message": "error", "data": "创建订单失败"})
+		paymentError(c, common.NewMessage("Failed to create order"))
 		return
 	}
 
@@ -184,7 +184,7 @@ func (*IPayNowAdaptor) RequestPay(c *gin.Context, req *IPayNowPayRequest) {
 		common.SysError("iPayNow 下单失败: " + err.Error())
 		topUp.Status = common.TopUpStatusExpired
 		_ = topUp.Update()
-		c.JSON(200, gin.H{"message": "error", "data": "拉起支付失败"})
+		paymentError(c, common.NewMessage("Failed to start payment"))
 		return
 	}
 
@@ -193,7 +193,7 @@ func (*IPayNowAdaptor) RequestPay(c *gin.Context, req *IPayNowPayRequest) {
 		common.SysError("iPayNow 响应未返回 tn 字段: " + common.GetJsonString(resp))
 		topUp.Status = common.TopUpStatusExpired
 		_ = topUp.Update()
-		c.JSON(200, gin.H{"message": "error", "data": "拉起支付失败"})
+		paymentError(c, common.NewMessage("Failed to start payment"))
 		return
 	}
 
@@ -320,17 +320,17 @@ const ipaynowActiveQueryCooldownSec int64 = 3
 func QueryIPayNowOrder(c *gin.Context) {
 	tradeNo := c.Param("trade_no")
 	if tradeNo == "" {
-		common.ApiErrorMsg(c, "未提供订单号")
+		common.ApiErrorT(c, "Order number not provided")
 		return
 	}
 
 	topUp := model.GetTopUpByTradeNo(tradeNo)
 	if topUp == nil {
-		common.ApiErrorMsg(c, "订单不存在")
+		common.ApiErrorT(c, "Top-up order does not exist")
 		return
 	}
 	if topUp.UserId != c.GetInt("id") {
-		common.ApiErrorMsg(c, "无权访问该订单")
+		common.ApiErrorT(c, "No permission to access this order")
 		return
 	}
 

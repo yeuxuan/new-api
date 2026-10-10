@@ -1,7 +1,6 @@
 package model
 
 import (
-	"errors"
 	"fmt"
 	"math/rand"
 	"slices"
@@ -58,10 +57,10 @@ func HasCheckedInToday(userId int) (bool, error) {
 func UserCheckin(userId int) (*Checkin, error) {
 	setting := operation_setting.GetCheckinSetting()
 	if !setting.Enabled {
-		return nil, errors.New("签到功能未启用")
+		return nil, common.NewMessage("Check-in feature is not enabled")
 	}
 	if setting.MinQuota <= 0 || setting.MaxQuota < setting.MinQuota || setting.MaxQuota > common.MaxWalletQuota {
-		return nil, errors.New("签到奖励额度配置无效")
+		return nil, common.NewMessage("Invalid check-in reward quota configuration")
 	}
 
 	// 检查今天是否已签到
@@ -70,7 +69,7 @@ func UserCheckin(userId int) (*Checkin, error) {
 		return nil, err
 	}
 	if hasChecked {
-		return nil, errors.New("今日已签到")
+		return nil, common.NewMessage("Already checked in today")
 	}
 
 	// 计算随机额度奖励
@@ -98,11 +97,11 @@ func userCheckinWithTransaction(checkin *Checkin, userId int, quotaAwarded int) 
 	expiresAt := operation_setting.CalcBonusQuotaExpiresAt(time.Now().Unix())
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(checkin).Error; err != nil {
-			return errors.New("签到失败，请稍后重试")
+			return common.NewMessage("Check-in failed, please try again later")
 		}
 		_, err := CreateBonusQuotaGrantTx(tx, userId, BonusQuotaSourceCheckin, checkin.CheckinDate, quotaAwarded, expiresAt)
 		if err != nil {
-			return errors.New("签到失败：创建奖励额度出错")
+			return common.NewMessage("Check-in failed: quota update error")
 		}
 		return nil
 	})
@@ -296,7 +295,9 @@ func BatchClearCheckinQuota(startDate, endDate string, userIds []int, _ string) 
 	for _, userID := range ids {
 		// Operator details belong to the route's independent administrator audit.
 		RecordLogWithQuota(userID, LogTypeSystem,
-			fmt.Sprintf("清除了 %s 至 %s 期间的签到奖励额度 %s", startDate, endDate, logger.LogQuota(cleared[userID])), -cleared[userID])
+			common.NewMessage("Cleared check-in rewards from {{start}} to {{end}}, quota: {{quota}}", map[string]any{
+				"start": startDate, "end": endDate, "quota": logger.FormatQuota(cleared[userID]),
+			}), -cleared[userID])
 	}
 	return len(cleared), totalCleared, nil
 }

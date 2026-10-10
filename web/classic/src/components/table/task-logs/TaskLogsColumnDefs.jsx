@@ -301,15 +301,10 @@ export const getTaskLogsColumns = ({
         const displayText = String(record.username || userId || '?');
         return (
           <Space>
-            <Avatar
-              size='extra-small'
-              color={stringToColor(displayText)}
-            >
+            <Avatar size='extra-small' color={stringToColor(displayText)}>
               {displayText.slice(0, 1)}
             </Avatar>
-            <Typography.Text>
-              {displayText}
-            </Typography.Text>
+            <Typography.Text>{displayText}</Typography.Text>
           </Space>
         );
       },
@@ -387,19 +382,20 @@ export const getTaskLogsColumns = ({
       dataIndex: 'fail_reason',
       fixed: 'right',
       render: (text, record, index) => {
-        // Suno audio preview
+        if (record.status === 'SUCCESS' && record.result_discarded === true) {
+          return t('Result not retained');
+        }
+
+        // Successful rows no longer include the upstream media snapshot.
         const isSunoSuccess =
-          record.platform === 'suno' &&
-          record.status === 'SUCCESS' &&
-          Array.isArray(record.data) &&
-          record.data.some((c) => c.audio_url);
+          record.platform === 'suno' && record.status === 'SUCCESS';
         if (isSunoSuccess) {
           return (
             <a
               href='#'
               onClick={(e) => {
                 e.preventDefault();
-                openAudioModal(record.data);
+                openAudioModal(record);
               }}
             >
               {t('点击预览音乐')}
@@ -407,23 +403,22 @@ export const getTaskLogsColumns = ({
           );
         }
 
-        // 视频预览：优先使用 result_url，兼容旧数据 fail_reason 中的 URL
         const isVideoTask =
+          record.legacy_video_available === true ||
+          String(record.platform) === '62' ||
           record.action === TASK_ACTION_GENERATE ||
           record.action === TASK_ACTION_TEXT_GENERATE ||
           record.action === TASK_ACTION_FIRST_TAIL_GENERATE ||
           record.action === TASK_ACTION_REFERENCE_GENERATE ||
           record.action === TASK_ACTION_REMIX_GENERATE;
         const isSuccess = record.status === 'SUCCESS';
-        const resultUrl = record.result_url;
-        const hasResultUrl = typeof resultUrl === 'string' && /^https?:\/\//.test(resultUrl);
-        if (isSuccess && isVideoTask && hasResultUrl) {
+        if (isSuccess && isVideoTask) {
           return (
             <a
               href='#'
               onClick={(e) => {
                 e.preventDefault();
-                openVideoModal(resultUrl);
+                openVideoModal(record);
               }}
             >
               {t('点击预览视频')}
@@ -433,15 +428,16 @@ export const getTaskLogsColumns = ({
         if (!text) {
           return t('无');
         }
+        const reason = t(text, { skipInterpolation: true });
         return (
           <Typography.Text
             ellipsis={{ showTooltip: true }}
             style={{ width: 100 }}
             onClick={() => {
-              openContentModal(text);
+              openContentModal(reason);
             }}
           >
-            {text}
+            {reason}
           </Typography.Text>
         );
       },

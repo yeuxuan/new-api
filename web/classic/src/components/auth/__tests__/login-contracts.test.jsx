@@ -24,6 +24,11 @@ import {
   verifyLoginChallenge,
 } from '../loginFlow';
 import { API } from '../../../helpers';
+import { getServerMessage, showError } from '../../../helpers/utils';
+import { Toast } from '@douyinfe/semi-ui';
+import i18next from 'i18next';
+import en from '../../../i18n/locales/en.json';
+import zh from '../../../i18n/locales/zh-CN.json';
 
 vi.mock('../../../helpers', () => ({
   API: { post: vi.fn(), get: vi.fn() },
@@ -74,6 +79,31 @@ beforeEach(() => {
 });
 
 describe('Classic login contracts', () => {
+  it('translates typed errors with display-ready quota parameters without exposing the Axios message', async () => {
+    await i18next.init({
+      lng: 'zh-CN',
+      keySeparator: false,
+      resources: { en, 'zh-CN': zh },
+    });
+    const body = {
+      message: 'Email binding bonus $1',
+      message_key: 'Email binding bonus {{quota}}',
+      message_params: { quota: '$1' },
+    };
+    expect(getServerMessage(body)).toBe('绑定邮箱赠送 $1');
+    expect(getServerMessage('provider text {{quota}}')).toBe(
+      'provider text {{quota}}',
+    );
+    const errorToast = vi.spyOn(Toast, 'error').mockImplementation(() => {});
+    showError({
+      name: 'AxiosError',
+      message: 'opaque transport failure',
+      response: { status: 400, data: body },
+    });
+    expect(errorToast).toHaveBeenCalledWith('错误：绑定邮箱赠送 $1');
+    errorToast.mockRestore();
+  });
+
   it('does not establish a session from a pending or malformed challenge', () => {
     const dispatch = vi.fn();
     expect(isLoginChallenge(challenge)).toBe(true);
@@ -154,6 +184,99 @@ describe('Classic login contracts', () => {
         skipAuthRefresh: true,
       }),
     );
+  });
+
+  it('uses a selected historical RP verbatim and remembers it only after successful login', async () => {
+    const rpID = 'WWW.example.com';
+    const onDomains = vi.fn();
+    API.post
+      .mockResolvedValueOnce(
+        ok({
+          ...passkeyOptions,
+          options: {
+            publicKey: {
+              challenge: 'Y2hhbGxlbmdl',
+              rpId: rpID,
+              userVerification: 'required',
+            },
+          },
+          rp_ids: ['example.com', rpID],
+        }),
+      )
+      .mockResolvedValueOnce(ok(bundle));
+    await expect(
+      loginWithPasskey(undefined, undefined, { rpID, onDomains }),
+    ).resolves.toEqual(bundle);
+    expect(API.post).toHaveBeenNthCalledWith(
+      1,
+      '/api/user/passkey/login/begin',
+      { rp_id: rpID },
+      expect.any(Object),
+    );
+    expect(onDomains).toHaveBeenCalledWith({
+      rpID,
+      rpIDs: ['example.com', rpID],
+    });
+    expect(navigator.credentials.get).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publicKey: expect.objectContaining({
+          rpId: rpID,
+          userVerification: 'required',
+        }),
+      }),
+    );
+    expect(localStorage.getItem('passkey:last-successful-rp-id')).toBe(rpID);
+  });
+
+  it('clears an unavailable remembered RP before one default begin, without retrying a browser prompt', async () => {
+    localStorage.setItem('passkey:last-successful-rp-id', 'old.example.com');
+    API.post
+      .mockResolvedValueOnce({
+        data: { success: false, code: 'PASSKEY_RP_ID_UNAVAILABLE' },
+      })
+      .mockResolvedValueOnce(ok(passkeyOptions))
+      .mockResolvedValueOnce(ok(bundle));
+    await expect(loginWithPasskey()).resolves.toEqual(bundle);
+    expect(API.post).toHaveBeenNthCalledWith(
+      1,
+      '/api/user/passkey/login/begin',
+      { rp_id: 'old.example.com' },
+      expect.any(Object),
+    );
+    expect(API.post).toHaveBeenNthCalledWith(
+      2,
+      '/api/user/passkey/login/begin',
+      undefined,
+      expect.any(Object),
+    );
+    expect(navigator.credentials.get).toHaveBeenCalledOnce();
+    expect(localStorage.getItem('passkey:last-successful-rp-id')).toBe(
+      'localhost',
+    );
+  });
+
+  it('does not fall back from an explicitly selected unavailable RP', async () => {
+    API.post.mockResolvedValueOnce({
+      data: { success: false, code: 'PASSKEY_RP_ID_UNAVAILABLE' },
+    });
+    await expect(
+      loginWithPasskey(undefined, undefined, { rpID: 'old.example.com' }),
+    ).rejects.toThrow();
+    expect(API.post).toHaveBeenCalledOnce();
+    expect(navigator.credentials.get).not.toHaveBeenCalled();
+  });
+
+  it('does not remember an RP after rejected finish or issue requests for an aborted operation', async () => {
+    API.post
+      .mockResolvedValueOnce(ok(passkeyOptions))
+      .mockRejectedValueOnce(new Error('rejected'));
+    await expect(loginWithPasskey()).rejects.toThrow();
+    expect(localStorage.getItem('passkey:last-successful-rp-id')).toBeNull();
+    API.post.mockReset();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(loginWithPasskey(controller.signal)).rejects.toThrow();
+    expect(API.post).not.toHaveBeenCalled();
   });
 
   it('binds Passkey second-factor completion to both login and Passkey flows', async () => {

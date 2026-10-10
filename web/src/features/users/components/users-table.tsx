@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import type { OnChangeFn, SortingState } from '@tanstack/react-table'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -32,9 +32,12 @@ import { ErrorState } from '@/components/error-state'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { formatQuota } from '@/lib/format'
-import { createServerError } from '@/lib/server-error-message'
+import {
+  createServerError,
+  requireServerSuccess,
+} from '@/lib/server-error-message'
 
-import { getUsers, searchUsers, getUserQuotaSummary } from '../api'
+import { getGroups, getUsers, searchUsers, getUserQuotaSummary } from '../api'
 import {
   USER_STATUS,
   getUserStatusOptions,
@@ -88,7 +91,7 @@ export function UsersTable() {
     columnFilters: [
       { columnId: 'status', searchKey: 'status', type: 'array' },
       { columnId: 'role', searchKey: 'role', type: 'array' },
-      { columnId: 'group', searchKey: 'group', type: 'string' },
+      { columnId: 'group', searchKey: 'group', type: 'array' },
     ],
   })
   const statusFilter =
@@ -100,13 +103,20 @@ export function UsersTable() {
       | string[]
       | undefined) ?? []
   const groupFilter =
-    (columnFilters.find((filter) => filter.id === 'group')?.value as string) ??
-    ''
+    (columnFilters.find((filter) => filter.id === 'group')?.value as
+      | string[]
+      | undefined) ?? []
+
+  const { data: groupsData } = useQuery({
+    queryKey: ['groups'],
+    queryFn: async () => requireServerSuccess(await getGroups()),
+    staleTime: 5 * 60 * 1000,
+  })
 
   const searchKeyword = (globalFilter ?? '').trim()
   const hasKeyword = Boolean(searchKeyword)
   const hasColumnFilter =
-    statusFilter.length > 0 || roleFilter.length > 0 || Boolean(groupFilter)
+    statusFilter.length > 0 || roleFilter.length > 0 || groupFilter.length > 0
   const useServerSearch = hasKeyword || hasColumnFilter
 
   const sortParams = useMemo(() => {
@@ -157,7 +167,7 @@ export function UsersTable() {
             keyword: searchKeyword,
             status: statusFilter[0] ?? '',
             role: roleFilter[0] ?? '',
-            group: groupFilter,
+            group: groupFilter[0] ?? '',
           })
         : await getUsers(params)
 
@@ -211,6 +221,36 @@ export function UsersTable() {
     ensurePageInRange,
   })
 
+  let quotaSummary: ReactNode = null
+  if (summary.isError) {
+    quotaSummary = (
+      <ErrorState
+        className='min-h-0 py-4'
+        onRetry={() => void summary.refetch()}
+      />
+    )
+  } else if (summary.data?.data) {
+    quotaSummary = (
+      <dl
+        aria-label={t('All Users')}
+        className='text-muted-foreground flex flex-wrap gap-x-6 gap-y-2 text-sm'
+      >
+        <div className='flex gap-2'>
+          <dt>{t('All Users')}</dt>
+          <dd>{summary.data.data.total_user_count}</dd>
+        </div>
+        <div className='flex gap-2'>
+          <dt>{t('Available Balance')}</dt>
+          <dd>{formatQuota(summary.data.data.total_quota)}</dd>
+        </div>
+        <div className='flex gap-2'>
+          <dt>{t('Total Used')}</dt>
+          <dd>{formatQuota(summary.data.data.total_used_quota)}</dd>
+        </div>
+      </dl>
+    )
+  }
+
   return (
     <DataTablePage
       table={table}
@@ -239,6 +279,15 @@ export function UsersTable() {
             options: getUserRoleOptions(t),
             singleSelect: true,
           },
+          {
+            columnId: 'group',
+            title: t('User Group'),
+            options: (groupsData?.data ?? []).map((group) => ({
+              label: group,
+              value: group,
+            })),
+            singleSelect: true,
+          },
         ],
       }}
       getRowClassName={(row, { isMobile }) => {
@@ -246,32 +295,7 @@ export function UsersTable() {
         return isMobile ? DISABLED_ROW_MOBILE : DISABLED_ROW_DESKTOP
       }}
       bulkActions={<DataTableBulkActions table={table} />}
-      afterTable={
-        summary.isError ? (
-          <ErrorState
-            className='min-h-0 py-4'
-            onRetry={() => void summary.refetch()}
-          />
-        ) : summary.data?.data ? (
-          <dl
-            aria-label={t('All Users')}
-            className='text-muted-foreground flex flex-wrap gap-x-6 gap-y-2 text-sm'
-          >
-            <div className='flex gap-2'>
-              <dt>{t('All Users')}</dt>
-              <dd>{summary.data.data.total_user_count}</dd>
-            </div>
-            <div className='flex gap-2'>
-              <dt>{t('Available Balance')}</dt>
-              <dd>{formatQuota(summary.data.data.total_quota)}</dd>
-            </div>
-            <div className='flex gap-2'>
-              <dt>{t('Total Used')}</dt>
-              <dd>{formatQuota(summary.data.data.total_used_quota)}</dd>
-            </div>
-          </dl>
-        ) : null
-      }
+      afterTable={quotaSummary}
     />
   )
 }

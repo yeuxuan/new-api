@@ -17,7 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { UserContext } from '../../context/User';
 import { StatusContext } from '../../context/Status';
@@ -40,6 +47,7 @@ import {
   Form,
   Icon,
   Modal,
+  Select,
 } from '@douyinfe/semi-ui';
 import Title from '@douyinfe/semi-ui/lib/es/typography/title';
 import Text from '@douyinfe/semi-ui/lib/es/typography/text';
@@ -102,6 +110,10 @@ const LoginForm = () => {
   const loginRequest = useRef(null);
   const [passkeySupported, setPasskeySupported] = useState(false);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const [passkeyDomains, setPasskeyDomains] = useState(null);
+  const [passkeyRPID, setPasskeyRPID] = useState();
+  const [showPasskeyDomains, setShowPasskeyDomains] = useState(false);
+  const passkeyDomainId = useId();
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [hasUserAgreement, setHasUserAgreement] = useState(false);
   const [hasPrivacyPolicy, setHasPrivacyPolicy] = useState(false);
@@ -140,6 +152,19 @@ const LoginForm = () => {
     status.telegram_oauth ||
     hasCustomOAuthProviders,
   );
+  const passkeyCandidates =
+    passkeyDomains?.rpIDs ??
+    (Array.isArray(status.passkey_rp_ids) ? status.passkey_rp_ids : []);
+  const availablePasskeyDomains = passkeyCandidates.filter((rpID) => {
+    if (typeof rpID !== 'string') return false;
+    const domain = rpID.toLowerCase();
+    return (
+      window.location.hostname === domain ||
+      window.location.hostname.endsWith(`.${domain}`)
+    );
+  });
+  const currentPasskeyRPID =
+    passkeyRPID ?? passkeyDomains?.rpID ?? availablePasskeyDomains[0];
 
   useEffect(() => {
     if (status?.turnstile_check) {
@@ -333,6 +358,7 @@ const LoginForm = () => {
   };
 
   const handlePasskeyLogin = async () => {
+    if (passkeyLoading) return;
     if ((hasUserAgreement || hasPrivacyPolicy) && !agreedToTerms) {
       showInfo(t('请先阅读并同意用户协议和隐私政策'));
       return;
@@ -351,11 +377,14 @@ const LoginForm = () => {
       loginRequest.current?.abort();
       const controller = new AbortController();
       loginRequest.current = controller;
-      const bundle = await loginWithPasskey(controller.signal);
+      const bundle = await loginWithPasskey(controller.signal, undefined, {
+        rpID: passkeyRPID,
+        onDomains: setPasskeyDomains,
+      });
       controller.signal.throwIfAborted();
       acceptLogin(bundle);
     } catch (error) {
-      if (error?.name === 'AbortError') {
+      if (error?.name === 'AbortError' || error?.name === 'NotAllowedError') {
         showInfo('已取消 Passkey 登录');
       } else {
         showError('Passkey 登录失败，请重试');
@@ -363,6 +392,75 @@ const LoginForm = () => {
     } finally {
       setPasskeyLoading(false);
     }
+  };
+
+  const renderPasskeyLogin = () => {
+    if (!status.passkey_login || !passkeySupported) return null;
+    return (
+      <div className='mb-4 space-y-2'>
+        <Button
+          theme='outline'
+          className='w-full h-12 flex items-center justify-center !rounded-full border border-gray-200 hover:bg-gray-50 transition-colors'
+          type='tertiary'
+          icon={<IconKey size='large' />}
+          onClick={handlePasskeyLogin}
+          loading={passkeyLoading}
+          disabled={passkeyLoading}
+        >
+          <span className='ml-3'>{t('使用 Passkey 登录')}</span>
+        </Button>
+        {availablePasskeyDomains.length > 1 && (
+          <>
+            <Button
+              theme='borderless'
+              type='tertiary'
+              disabled={passkeyLoading}
+              aria-expanded={showPasskeyDomains}
+              aria-controls={passkeyDomainId}
+              onClick={() => setShowPasskeyDomains((shown) => !shown)}
+            >
+              {t('Use a Passkey from another website')}
+            </Button>
+            {showPasskeyDomains && (
+              <div id={passkeyDomainId} className='space-y-2'>
+                <label htmlFor={`${passkeyDomainId}-domain`}>
+                  {t('Passkey website domain')}
+                </label>
+                <Select
+                  id={`${passkeyDomainId}-domain`}
+                  aria-label={t('Passkey website domain')}
+                  className='w-full'
+                  value={
+                    availablePasskeyDomains.includes(currentPasskeyRPID)
+                      ? currentPasskeyRPID
+                      : availablePasskeyDomains[0]
+                  }
+                  onChange={setPasskeyRPID}
+                  disabled={passkeyLoading}
+                  optionList={availablePasskeyDomains.map((domain) => ({
+                    value: domain,
+                    label:
+                      domain !== domain.toLowerCase() &&
+                      availablePasskeyDomains.some(
+                        (other) =>
+                          other !== domain &&
+                          other.toLowerCase() === domain.toLowerCase(),
+                      )
+                        ? `${domain} · ${t('Historical capitalization')}`
+                        : domain,
+                  }))}
+                />
+                <Text type='tertiary'>
+                  {t(
+                    'Choose the domain used when this Passkey was created, then try again.',
+                  )}
+                </Text>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
   };
 
   // 包装的重置密码点击处理
@@ -530,18 +628,7 @@ const LoginForm = () => {
                   </div>
                 )}
 
-                {status.passkey_login && passkeySupported && (
-                  <Button
-                    theme='outline'
-                    className='w-full h-12 flex items-center justify-center !rounded-full border border-gray-200 hover:bg-gray-50 transition-colors'
-                    type='tertiary'
-                    icon={<IconKey size='large' />}
-                    onClick={handlePasskeyLogin}
-                    loading={passkeyLoading}
-                  >
-                    <span className='ml-3'>{t('使用 Passkey 登录')}</span>
-                  </Button>
-                )}
+                {renderPasskeyLogin()}
 
                 <Divider margin='12px' align='center'>
                   {t('或')}
@@ -633,18 +720,7 @@ const LoginForm = () => {
               </Title>
             </div>
             <div className='px-2 py-8'>
-              {status.passkey_login && passkeySupported && (
-                <Button
-                  theme='outline'
-                  type='tertiary'
-                  className='w-full h-12 flex items-center justify-center !rounded-full border border-gray-200 hover:bg-gray-50 transition-colors mb-4'
-                  icon={<IconKey size='large' />}
-                  onClick={handlePasskeyLogin}
-                  loading={passkeyLoading}
-                >
-                  <span className='ml-3'>{t('使用 Passkey 登录')}</span>
-                </Button>
-              )}
+              {renderPasskeyLogin()}
               <Form className='space-y-3'>
                 <Form.Input
                   field='username'

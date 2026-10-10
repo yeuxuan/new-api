@@ -29,12 +29,11 @@ func isStripeWebhookEnabled() bool {
 }
 
 func isCreemTopUpEnabled() bool {
-	if !isPaymentComplianceConfirmed() {
+	if !isCreemSubscriptionEnabled() {
 		return false
 	}
 	products := strings.TrimSpace(setting.CreemProducts)
-	return strings.TrimSpace(setting.CreemApiKey) != "" &&
-		products != "" &&
+	return products != "" &&
 		products != "[]"
 }
 

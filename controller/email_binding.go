@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
@@ -20,7 +19,7 @@ type emailBindRequest struct {
 }
 
 func EmailBindStart(c *gin.Context) {
-	identity, ok := middleware.GetSessionAuthIdentity(c)
+	identity, ok := middleware.GetStepUpIdentity(c)
 	if !ok {
 		writeSecurityOperationError(c, service.ErrAuthTokenInvalid)
 		return
@@ -58,7 +57,7 @@ func EmailBindStart(c *gin.Context) {
 }
 
 func EmailBindResend(c *gin.Context) {
-	identity, ok := middleware.GetSessionAuthIdentity(c)
+	identity, ok := middleware.GetStepUpIdentity(c)
 	if !ok {
 		writeSecurityOperationError(c, service.ErrAuthTokenInvalid)
 		return
@@ -82,7 +81,7 @@ func EmailBindResend(c *gin.Context) {
 }
 
 func EmailBind(c *gin.Context) {
-	identity, ok := middleware.GetSessionAuthIdentity(c)
+	identity, ok := middleware.GetStepUpIdentity(c)
 	if !ok {
 		writeSecurityOperationError(c, service.ErrAuthTokenInvalid)
 		return
@@ -103,7 +102,7 @@ func EmailBind(c *gin.Context) {
 	}
 	succeeded = true
 	if state.QuotaAwarded > 0 {
-		model.RecordLog(identity.UserID, model.LogTypeSystem, fmt.Sprintf("绑定邮箱赠送 %s", logger.LogQuota(state.QuotaAwarded)))
+		model.RecordLog(identity.UserID, model.LogTypeSystem, common.NewMessage("Email binding bonus {{quota}}", map[string]any{"quota": logger.FormatQuota(state.QuotaAwarded)}))
 	}
 	notificationFailed = service.NotifyAccountSecurityChange(state.CurrentEmail, "Email address changed") != nil
 	if err := service.NotifyAccountSecurityChange(state.Email, "Email address confirmed"); err != nil {

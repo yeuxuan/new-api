@@ -155,6 +155,23 @@ function createAPI() {
 
   instance.interceptors.response.use(
     (response) => {
+      // Payment responses use message as a status and put their text in data.
+      for (const body of [response.data, response.data?.data]) {
+        if (typeof body?.message_key !== 'string' || !body.message_key)
+          continue;
+        const params = body.message_params;
+        const message = t(
+          body.message_key,
+          params && typeof params === 'object' && !Array.isArray(params)
+            ? params
+            : {},
+        );
+        if (body.message === 'error' || body.message === 'success') {
+          if (typeof body.data === 'string') body.data = message;
+        } else {
+          body.message = message;
+        }
+      }
       if (
         response.config?.acceptAuthRotation &&
         response.data?.success === true

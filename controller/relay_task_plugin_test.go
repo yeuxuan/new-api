@@ -19,9 +19,9 @@ import (
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -230,6 +230,75 @@ func TestExecuteTaskSubmissionPersistsPinnedPluginProvenance(t *testing.T) {
 	assert.Equal(t, "upstream-private", stored.PrivateData.UpstreamTaskID)
 }
 
+// A submit route declaring retainResult: false persists the task row for
+// billing but never writes the upstream snapshot for an immediate terminal
+// result, while the in-memory task still carries it for the presenter. An
+// asynchronous result on the same route is retained because polling and
+// retrieval depend on it.
+func TestExecuteTaskSubmissionHonorsRouteRetainResult(t *testing.T) {
+	retainFalse := false
+	for _, tc := range []struct {
+		name          string
+		immediate     *relaycommon.TaskInfo
+		wantDiscarded bool
+	}{
+		{"immediate success is discarded", &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Progress: "100%"}, true},
+		{"immediate failure is discarded", &relaycommon.TaskInfo{Status: model.TaskStatusFailure, Reason: "rejected"}, true},
+		{"asynchronous result is retained", nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			events := make([]string, 0, 3)
+			database, _ := openTaskDialectDatabase(t, &model.Task{}, &model.User{}, &model.Channel{})
+			previousDB := model.DB
+			model.DB = database
+			t.Cleanup(func() { model.DB = previousDB })
+			previousLogConsumeEnabled := common.LogConsumeEnabled
+			common.LogConsumeEnabled = false
+			t.Cleanup(func() { common.LogConsumeEnabled = previousLogConsumeEnabled })
+
+			c := taskSubmissionTestContext()
+			c.Set(pluginruntime.ContextKeyPinnedRoute, pluginruntime.PinnedRoute{
+				Plugin: &pluginruntime.LoadedPlugin{Meta: pluginruntime.Meta{Key: "sync-images"}},
+				Route:  pluginruntime.Route{Method: http.MethodPost, Path: "/sync/images", Type: pluginruntime.RouteTypeSubmit, RetainResult: &retainFalse},
+			})
+			info := taskSubmissionRelayInfo(&taskSubmissionTestBilling{events: &events})
+			upstream := []byte(`{"data":[{"url":"https://cdn.example/a.png"}]}`)
+
+			outcome, taskErr := executeTaskSubmissionWith(c, info, func(*gin.Context, *relaycommon.RelayInfo) (*relay.TaskSubmitResult, *dto.TaskError) {
+				return &relay.TaskSubmitResult{
+					UpstreamTaskID: "task_public",
+					Platform:       constant.TaskPlatform("sync-images"),
+					TaskData:       upstream,
+					Immediate:      tc.immediate,
+				}, nil
+			})
+			require.Nil(t, taskErr)
+			require.NotNil(t, outcome)
+			assert.JSONEq(t, string(upstream), string(outcome.Task.Data), "presenter keeps the in-memory snapshot")
+			assert.Equal(t, tc.wantDiscarded, outcome.Task.PrivateData.ResultDiscarded)
+			assert.Equal(t, !tc.wantDiscarded, outcome.Task.ResultRetrievable())
+
+			var stored model.Task
+			require.NoError(t, database.Where("task_id = ?", "task_public").First(&stored).Error)
+			assert.Equal(t, tc.wantDiscarded, stored.PrivateData.ResultDiscarded)
+			var nullCount int64
+			require.NoError(t, database.Model(&model.Task{}).Where("task_id = ? AND data IS NULL", "task_public").Count(&nullCount).Error)
+			if tc.wantDiscarded {
+				assert.Equal(t, int64(1), nullCount, "snapshot column must stay NULL")
+				artifacts, err := projectTaskArtifacts(&stored)
+				require.NoError(t, err)
+				assert.Empty(t, artifacts)
+			} else {
+				assert.Equal(t, int64(0), nullCount)
+				assert.JSONEq(t, string(upstream), string(stored.Data))
+			}
+			listed := model.TaskGetAllUserTask(1, 0, 10, model.SyncTaskQueryParams{})
+			require.Len(t, listed, 1)
+			assert.Empty(t, listed[0].Data, "task lists never select the snapshot column")
+		})
+	}
+}
+
 func TestExecuteTaskSubmissionRefundsCancellationBeforeDurableBarrier(t *testing.T) {
 	events := make([]string, 0, 2)
 	setupTaskSubmissionDatabase(t, true, &events)
@@ -354,17 +423,21 @@ func TestExecuteTaskSubmissionDisconnectAfterDurableInsertDoesNotRefund(t *testi
 	assert.False(t, c.Writer.Written())
 }
 
+// setupTaskSubmissionDatabase opens the dialect selected by
+// TEST_TASK_DB_DIALECT (isolated SQLite by default) and records every task
+// INSERT in events so tests can assert the reserve -> insert -> settle order.
+// Without migrate the task table does not exist and inserts fail.
 func setupTaskSubmissionDatabase(t *testing.T, migrate bool, events *[]string) *gorm.DB {
 	t.Helper()
 	previousDB := model.DB
-	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	require.NoError(t, err)
+	var models []any
+	if migrate {
+		models = append(models, &model.Task{})
+	}
+	database, _ := openTaskDialectDatabase(t, models...)
 	require.NoError(t, database.Callback().Create().Before("gorm:create").Register("test:task-submit-order", func(*gorm.DB) {
 		*events = append(*events, "insert")
 	}))
-	if migrate {
-		require.NoError(t, database.AutoMigrate(&model.Task{}))
-	}
 	model.DB = database
 	t.Cleanup(func() { model.DB = previousDB })
 	return database
@@ -391,11 +464,13 @@ func taskSubmissionRelayInfo(billing relaycommon.BillingSettler) *relaycommon.Re
 	}
 }
 
-// Uses the real submit adaptor, expression evaluator, BillingSession, task row
-// and consume log. Set TEST_TASK_DB_DIALECT plus TEST_MYSQL_DSN or
-// TEST_POSTGRES_DSN to exercise the same contract on an external test database.
-// Isolated databases also cover models with explicit table names.
-func TestImmediateTaskSettlementDatabase(t *testing.T) {
+// openTaskDialectDatabase opens the engine selected by TEST_TASK_DB_DIALECT
+// (default isolated SQLite; MySQL and PostgreSQL through TEST_MYSQL_DSN and
+// TEST_POSTGRES_DSN) in an isolated database, migrates the given models and
+// drops them on cleanup. It logs the engine version so database verification
+// runs leave a record.
+func openTaskDialectDatabase(t *testing.T, models ...any) (*gorm.DB, common.DatabaseType) {
+	t.Helper()
 	dialect := common.DatabaseType(os.Getenv("TEST_TASK_DB_DIALECT"))
 	var dsn string
 	switch dialect {
@@ -413,7 +488,6 @@ func TestImmediateTaskSettlementDatabase(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	models := []any{&model.User{}, &model.Channel{}, &model.Task{}, &model.Log{}, &model.BonusQuotaGrant{}}
 	require.NoError(t, db.AutoMigrate(models...))
 	t.Cleanup(func() { require.NoError(t, db.Migrator().DropTable(models...)) })
 	var version string
@@ -423,6 +497,13 @@ func TestImmediateTaskSettlementDatabase(t *testing.T) {
 		require.NoError(t, db.Raw("SELECT version()").Scan(&version).Error)
 	}
 	t.Logf("database: %s %s", dialect, version)
+	return db, dialect
+}
+
+// Uses the real submit adaptor, expression evaluator, BillingSession, task row
+// and consume log on the selected database engine.
+func TestImmediateTaskSettlementDatabase(t *testing.T) {
+	db, dialect := openTaskDialectDatabase(t, &model.User{}, &model.Channel{}, &model.Task{}, &model.Log{}, &model.BonusQuotaGrant{})
 	oldDB, oldLogDB := model.DB, model.LOG_DB
 	oldMain, oldLog := common.MainDatabaseType(), common.LogDatabaseType()
 	oldRedis, oldMemory, oldBatch, oldConsume, oldExport := common.RedisEnabled, common.MemoryCacheEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled, common.DataExportEnabled
@@ -434,6 +515,10 @@ func TestImmediateTaskSettlementDatabase(t *testing.T) {
 		common.SetDatabaseTypes(oldMain, oldLog)
 		common.RedisEnabled, common.MemoryCacheEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled, common.DataExportEnabled = oldRedis, oldMemory, oldBatch, oldConsume, oldExport
 	})
+	bonusSettings := operation_setting.GetBonusQuotaSetting()
+	previousBonusModels := bonusSettings.AllowedModels
+	bonusSettings.AllowedModels = "document-model"
+	t.Cleanup(func() { bonusSettings.AllowedModels = previousBonusModels })
 
 	const expression = `u("units") == 7 ? tier("missing", u("missing") * 1.0) : u("units") == 8 ? tier("invalid", -1.0) : u("units") > 3 ? tier("bulk", u("units") * 0.01) : tier("small", u("units") * 0.01)`
 	withTieredBillingConfig(t, map[string]string{"document-model": "tiered_expr"}, map[string]string{"document-model": expression})
@@ -473,6 +558,12 @@ export function buildQueryRequest(){throw new Error("completed submissions must 
 			initial := int(20 * common.QuotaPerUnit)
 			user := model.User{Username: fmt.Sprintf("task_user_%d", index), AffCode: fmt.Sprintf("task_aff_%d", index), Quota: initial}
 			require.NoError(t, db.Create(&user).Error)
+			bonusQuota := common.QuotaRound(0.03 * common.QuotaPerUnit)
+			grant := &model.BonusQuotaGrant{
+				UserId: user.Id, Source: model.BonusQuotaSourceCheckin, SourceRef: "immediate-task",
+				AmountTotal: bonusQuota, AmountRemaining: bonusQuota, Status: model.BonusQuotaStatusActive,
+			}
+			require.NoError(t, db.Create(grant).Error)
 			ch := model.Channel{Name: "test provider", Type: constant.ChannelTypeTaskPlugin}
 			require.NoError(t, db.Create(&ch).Error)
 			c := taskSubmissionTestContext()
@@ -510,8 +601,20 @@ export function buildQueryRequest(){throw new Error("completed submissions must 
 			}
 			var updated model.User
 			require.NoError(t, db.First(&updated, user.Id).Error)
-			assert.Equal(t, initial-want, updated.Quota)
+			reservedQuota := info.Billing.GetPreConsumedQuota()
+			// A reduction refunds bonus before cash, so the final split need
+			// not equal a fresh bonus-first charge of the actual quantity.
+			bonusUsed := max(0, min(reservedQuota, bonusQuota)-max(0, reservedQuota-want))
+			assert.Equal(t, initial-(want-bonusUsed), updated.Quota)
 			assert.Equal(t, want, updated.UsedQuota)
+			require.NoError(t, db.First(grant, grant.Id).Error)
+			assert.Equal(t, bonusQuota-bonusUsed, grant.AmountRemaining)
+			var persistedBonusUsed int
+			for _, deduction := range stored.PrivateData.BonusQuotaDeducts {
+				assert.Equal(t, grant.Id, deduction.GrantId)
+				persistedBonusUsed += deduction.Amount
+			}
+			assert.Equal(t, bonusUsed, persistedBonusUsed, "persist the post-settlement ledger, not the reservation")
 			var logs []model.Log
 			require.NoError(t, db.Where("user_id = ?", user.Id).Find(&logs).Error)
 			require.Len(t, logs, 1)
@@ -525,14 +628,33 @@ export function buildQueryRequest(){throw new Error("completed submissions must 
 			require.NoError(t, info.Billing.Settle(want))
 			info.Billing.Refund(c)
 			require.NoError(t, db.First(&updated, user.Id).Error)
-			assert.Equal(t, initial-want, updated.Quota, "terminal settlement is idempotent")
+			assert.Equal(t, initial-(want-bonusUsed), updated.Quota, "terminal settlement is idempotent")
+			require.NoError(t, db.First(grant, grant.Id).Error)
+			assert.Equal(t, bonusQuota-bonusUsed, grant.AmountRemaining)
 		})
 	}
 }
 
 func TestAcceptedSubmitStreamNeverRetries(t *testing.T) {
 	c := taskSubmissionTestContext()
-	assert.False(t, shouldRetryTaskRelay(c, 1, &dto.TaskError{StatusCode: 502, LocalError: true, NoRetry: true}, 3))
+	assert.Equal(t, service.PolicyDecision{Action: "stop", Reason: "task_accepted", Source: "system"}, decideTaskRetry(c, &dto.TaskError{StatusCode: 502, LocalError: true, NoRetry: true}, 3))
+}
+
+// Local task rejections carry a message but no cause; the response and the
+// decision record must still be produced.
+func TestRespondTaskSubmissionErrorWithoutCause(t *testing.T) {
+	previousErrorLog := constant.ErrorLogEnabled
+	constant.ErrorLogEnabled = false
+	t.Cleanup(func() { constant.ErrorLogEnabled = previousErrorLog })
+	c := taskSubmissionTestContext()
+	taskErr := &dto.TaskError{Code: "get_channel_failed", Message: "no channel", StatusCode: http.StatusServiceUnavailable, LocalError: true}
+	require.NotPanics(t, func() { respondTaskSubmissionError(c, taskErr) })
+	assert.Equal(t, http.StatusServiceUnavailable, c.Writer.Status())
+	events := service.RequestPolicy(c).Events()
+	require.Len(t, events, 1)
+	assert.Equal(t, service.PolicyDecision{Action: "stop", Reason: "request_failed", Source: "system"}, events[0].Decision)
+	assert.Equal(t, http.StatusServiceUnavailable, events[0].Status)
+	assert.Equal(t, service.PolicyDecision{Action: "stop", Reason: "local_rejection", Source: "system"}, decideTaskRetry(c, &dto.TaskError{StatusCode: http.StatusForbidden, LocalError: true, Message: "billing"}, 2), "local errors stop once the status rules do not force a retry")
 }
 
 func TestExecuteTaskSubmissionRefundsWhenFinalReserveFails(t *testing.T) {

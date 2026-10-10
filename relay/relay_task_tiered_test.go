@@ -9,7 +9,10 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -80,7 +83,85 @@ func TestRelayTaskSubmitTieredExprDoesNotApplyLegacyRatios(t *testing.T) {
 	assert.Equal(t, result.Quota, info.PriceData.Quota)
 	assert.Nil(t, info.PriceData.OtherRatios())
 	require.NotNil(t, info.TieredBillingSnapshot)
+	assert.False(t, info.TieredBillingSnapshot.TaskUsageBilling, "native TMLab keeps its stored expression units")
 	assert.Equal(t, "base", info.TieredBillingSnapshot.EstimatedTier)
 	assert.Contains(t, submittedBody, `"duration":4`)
 	assert.Contains(t, submittedBody, `"resolution":"720p"`)
+}
+
+func TestRelayTaskSubmitPluginConstantsUseUSD(t *testing.T) {
+	service.InitHttpClient()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"upstream_task_1"}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	const flatExpr = `tier("flat", 0.25)`
+	const freeExpr = `tier("free", 0)`
+	const legacyExpr = `tier("legacy", 250000)`
+	for _, tc := range []struct {
+		name, model, mapping, mode, modelExpr, overrideModel, overrideExpr string
+		wantExpr                                                           string
+		wantCost                                                           float64
+	}{
+		{"provider override ignores ratio mode", "declared-model", "", "ratio", "", "declared-model", flatExpr, flatExpr, 0.25},
+		{"mapped override beats model expression", "alias-model", `{"alias-model":"declared-model"}`, "tiered_expr", `tier("model", 1)`, "declared-model", flatExpr, flatExpr, 0.25},
+		{"zero provider override stays free", "declared-model", "", "ratio", "", "declared-model", freeExpr, freeExpr, 0},
+		{"inherited model expression keeps historical units", "declared-model", "", "tiered_expr", legacyExpr, "", "", legacyExpr, 0.25},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			saveBillingConfig(t)
+			modes, err := common.Marshal(map[string]string{tc.model: tc.mode})
+			require.NoError(t, err)
+			expressions, err := common.Marshal(map[string]string{tc.model: tc.modelExpr})
+			require.NoError(t, err)
+			overrides := map[string]string{}
+			if tc.overrideModel != "" {
+				overrides[billing_setting.PluginBillingExprKey("bill-fallback", tc.overrideModel)] = tc.overrideExpr
+			}
+			variants, err := common.Marshal(overrides)
+			require.NoError(t, err)
+			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+				"billing_setting.billing_mode":          string(modes),
+				"billing_setting.billing_expr":          string(expressions),
+				billing_setting.PluginBillingExprOption: string(variants),
+				"group_ratio_setting.group_ratio":       `{"default":2}`,
+				"group_ratio_setting.group_group_ratio": `{}`,
+			}))
+
+			c, info := newTaskSubmitContext(t, tc.model, tc.mapping)
+			common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, upstream.URL)
+			c.Set("group", "default")
+			info.UserGroup, info.UsingGroup = "default", "default"
+			info.OriginModelName = tc.model
+			info.Billing = taskTieredBillingStub{}
+			pinMappingOrderPlugin(t, c, billingFallbackPlugin)
+
+			result, taskErr := RelayTaskSubmit(c, info)
+			require.Nil(t, taskErr)
+			require.NotNil(t, result)
+			snap := info.TieredBillingSnapshot
+			require.NotNil(t, snap)
+			assert.Equal(t, tc.overrideModel != "", snap.TaskUsageBilling)
+			assert.Equal(t, tc.wantExpr, snap.ExprString)
+			assert.Equal(t, tc.wantCost*common.QuotaPerUnit, snap.EstimatedQuotaBeforeGroup)
+			wantQuota := common.QuotaRound(tc.wantCost * common.QuotaPerUnit * 2)
+			assert.Equal(t, wantQuota, result.Quota)
+			assert.Equal(t, wantQuota, info.PriceData.QuotaToPreConsume)
+			assert.Nil(t, info.PriceData.OtherRatios())
+
+			// Completion must retain both the expression and its USD conversion
+			// after live provider/model pricing changes.
+			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+				billing_setting.PluginBillingExprOption: `{}`,
+				"billing_setting.billing_expr":          `{}`,
+			}))
+			settled, _, err := service.EvaluateTaskCompletionUsage(snap, nil)
+			require.NoError(t, err)
+			assert.Equal(t, wantQuota, settled.ActualQuotaAfterGroup)
+			assert.Equal(t, tc.wantCost*common.QuotaPerUnit, settled.ActualQuotaBeforeGroup)
+			assert.Equal(t, billingexpr.ExprHashString(tc.wantExpr), snap.ExprHash)
+		})
+	}
 }

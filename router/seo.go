@@ -126,6 +126,8 @@ func isPrivateWebPath(path string) bool {
 	privatePrefixes := []string{
 		"/dashboard", "/console", "/wallet", "/profile", "/usage-logs",
 		"/system-settings", "/models", "/channels", "/keys", "/logs", "/sign-in", "/sign-up",
+		"/users", "/security", "/subscriptions", "/redemption-codes", "/task-plugins",
+		"/system-info", "/playground", "/chat", "/chat2link",
 	}
 	for _, prefix := range privatePrefixes {
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {

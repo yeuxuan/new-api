@@ -9,7 +9,6 @@ import (
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/gin-contrib/gzip"
-	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
 )
 
@@ -21,24 +20,31 @@ type WebAssets struct {
 
 func SetWebRouter(router *gin.Engine, assets WebAssets, pluginDispatcher gin.HandlerFunc) {
 	frontendFS := common.EmbedFolder(assets.BuildFS, "web/dist")
+	compress := gzip.Gzip(gzip.DefaultCompression)
 
 	router.GET("/robots.txt", serveRobots)
 	router.GET("/sitemap.xml", serveSitemap)
 	router.NoRoute(
 		pluginDispatcher,
 		middleware.RouteTag("web"),
-		gzip.Gzip(gzip.DefaultCompression),
-		middleware.AccessTokenAudit(),
-		middleware.GlobalWebRateLimit(),
-		middleware.Cache(),
-		static.Serve("/", frontendFS),
 		func(c *gin.Context) {
-			if strings.HasPrefix(c.Request.RequestURI, "/v1") || strings.HasPrefix(c.Request.RequestURI, "/api") || strings.HasPrefix(c.Request.RequestURI, "/assets") {
+			// ServeFrontendFiles sends build files already compressed.
+			if !frontendFS.Exists("/", c.Request.URL.Path) {
+				compress(c)
+			}
+		},
+		middleware.AccessTokenAudit(),
+		middleware.GlobalWebRateLimit(frontendFS),
+		middleware.Cache(),
+		middleware.ServeFrontendFiles(frontendFS),
+		func(c *gin.Context) {
+			path := c.Request.URL.Path
+			if strings.HasPrefix(path, "/v1") || strings.HasPrefix(path, "/api") || strings.HasPrefix(path, "/assets") || strings.HasPrefix(path, "/static/") {
 				controller.RelayNotFound(c)
 				return
 			}
 			c.Header("Cache-Control", "no-cache")
-			page := seoForPath(c.Request.URL.Path, siteBaseURL(c), common.SystemName)
+			page := seoForPath(path, siteBaseURL(c), common.SystemName)
 			if strings.HasPrefix(page.robots, "noindex") {
 				c.Header("X-Robots-Tag", page.robots)
 			}

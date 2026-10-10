@@ -53,7 +53,17 @@ export function completeLogin(bundle, dispatch) {
   return user;
 }
 
-export async function loginWithPasskey(signal, challenge) {
+export async function loginWithPasskey(signal, challenge, selection = {}) {
+  signal?.throwIfAborted();
+  let remembered;
+  if (!challenge) {
+    try {
+      const value = localStorage.getItem('passkey:last-successful-rp-id');
+      if (value && value.length <= 253) remembered = value;
+    } catch {
+      // Optional domain hint; the server still validates every RP and ceremony.
+    }
+  }
   const options = {
     signal,
     skipAuthRefresh: true,
@@ -63,12 +73,28 @@ export async function loginWithPasskey(signal, challenge) {
   const path = challenge
     ? '/api/user/login/passkey'
     : '/api/user/passkey/login';
-  const begin = await API.post(
-    `${path}/begin`,
-    challenge ? { flow_token: challenge.flow_token } : undefined,
-    options,
-  );
+  const rpID = selection.rpID ?? remembered;
+  let beginPayload;
+  if (challenge) beginPayload = { flow_token: challenge.flow_token };
+  if (rpID) beginPayload = { ...beginPayload, rp_id: rpID };
+  let begin = await API.post(`${path}/begin`, beginPayload, options);
   signal?.throwIfAborted();
+  if (
+    !challenge &&
+    !selection.rpID &&
+    remembered &&
+    begin.data?.success === false &&
+    begin.data?.code === 'PASSKEY_RP_ID_UNAVAILABLE'
+  ) {
+    try {
+      localStorage.removeItem('passkey:last-successful-rp-id');
+    } catch {
+      // Storage is optional.
+    }
+    // Only retry a stale hint before a browser prompt, never an assertion/finish.
+    begin = await API.post(`${path}/begin`, undefined, options);
+    signal?.throwIfAborted();
+  }
   const data = begin.data?.data;
   if (
     !begin.data?.success ||
@@ -78,8 +104,14 @@ export async function loginWithPasskey(signal, challenge) {
   ) {
     throw new Error(t('Passkey 登录失败，请重试'));
   }
+  const publicKey = prepareCredentialRequestOptions(data.options);
+  let rpIDs = publicKey.rpId ? [publicKey.rpId] : [];
+  if (Array.isArray(data.rp_ids)) {
+    rpIDs = data.rp_ids.filter((id) => typeof id === 'string');
+  }
+  selection.onDomains?.({ rpID: publicKey.rpId, rpIDs });
   const assertion = await navigator.credentials.get({
-    publicKey: prepareCredentialRequestOptions(data.options),
+    publicKey,
     signal,
   });
   signal?.throwIfAborted();
@@ -102,6 +134,13 @@ export async function loginWithPasskey(signal, challenge) {
   signal?.throwIfAborted();
   if (!finish.data?.success || !isAuthBundle(finish.data.data)) {
     throw new Error(t('Passkey 登录失败，请重试'));
+  }
+  if (!challenge && publicKey.rpId) {
+    try {
+      localStorage.setItem('passkey:last-successful-rp-id', publicKey.rpId);
+    } catch {
+      // A blocked preference store must not prevent successful login.
+    }
   }
   return finish.data.data;
 }

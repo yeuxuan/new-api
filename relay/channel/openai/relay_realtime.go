@@ -104,7 +104,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 					if err != nil {
 						return fmt.Errorf("error counting text token: %w", err)
 					}
-					logger.LogInfo(c, fmt.Sprintf("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
+					logger.LogInfo(c, common.LogText("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
 					localUsage.TotalTokens += textToken + audioToken
 					localUsage.InputTokens += textToken + audioToken
 					localUsage.InputTokenDetails.TextTokens += textToken
@@ -170,6 +170,29 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 						if realtimeEvent.Response == nil {
 							return errors.New("response.done is missing response")
 						}
+						response := realtimeEvent.Response
+						switch response.Status {
+						case "failed":
+							code, errorType := "", ""
+							if response.StatusDetails != nil && response.StatusDetails.Error != nil {
+								failure := response.StatusDetails.Error
+								if failure.Code != nil {
+									code = fmt.Sprint(failure.Code)
+								}
+								errorType = failure.Type
+							}
+							info.StreamStatus.MarkFailed(code, errorType, 0)
+						case "cancelled", "canceled":
+							info.StreamStatus.MarkCancelled()
+						case "incomplete":
+							reason := ""
+							if response.StatusDetails != nil {
+								reason = response.StatusDetails.Reason
+							}
+							info.StreamStatus.MarkIncomplete(reason)
+						case "", "completed":
+							info.StreamStatus.MarkCompleted()
+						}
 						realtimeUsage := realtimeEvent.Response.Usage
 						if realtimeUsage != nil {
 							usage.TotalTokens += realtimeUsage.TotalTokens
@@ -193,7 +216,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 							if err != nil {
 								return fmt.Errorf("error counting text token: %w", err)
 							}
-							logger.LogInfo(c, fmt.Sprintf("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
+							logger.LogInfo(c, common.LogText("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
 							localUsage.TotalTokens += textToken + audioToken
 							info.IsFirstRequest = false
 							localUsage.InputTokens += textToken + audioToken
@@ -207,8 +230,8 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 							localUsage = &dto.RealtimeUsage{}
 							// print now usage
 						}
-						logger.LogInfo(c, fmt.Sprintf("realtime streaming sumUsage: %v", sumUsage))
-						logger.LogInfo(c, fmt.Sprintf("realtime streaming localUsage: %v", localUsage))
+						logger.LogInfo(c, common.LogText("realtime streaming sumUsage: %v", sumUsage))
+						logger.LogInfo(c, common.LogText("realtime streaming localUsage: %v", localUsage))
 						responsePending.Store(false)
 
 					} else if realtimeEvent.Type == dto.RealtimeEventTypeSessionUpdated || realtimeEvent.Type == dto.RealtimeEventTypeSessionCreated {
@@ -223,7 +246,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 						if err != nil {
 							return fmt.Errorf("error counting text token: %w", err)
 						}
-						logger.LogInfo(c, fmt.Sprintf("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
+						logger.LogInfo(c, common.LogText("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
 						localUsage.TotalTokens += textToken + audioToken
 						localUsage.OutputTokens += textToken + audioToken
 						localUsage.OutputTokenDetails.TextTokens += textToken
@@ -260,7 +283,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 		}
 	case err := <-errChan:
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
-		logger.LogError(c, "realtime error: "+err.Error())
+		logger.LogError(c, common.LogText("realtime error: %s", err.Error()))
 	case <-c.Request.Context().Done():
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
 	}

@@ -482,7 +482,7 @@ func TestConversationCaptureFinishWritesRestorableRecordBeforeSmallManifest(t *t
 	assert.True(t, restored.Completeness.Complete)
 }
 
-func TestConversationCaptureFinishRecordsAbnormalStreamEnd(t *testing.T) {
+func TestConversationCaptureFinishRecordsStreamOutcome(t *testing.T) {
 	root := t.TempDir()
 	store, err := conversationarchive.New(root, conversationarchive.Options{})
 	require.NoError(t, err)
@@ -493,42 +493,174 @@ func TestConversationCaptureFinishRecordsAbnormalStreamEnd(t *testing.T) {
 	model.DB = db
 	t.Cleanup(func() { model.DB = previousDB })
 
-	startedAt := time.Date(2026, 8, 2, 10, 15, 0, 0, time.UTC)
-	pending, err := store.BeginPending(conversationarchive.Record{
-		ID:         "stream-client-gone",
-		RecordedAt: startedAt,
-		Protocol:   string(types.RelayFormatOpenAIResponses),
-	})
-	require.NoError(t, err)
-	require.NoError(t, pending.Append("client_request", []byte(`{"input":"hello"}`)))
-	streamStatus := relaycommon.NewStreamStatus()
-	streamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, errors.New("context canceled"))
-	streamStatus.RecordError("recoverable malformed event")
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"input":"hello"}`))
-	capture := &conversationCapture{
-		pending: pending,
-		info: &relaycommon.RelayInfo{
-			RequestId:    "stream-client-gone",
-			RelayFormat:  types.RelayFormatOpenAIResponses,
-			StartTime:    startedAt,
-			IsStream:     true,
-			StreamStatus: streamStatus,
+	tests := []struct {
+		name           string
+		protocol       types.RelayFormat
+		outcome        relaycommon.StreamOutcome
+		endReason      relaycommon.StreamEndReason
+		endError       error
+		softError      bool
+		relayErr       *types.NewAPIError
+		captureMissing []string
+		wantMissing    []string
+		wantMetadata   map[string]string
+	}{
+		{
+			name:         "completed",
+			outcome:      relaycommon.StreamOutcome{Response: relaycommon.ResponseOutcomeCompleted},
+			wantMetadata: map[string]string{"response_outcome": "completed"},
 		},
-		metadata:  make(map[string]string),
-		startedAt: startedAt,
+		{
+			name: "responses-business-failure",
+			outcome: relaycommon.StreamOutcome{Response: relaycommon.ResponseOutcomeFailed,
+				ErrorCode: "context_length_exceeded", ErrorType: "invalid_request_error", ErrorStatus: http.StatusBadRequest},
+			wantMetadata: map[string]string{
+				"response_outcome": "failed", "stream_error_code": "context_length_exceeded",
+				"stream_error_type": "invalid_request_error", "stream_error_status": "400",
+				"relay_error_code": "context_length_exceeded", "relay_error_type": "openai_error",
+			},
+		},
+		{
+			name: "realtime-business-failure-without-relay-error", protocol: types.RelayFormatOpenAIRealtime,
+			outcome: relaycommon.StreamOutcome{Response: relaycommon.ResponseOutcomeFailed,
+				ErrorCode: "context_length_exceeded", ErrorType: "invalid_request_error"},
+			wantMetadata: map[string]string{
+				"response_outcome": "failed", "stream_error_code": "context_length_exceeded",
+				"stream_error_type": "invalid_request_error",
+				"relay_error_code":  "context_length_exceeded", "relay_error_type": "openai_error",
+			},
+		},
+		{
+			name: "failure-without-code", protocol: types.RelayFormatOpenAIRealtime,
+			outcome: relaycommon.StreamOutcome{Response: relaycommon.ResponseOutcomeFailed},
+			wantMetadata: map[string]string{
+				"response_outcome": "failed", "relay_error_code": "bad_response", "relay_error_type": "openai_error",
+			},
+		},
+		{
+			name:     "explicit-relay-error-takes-precedence",
+			outcome:  relaycommon.StreamOutcome{Response: relaycommon.ResponseOutcomeFailed, ErrorCode: "context_length_exceeded"},
+			relayErr: types.NewError(errors.New("private upstream message"), types.ErrorCodeBadResponse),
+			wantMetadata: map[string]string{
+				"response_outcome": "failed", "stream_error_code": "context_length_exceeded",
+				"relay_error_code": "bad_response", "relay_error_type": string(types.ErrorTypeNewAPIError),
+			},
+		},
+		{
+			name:         "responses-normal-cancellation",
+			outcome:      relaycommon.StreamOutcome{Response: relaycommon.ResponseOutcomeCancelled},
+			wantMetadata: map[string]string{"response_outcome": "cancelled"},
+		},
+		{
+			name: "realtime-normal-cancellation", protocol: types.RelayFormatOpenAIRealtime,
+			outcome:      relaycommon.StreamOutcome{Response: relaycommon.ResponseOutcomeCancelled},
+			wantMetadata: map[string]string{"response_outcome": "cancelled"},
+		},
+		{
+			name:         "protocol-incomplete-with-complete-capture",
+			outcome:      relaycommon.StreamOutcome{Response: relaycommon.ResponseOutcomeIncomplete, IncompleteReason: "max_output_tokens"},
+			wantMetadata: map[string]string{"response_outcome": "incomplete", "stream_incomplete_reason": "max_output_tokens"},
+		},
+		{
+			name: "client-gone", endReason: relaycommon.StreamEndReasonClientGone,
+			endError: errors.New("context canceled"), softError: true,
+			wantMissing:  []string{"stream_client_gone"},
+			wantMetadata: map[string]string{"stream_end_error": "context canceled", "stream_soft_error_count": "1"},
+		},
+		{
+			name: "cancelled-then-client-gone", protocol: types.RelayFormatOpenAIRealtime,
+			outcome:   relaycommon.StreamOutcome{Response: relaycommon.ResponseOutcomeCancelled},
+			endReason: relaycommon.StreamEndReasonClientGone, wantMissing: []string{"stream_client_gone"},
+			wantMetadata: map[string]string{"response_outcome": "cancelled"},
+		},
+		{
+			name: "failure-and-transport-error", protocol: types.RelayFormatOpenAIRealtime,
+			outcome:   relaycommon.StreamOutcome{Response: relaycommon.ResponseOutcomeFailed, ErrorCode: "server_error"},
+			endReason: relaycommon.StreamEndReasonScannerErr, wantMissing: []string{"stream_scanner_error"},
+			wantMetadata: map[string]string{
+				"response_outcome": "failed", "stream_error_code": "server_error",
+				"relay_error_code": "server_error", "relay_error_type": "openai_error",
+			},
+		},
+		{
+			name:           "completed-with-existing-capture-loss",
+			outcome:        relaycommon.StreamOutcome{Response: relaycommon.ResponseOutcomeCompleted},
+			captureMissing: []string{"client_response_write_failed"}, wantMissing: []string{"client_response_write_failed"},
+			wantMetadata: map[string]string{"response_outcome": "completed"},
+		},
 	}
-	capture.appendPayload("client_response", []byte("partial"))
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			protocol := tc.protocol
+			if protocol == "" {
+				protocol = types.RelayFormatOpenAIResponses
+			}
+			startedAt := time.Date(2026, 8, 2, 10, 15, 0, 0, time.UTC)
+			pending, err := store.BeginPending(conversationarchive.Record{
+				ID: tc.name, RecordedAt: startedAt, Protocol: string(protocol),
+			})
+			require.NoError(t, err)
+			request := []byte(`{"input":"hello"}`)
+			response := []byte(`{"text":"partial","usage":{"total_tokens":7}}`)
+			require.NoError(t, pending.Append("client_request", request))
+			streamStatus := relaycommon.NewStreamStatus()
+			switch tc.outcome.Response {
+			case relaycommon.ResponseOutcomeCompleted:
+				streamStatus.MarkCompleted()
+			case relaycommon.ResponseOutcomeFailed:
+				streamStatus.MarkFailed(tc.outcome.ErrorCode, tc.outcome.ErrorType, tc.outcome.ErrorStatus)
+			case relaycommon.ResponseOutcomeCancelled:
+				streamStatus.MarkCancelled()
+			case relaycommon.ResponseOutcomeIncomplete:
+				streamStatus.MarkIncomplete(tc.outcome.IncompleteReason)
+			}
+			endReason := tc.endReason
+			if endReason == relaycommon.StreamEndReasonNone {
+				endReason = relaycommon.StreamEndReasonDone
+			}
+			streamStatus.SetEndReason(endReason, tc.endError)
+			if tc.softError {
+				streamStatus.RecordError("recoverable malformed event")
+			}
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(request))
+			capture := &conversationCapture{
+				pending: pending,
+				info: &relaycommon.RelayInfo{
+					RequestId: tc.name, RelayFormat: protocol, StartTime: startedAt,
+					IsStream: true, StreamStatus: streamStatus,
+				},
+				metadata: make(map[string]string), missing: tc.captureMissing, startedAt: startedAt,
+			}
+			capture.appendPayload("client_response", response)
 
-	require.NoError(t, capture.Finish(ctx, nil))
-	var manifest model.ConversationArchive
-	require.NoError(t, db.First(&manifest).Error)
-	assert.False(t, manifest.Complete)
-	restored, _, err := store.Restore(manifest.RecordPath)
-	require.NoError(t, err)
-	assert.Equal(t, "client_gone", restored.Metadata["stream_end_reason"])
-	assert.Equal(t, "context canceled", restored.Metadata["stream_end_error"])
-	assert.Equal(t, "1", restored.Metadata["stream_soft_error_count"])
-	assert.Contains(t, restored.Completeness.Missing, "stream_client_gone")
+			require.NoError(t, capture.Finish(ctx, tc.relayErr))
+			var manifest model.ConversationArchive
+			require.NoError(t, db.Where("request_id = ?", tc.name).First(&manifest).Error)
+			assert.Equal(t, tc.wantMetadata["relay_error_code"], manifest.ErrorCode)
+			assert.Equal(t, http.StatusOK, manifest.StatusCode)
+			assert.Equal(t, len(tc.wantMissing) == 0, manifest.Complete)
+			restored, result, err := store.Restore(manifest.RecordPath)
+			require.NoError(t, err)
+			assert.Equal(t, manifest.RecordSha256, result.SHA256)
+			assert.Equal(t, string(protocol), restored.Protocol)
+			assert.Equal(t, request, restored.Payloads["client_request"])
+			assert.Equal(t, response, restored.Payloads["client_response"])
+			assert.Equal(t, manifest.Complete, restored.Completeness.Complete)
+			assert.ElementsMatch(t, tc.wantMissing, restored.Completeness.Missing)
+			assert.Equal(t, string(endReason), restored.Metadata["stream_end_reason"])
+			for _, key := range []string{
+				"response_outcome", "stream_error_code", "stream_error_type", "stream_error_status",
+				"stream_incomplete_reason", "relay_error_code", "relay_error_type", "stream_end_error", "stream_soft_error_count",
+			} {
+				want, exists := tc.wantMetadata[key]
+				if exists {
+					assert.Equal(t, want, restored.Metadata[key], key)
+				} else {
+					assert.NotContains(t, restored.Metadata, key)
+				}
+			}
+			assert.NotContains(t, restored.Metadata, "relay_error_message")
+		})
+	}
 }

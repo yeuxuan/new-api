@@ -29,6 +29,9 @@ import {
   TabPane,
   Popover,
   Modal,
+  Checkbox,
+  Radio,
+  RadioGroup,
 } from '@douyinfe/semi-ui';
 import {
   IconMail,
@@ -65,6 +68,7 @@ const AccountManagement = ({
   setShowEmailBindModal,
   setShowWeChatBindModal,
   generateAccessToken,
+  securityPending,
   handleSystemTokenClick,
   setShowChangePasswordModal,
   setShowAccountDeleteModal,
@@ -107,6 +111,87 @@ const AccountManagement = ({
   const [unbindTarget, setUnbindTarget] = React.useState(null);
   const bindingRequest = React.useRef(null);
   const security = useSecureVerification({ onError: () => cancelBinding() });
+  const [tokenFormOpen, setTokenFormOpen] = React.useState(false);
+  const [tokenCatalog, setTokenCatalog] = React.useState([]);
+  const [tokenCatalogLoading, setTokenCatalogLoading] = React.useState(false);
+  const [tokenName, setTokenName] = React.useState('');
+  const [tokenScopes, setTokenScopes] = React.useState([]);
+  const [tokenExpiryDays, setTokenExpiryDays] = React.useState(30);
+  const [defaultTokenExpiryDays, setDefaultTokenExpiryDays] =
+    React.useState(30);
+  const tokenCatalogRequest = React.useRef(null);
+  const tokenScopeOptions = tokenCatalog.flatMap((group) =>
+    (Array.isArray(group.resources) ? group.resources : []).flatMap(
+      (resource) =>
+        (Array.isArray(resource.actions) ? resource.actions : []).map(
+          (action) => ({
+            value: `${resource.resource}:${action.action}`,
+            label: `${t(resource.label_key)} / ${t(action.label_key)}`,
+          }),
+        ),
+    ),
+  );
+  const tokenExpiryOptions = [
+    ...new Set([30, 90, 180, 365, defaultTokenExpiryDays]),
+  ];
+
+  const openTokenForm = async () => {
+    if (securityPending || tokenCatalogRequest.current) return;
+    const controller = new AbortController();
+    tokenCatalogRequest.current = controller;
+    setTokenCatalogLoading(true);
+    try {
+      const res = await API.get('/api/user/access_tokens/catalog', {
+        skipErrorHandler: true,
+        signal: controller.signal,
+      });
+      controller.signal.throwIfAborted();
+      if (!res.data.success || !Array.isArray(res.data.data?.groups)) {
+        throw new Error(res.data.message || t('Failed to load access tokens'));
+      }
+      const defaultDays = res.data.data.default_expiry_days;
+      const days =
+        Number.isSafeInteger(defaultDays) && defaultDays > 0 ? defaultDays : 30;
+      setTokenCatalog(res.data.data.groups);
+      setDefaultTokenExpiryDays(days);
+      setTokenExpiryDays(days);
+      setTokenScopes([]);
+      setTokenName('');
+      setTokenFormOpen(true);
+    } catch (error) {
+      if (!controller.signal.aborted) showError(error);
+    } finally {
+      if (tokenCatalogRequest.current === controller) {
+        tokenCatalogRequest.current = null;
+        setTokenCatalogLoading(false);
+      }
+    }
+  };
+
+  const createSelectedToken = () => {
+    if (securityPending || !tokenName.trim() || !tokenScopes.length) return;
+    const allowed = new Set(tokenScopeOptions.map((option) => option.value));
+    if (tokenScopes.some((scope) => !allowed.has(scope))) return;
+    const input = {
+      name: tokenName,
+      scopes: [...tokenScopes],
+      expires_at: Math.floor(Date.now() / 1000) + tokenExpiryDays * 86400,
+    };
+    setTokenFormOpen(false);
+    generateAccessToken(input);
+  };
+
+  React.useEffect(() => {
+    setTokenFormOpen(false);
+    setTokenCatalog([]);
+    setTokenScopes([]);
+    setTokenName('');
+    setTokenCatalogLoading(false);
+    return () => {
+      tokenCatalogRequest.current?.abort();
+      tokenCatalogRequest.current = null;
+    };
+  }, [userState.user?.id, userState.user?.session?.sid]);
 
   const cancelBinding = () => {
     bindingRequest.current?.abort();
@@ -688,7 +773,7 @@ const AccountManagement = ({
                       </div>
                       <div className='flex-1'>
                         <Typography.Title heading={6} className='mb-1'>
-                          {t('系统访问令牌')}
+                          {t('Access tokens')}
                         </Typography.Title>
                         <Typography.Text type='tertiary' className='text-sm'>
                           {t('用于API调用的身份验证令牌，请妥善保管')}
@@ -709,11 +794,13 @@ const AccountManagement = ({
                     <Button
                       type='primary'
                       theme='solid'
-                      onClick={generateAccessToken}
+                      onClick={openTokenForm}
+                      loading={tokenCatalogLoading}
+                      disabled={securityPending || tokenCatalogLoading}
                       className='!bg-slate-600 hover:!bg-slate-700 w-full sm:w-auto'
                       icon={<IconKey />}
                     >
-                      {systemToken ? t('重新生成') : t('生成令牌')}
+                      {t('Create access token')}
                     </Button>
                   </div>
                 </Card>
@@ -855,6 +942,51 @@ const AccountManagement = ({
           </div>
         </TabPane>
       </Tabs>
+      <Modal
+        title={t('Create access token')}
+        visible={tokenFormOpen}
+        onCancel={() => setTokenFormOpen(false)}
+        onOk={createSelectedToken}
+        okText={t('Create access token')}
+        cancelText={t('取消')}
+        okButtonProps={{
+          disabled: securityPending || !tokenName.trim() || !tokenScopes.length,
+        }}
+      >
+        <div className='space-y-4'>
+          <div>
+            <label htmlFor='classic-access-token-name'>{t('Token name')}</label>
+            <Input
+              id='classic-access-token-name'
+              value={tokenName}
+              onChange={setTokenName}
+              autoComplete='off'
+            />
+          </div>
+          <fieldset>
+            <legend>{t('Expiration')}</legend>
+            <RadioGroup
+              value={tokenExpiryDays}
+              onChange={(event) => setTokenExpiryDays(event.target.value)}
+            >
+              {tokenExpiryOptions.map((days) => (
+                <Radio key={days} value={days}>
+                  {t('Valid for {{days}} days', { days })}
+                </Radio>
+              ))}
+            </RadioGroup>
+          </fieldset>
+          <fieldset>
+            <legend>{t('Permissions')}</legend>
+            <Checkbox.Group
+              direction='vertical'
+              value={tokenScopes}
+              onChange={setTokenScopes}
+              options={tokenScopeOptions}
+            />
+          </fieldset>
+        </div>
+      </Modal>
       <Modal
         title={t('确认解绑')}
         visible={Boolean(unbindTarget)}

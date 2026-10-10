@@ -299,28 +299,56 @@ const PersonalSetting = () => {
     setShowChangePasswordModal(visible);
   };
 
-  const generateAccessToken = async () => {
+  const generateAccessToken = async (input) => {
+    const name = input.name.trim();
+    const scopes = [...new Set(input.scopes)].sort();
+    const expiresAt = input.expires_at;
+    if (!name || [...name].length > 64) {
+      showError(t('Access token name must be 1 to 64 characters.'));
+      return;
+    }
+    if (
+      !scopes.length ||
+      scopes.some((scope) => typeof scope !== 'string' || !scope)
+    ) {
+      showError(t('Select at least one valid permission.'));
+      return;
+    }
+    if (
+      !Number.isSafeInteger(expiresAt) ||
+      expiresAt < Math.floor(Date.now() / 1000) + 3600
+    ) {
+      showError(t('Access token expiry must be at least one hour from now.'));
+      return;
+    }
+    // Keep the grant unchanged between verification and the one-use mutation.
+    const grant = { name, scopes, expires_at: expiresAt };
     await startPersonalVerification(
       async (proofToken, signal) => {
-        const res = await API.post('/api/user/token', undefined, {
+        const res = await API.post('/api/user/access_tokens', grant, {
           headers: { 'X-Security-Proof': proofToken },
           singleUseAuthorization: true,
           skipErrorHandler: true,
           signal,
         });
         const { success, message, data } = res.data;
-        if (!success || !data)
+        if (!success || typeof data?.token !== 'string' || !data.token) {
           throw new Error(message || t('操作失败，请重试'));
+        }
         signal.throwIfAborted();
-        setSystemToken(data);
-        if (await copy(data).catch(() => false)) {
-          showSuccess(t('令牌已重置并已复制到剪贴板'));
+        setSystemToken(data.token);
+        if (await copy(data.token).catch(() => false)) {
+          showSuccess(t('Created an access token'));
         } else {
           showInfo(t('无法复制到剪贴板，请手动复制'));
         }
         return res.data;
       },
-      { scope: 'access_token.generate' },
+      {
+        scope: 'access_token.generate',
+        context: { scopes, expires_at: expiresAt },
+        title: t('Create access token'),
+      },
     );
   };
 
@@ -870,6 +898,7 @@ const PersonalSetting = () => {
                 setShowEmailBindModal={setShowEmailBindModal}
                 setShowWeChatBindModal={setShowWeChatBindModal}
                 generateAccessToken={generateAccessToken}
+                securityPending={securityPending}
                 handleSystemTokenClick={handleSystemTokenClick}
                 setShowChangePasswordModal={setShowChangePasswordModal}
                 setShowAccountDeleteModal={setShowAccountDeleteModal}

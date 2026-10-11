@@ -1307,7 +1307,7 @@ func GetUserGroup(id int, fromDB bool) (group string, err error) {
 		// Don't return error - fall through to DB
 	}
 	fromDB = true
-	err = DB.Model(&User{}).Where("id = ?", id).Select(commonGroupCol).Find(&group).Error
+	err = DB.Model(&User{}).Where("id = ?", id).Pluck("group", &group).Error
 	if err != nil {
 		return "", err
 	}

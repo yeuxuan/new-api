@@ -121,10 +121,12 @@ function isPlainObject(v) {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-function stableStringify(obj) {
+function stableStringify(obj, original = '') {
   let text = JSON.stringify(obj, null, 2)
   for (const key of OBFUSCATED_KEYS) {
-    text = text.replaceAll(`"${key.runtime}":`, `"${key.serialized}":`)
+    if (original.includes(`"${key.serialized}":`)) {
+      text = text.replaceAll(`"${key.runtime}":`, `"${key.serialized}":`)
+    }
   }
   return text + '\n'
 }
@@ -248,9 +250,11 @@ async function main() {
 
   // Auto-pick base locale as the one with the most leaf keys under translation (most "rich").
   const parsedByLocale = {}
+  const rawByLocale = {}
   for (const filename of localeFiles) {
     const locale = filename.replace(/\.json$/i, '')
     const raw = await fs.readFile(path.join(LOCALES_DIR, filename), 'utf8')
+    rawByLocale[locale] = raw
     parsedByLocale[locale] = JSON.parse(raw)
   }
 
@@ -340,7 +344,11 @@ async function main() {
     }
 
     // Rewrite locale file in base order (even for en to normalize formatting)
-    await fs.writeFile(full, stableStringify(fixed), 'utf8')
+    await fs.writeFile(
+      full,
+      stableStringify(fixed, rawByLocale[locale]),
+      'utf8'
+    )
   }
 
   await fs.writeFile(

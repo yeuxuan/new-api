@@ -27,6 +27,7 @@ import {
   within,
 } from '@testing-library/react';
 import RechargeCard from '../RechargeCard';
+import TopupHistoryModal from '../modals/TopupHistoryModal';
 import { API } from '../../../helpers';
 import { Toast } from '@douyinfe/semi-ui';
 
@@ -293,6 +294,68 @@ describe('wallet payment visibility', () => {
         fireEvent.click(button);
         expect(post).not.toHaveBeenCalled();
       }
+    },
+  );
+});
+
+describe('topup history quota display', () => {
+  it.each([
+    { mode: 'USD', expected: '$1.50' },
+    { mode: 'CNY', expected: '¥10.50' },
+    { mode: 'TOKENS', expected: '750.0k' },
+    { mode: 'CUSTOM', expected: '€3.00' },
+  ])(
+    'uses the exact snapshot in $mode without changing old amounts',
+    async ({ mode, expected }) => {
+      localStorage.setItem('quota_per_unit', '500000');
+      localStorage.setItem('quota_display_type', mode);
+      localStorage.setItem(
+        'status',
+        JSON.stringify({
+          usd_exchange_rate: 7,
+          custom_currency_symbol: '€',
+          custom_currency_exchange_rate: 2,
+        }),
+      );
+      vi.spyOn(API, 'get').mockResolvedValue({
+        data: {
+          success: true,
+          data: {
+            total: 5,
+            items: [750000, undefined, -1, 1.5]
+              .map((quota, id) => ({
+                id,
+                amount: 1,
+                credited_quota: quota,
+                money: 0.96,
+                trade_no: `quota-order-${id}`,
+                payment_method: 'ipaynow',
+                status: 'success',
+                create_time: 1,
+              }))
+              .concat({
+                id: 4,
+                amount: 0,
+                money: 10,
+                trade_no: 'sub-order',
+                payment_method: 'creem',
+                status: 'success',
+                create_time: 1,
+              }),
+          },
+        },
+      });
+      render(<TopupHistoryModal visible onCancel={vi.fn()} t={(key) => key} />);
+      await screen.findByText('quota-order-3');
+      for (const id of [0, 1, 2, 3]) {
+        const row = screen.getByRole('row', {
+          name: new RegExp(`quota-order-${id}`),
+        });
+        expect(within(row).getByText(id === 0 ? expected : '1')).toBeVisible();
+        expect(within(row).getByText('¥0.96')).toBeVisible();
+      }
+      const subscription = screen.getByRole('row', { name: /sub-order/ });
+      expect(within(subscription).getByText('订阅套餐')).toBeVisible();
     },
   );
 });

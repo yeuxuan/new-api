@@ -105,6 +105,26 @@ describe('server error message mapping', () => {
     ).toBe('Channel 7 does not exist')
   })
 
+  test('shows payment rejection details instead of the legacy error marker', () => {
+    const payload = { message: 'error', data: 'Merchant rejected the order' }
+    expect(getServerErrorMessage(payload)).toBe('Merchant rejected the order')
+    expect(
+      getServerErrorMessage({ isAxiosError: true, response: { data: payload } })
+    ).toBe('Merchant rejected the order')
+    expect(
+      getServerErrorMessage({
+        ...payload,
+        message_key: 'Payment amount is too low',
+      })
+    ).toBe('Payment amount is too low')
+    expect(
+      getServerErrorMessage(
+        { message: 'error', data: {} },
+        'Payment request failed'
+      )
+    ).toBe('Payment request failed')
+  })
+
   test('translates a backend source key and leaves upstream text as written', async () => {
     i18next.addResourceBundle('zhCN', 'translation', {
       'Task timed out': '任务超时',

@@ -230,6 +230,7 @@ function patchAPIInstance(instance) {
   instance.get = (url, config = {}) => {
     if (
       config?.disableDuplicate ||
+      config.signal ||
       config.singleUseAuthorization ||
       config.headers?.['X-Security-Proof']
     ) {

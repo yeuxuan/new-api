@@ -46,11 +46,10 @@ func (a *ResponsesUsageAccumulator) Observe(event *dto.ResponsesStreamResponse, 
 		if event.Response != nil {
 			ApplyResponsesUsage(a.usage, event.Response.Usage)
 			if a.responseText.Len() == 0 {
-				a.responseText.WriteString(relayconvert.ExtractOutputTextFromResponses(event.Response))
-			}
-			if a.outputText.Len() == 0 {
-				// Some upstreams carry the output only on the terminal event.
-				a.outputText.WriteString(relayconvert.ExtractOutputTextFromResponses(event.Response))
+				// Tool/reasoning deltas do not imply that the reply was streamed.
+				text := relayconvert.ExtractOutputTextFromResponses(event.Response)
+				a.responseText.WriteString(text)
+				a.outputText.WriteString(text)
 			}
 		}
 		// Vendor counts are cumulative on the terminal event and replace the

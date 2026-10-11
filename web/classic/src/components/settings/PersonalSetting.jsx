@@ -33,6 +33,7 @@ import {
   renderQuota,
   getStoredUser,
   clearAuthSession,
+  getServerMessage,
 } from '../../helpers';
 import { UserContext } from '../../context/User';
 import { useTranslation } from 'react-i18next';
@@ -79,6 +80,7 @@ const PersonalSetting = () => {
   const [disableButton, setDisableButton] = useState(false);
   const [countdown, setCountdown] = useState(30);
   const [systemToken, setSystemToken] = useState('');
+  const [accessTokenRevision, setAccessTokenRevision] = useState(0);
   const [passkeyStatus, setPasskeyStatus] = useState({ enabled: false });
   const [passkeyRegisterLoading, setPasskeyRegisterLoading] = useState(false);
   const [passkeyDeleteLoading, setPasskeyDeleteLoading] = useState(false);
@@ -337,6 +339,7 @@ const PersonalSetting = () => {
         }
         signal.throwIfAborted();
         setSystemToken(data.token);
+        setAccessTokenRevision((revision) => revision + 1);
         if (await copy(data.token).catch(() => false)) {
           showSuccess(t('Created an access token'));
         } else {
@@ -349,6 +352,97 @@ const PersonalSetting = () => {
         context: { scopes, expires_at: expiresAt },
         title: t('Create access token'),
       },
+    );
+  };
+
+  const updateAccessToken = async (id, input, onSaved) => {
+    if (securityOperation.current) return;
+    const name = input.name.trim();
+    if (!name || [...name].length > 64) {
+      showError(t('Access token name must be 1 to 64 characters.'));
+      return;
+    }
+    const scopes = input.scopes ? [...new Set(input.scopes)].sort() : undefined;
+    if (
+      scopes &&
+      (!scopes.length ||
+        scopes.some((scope) => typeof scope !== 'string' || !scope))
+    ) {
+      showError(t('Select at least one valid permission.'));
+      return;
+    }
+    const grant = { name, ...(scopes ? { scopes } : {}) };
+    const save = async (proofToken, signal) => {
+      signal.throwIfAborted();
+      const res = await API.patch(`/api/user/access_tokens/${id}`, grant, {
+        ...(proofToken
+          ? {
+              headers: { 'X-Security-Proof': proofToken },
+              singleUseAuthorization: true,
+            }
+          : {}),
+        skipErrorHandler: true,
+        signal,
+      });
+      signal.throwIfAborted();
+      if (!res.data.success) {
+        throw new Error(getServerMessage(res.data, t) || t('Failed to save'));
+      }
+      setAccessTokenRevision((revision) => revision + 1);
+      onSaved();
+      showSuccess(t('Saved successfully'));
+      return res.data;
+    };
+    if (scopes) {
+      await startPersonalVerification(save, {
+        scope: 'access_token.update',
+        context: { token_id: id, scopes },
+        title: t('Edit access token'),
+      });
+      return;
+    }
+    const controller = new AbortController();
+    securityOperation.current = controller;
+    setSecurityPending(true);
+    try {
+      await save(undefined, controller.signal);
+    } catch (error) {
+      if (!controller.signal.aborted) showError(error);
+    } finally {
+      if (securityOperation.current === controller) {
+        securityOperation.current = null;
+        setSecurityPending(false);
+      }
+    }
+  };
+
+  const revokeAccessToken = async (target) => {
+    const legacy = target === 'legacy';
+    const context = legacy ? { legacy: true } : { token_id: target };
+    await startPersonalVerification(
+      async (proofToken, signal) => {
+        signal.throwIfAborted();
+        const res = await API.delete(
+          `/api/user/access_tokens/${legacy ? 'legacy' : target}`,
+          {
+            headers: { 'X-Security-Proof': proofToken },
+            singleUseAuthorization: true,
+            skipErrorHandler: true,
+            signal,
+          },
+        );
+        signal.throwIfAborted();
+        if (!res.data.success) {
+          throw new Error(
+            getServerMessage(res.data, t) || t('Failed to revoke token'),
+          );
+        }
+        setSystemToken('');
+        setAccessTokenRevision((revision) => revision + 1);
+        showSuccess(t('Access token revoked'));
+        return res.data;
+      },
+      { scope: 'access_token.revoke', context, title: t('Revoke') },
     );
   };
 
@@ -898,6 +992,9 @@ const PersonalSetting = () => {
                 setShowEmailBindModal={setShowEmailBindModal}
                 setShowWeChatBindModal={setShowWeChatBindModal}
                 generateAccessToken={generateAccessToken}
+                accessTokenRevision={accessTokenRevision}
+                updateAccessToken={updateAccessToken}
+                revokeAccessToken={revokeAccessToken}
                 securityPending={securityPending}
                 handleSystemTokenClick={handleSystemTokenClick}
                 setShowChangePasswordModal={setShowChangePasswordModal}

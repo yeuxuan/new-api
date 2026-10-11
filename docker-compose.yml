@@ -43,7 +43,8 @@ services:
       - CONVERSATION_LOG_STORAGE_PATH=${CONVERSATION_LOG_STORAGE_PATH:-/data/conversation-archive} # 会话正文文件归档目录；数据库仅保留索引元数据
       - CONVERSATION_LOG_STORAGE_SENTINEL=${CONVERSATION_LOG_STORAGE_SENTINEL:-.new-api-conversation-archive-volume} # 每次写入前核验挂载标记，防止数据盘掉线后写爆系统盘
       - CONVERSATION_LOG_MIN_FREE_BYTES=${CONVERSATION_LOG_MIN_FREE_BYTES:-10737418240} # 归档盘安全预留空间，低于该值拒绝新的会话请求
-      - BATCH_UPDATE_ENABLED=true  # 是否启用批量更新 (Whether to enable batch update)
+      # Keep financial writes durable by default; batch wallet state is process-local.
+      - BATCH_UPDATE_ENABLED=false
       - NODE_NAME=new-api-node-1  # 节点名称，用于审计日志中标识节点身份；多节点/容器部署时建议设置 (Node name used in audit logs; recommended when running multiple instances or in containers)
 #      - DEFAULT_LANGUAGE=zh-CN  # 默认语言：日志输出，以及对方没有指定语言时返回的提示、邮件和通知；可选 en、zh-CN、zh-TW，不设置为 en (Default language of logs and of messages, emails and notifications when the reader states none: en, zh-CN or zh-TW; en if unset)
 #      - STREAMING_TIMEOUT=300  # 流模式无响应超时时间，单位秒，默认120秒，如果出现空补全可以尝试改为更大值 （Streaming timeout in seconds, default is 120s. Increase if experiencing empty completions）

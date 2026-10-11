@@ -54,26 +54,30 @@ func TestOpenAIChatRequestToClaudeMessagesPreservesFileTypes(t *testing.T) {
 	})
 
 	tests := []struct {
-		name     string
-		fileName string
-		content  string
-		wantType string
-		wantMime string
-		wantText string
+		name       string
+		fileName   string
+		content    string
+		wantType   string
+		wantSource string
+		wantMime   string
+		wantText   string
 	}{
 		{
-			name:     "text file becomes text content",
-			fileName: "notes.txt",
-			content:  "custom context",
-			wantType: "text",
-			wantText: "custom context",
+			name:       "text file becomes a plain-text document",
+			fileName:   "notes.txt",
+			content:    "custom context",
+			wantType:   "document",
+			wantSource: "text",
+			wantMime:   "text/plain",
+			wantText:   "custom context",
 		},
 		{
-			name:     "pdf remains a document",
-			fileName: "guide.pdf",
-			content:  "%PDF-test",
-			wantType: "document",
-			wantMime: "application/pdf",
+			name:       "pdf remains a document",
+			fileName:   "guide.pdf",
+			content:    "%PDF-test",
+			wantType:   "document",
+			wantSource: "base64",
+			wantMime:   "application/pdf",
 		},
 	}
 
@@ -109,13 +113,16 @@ func TestOpenAIChatRequestToClaudeMessagesPreservesFileTypes(t *testing.T) {
 			assert.Equal(t, tt.wantType, parts[0].Type)
 
 			if tt.wantText != "" {
-				require.NotNil(t, parts[0].Text)
-				assert.Equal(t, tt.wantText, *parts[0].Text)
+				require.NotNil(t, parts[0].Source)
+				assert.Equal(t, tt.wantText, parts[0].Source.Data)
 			}
 			if tt.wantMime != "" {
 				require.NotNil(t, parts[0].Source)
 				assert.Equal(t, tt.wantMime, parts[0].Source.MediaType)
-				assert.Equal(t, encoded, parts[0].Source.Data)
+				assert.Equal(t, tt.wantSource, parts[0].Source.Type)
+				if tt.wantSource == "base64" {
+					assert.Equal(t, encoded, parts[0].Source.Data)
+				}
 			}
 		})
 	}

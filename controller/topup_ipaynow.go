@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -48,6 +49,41 @@ func getIPayNowMinTopup() int64 {
 	return int64(minTopup)
 }
 
+func getIPayNowPaymentAmountFen(amount int64, group string) (int64, error) {
+	payMoney := getPayMoney(amount, group)
+	if math.IsNaN(payMoney) || math.IsInf(payMoney, 0) {
+		return 0, common.NewMessage("Invalid parameters")
+	}
+	amountFen := decimal.NewFromFloat(payMoney).Mul(decimal.NewFromInt(100)).Round(0)
+	if amountFen.LessThan(decimal.NewFromInt(1)) {
+		return 0, common.NewMessage("Payment amount is too low")
+	}
+	if amountFen.GreaterThan(decimal.NewFromInt(math.MaxInt64)) {
+		return 0, common.NewMessage("Invalid parameters")
+	}
+	return amountFen.IntPart(), nil
+}
+
+func validateIPayNowTopUpQuota(userId int, amount int64) (int, error) {
+	var quota int
+	var err error
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+		if amount > common.MaxWalletQuota {
+			return 0, common.NewMessage("Top-up amount cannot exceed {{max}}", map[string]any{"max": common.MaxWalletQuota})
+		}
+		quota, err = validateCreditedQuota(decimal.NewFromInt(amount))
+	} else {
+		quota, err = validateTopUpQuota(amount)
+	}
+	if err != nil {
+		return 0, err
+	}
+	if err := model.ValidateTopUpQuotaCapacity(userId, quota); err != nil {
+		return 0, err
+	}
+	return quota, nil
+}
+
 // IsIPayNowEnabled 是否已配置 iPayNow 支付
 func IsIPayNowEnabled() bool {
 	return operation_setting.IPayNowAppId != "" && operation_setting.IPayNowAppKey != ""
@@ -79,7 +115,8 @@ func (*IPayNowAdaptor) RequestAmount(c *gin.Context, req *IPayNowPayRequest) {
 	}
 
 	userId := c.GetInt("id")
-	if rejectInvalidTopUpQuota(c, userId, req.Amount) {
+	if _, err := validateIPayNowTopUpQuota(userId, req.Amount); err != nil {
+		paymentError(c, err)
 		return
 	}
 	group, err := model.GetUserGroup(userId, true)
@@ -88,9 +125,9 @@ func (*IPayNowAdaptor) RequestAmount(c *gin.Context, req *IPayNowPayRequest) {
 		return
 	}
 
-	payMoney := getPayMoney(req.Amount, group)
-	if payMoney <= 0.01 {
-		paymentError(c, common.NewMessage("Payment amount is too low"))
+	amountFen, err := getIPayNowPaymentAmountFen(req.Amount, group)
+	if err != nil {
+		paymentError(c, err)
 		return
 	}
 
@@ -98,7 +135,7 @@ func (*IPayNowAdaptor) RequestAmount(c *gin.Context, req *IPayNowPayRequest) {
 	if topupGroupRatio == 0 {
 		topupGroupRatio = 1
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "success", "data": strconv.FormatFloat(payMoney, 'f', 2, 64), "group_ratio": topupGroupRatio})
+	c.JSON(http.StatusOK, gin.H{"message": "success", "data": decimal.NewFromInt(amountFen).Div(decimal.NewFromInt(100)).StringFixed(2), "group_ratio": topupGroupRatio})
 }
 
 func (*IPayNowAdaptor) RequestPay(c *gin.Context, req *IPayNowPayRequest) {
@@ -119,7 +156,9 @@ func (*IPayNowAdaptor) RequestPay(c *gin.Context, req *IPayNowPayRequest) {
 	}
 
 	userId := c.GetInt("id")
-	if rejectInvalidTopUpQuota(c, userId, req.Amount) {
+	creditedQuota, err := validateIPayNowTopUpQuota(userId, req.Amount)
+	if err != nil {
+		paymentError(c, err)
 		return
 	}
 	group, err := model.GetUserGroup(userId, true)
@@ -128,18 +167,12 @@ func (*IPayNowAdaptor) RequestPay(c *gin.Context, req *IPayNowPayRequest) {
 		return
 	}
 
-	payMoney := getPayMoney(req.Amount, group)
-	if payMoney < 0.01 {
-		paymentError(c, common.NewMessage("Payment amount is too low"))
+	amountFen, err := getIPayNowPaymentAmountFen(req.Amount, group)
+	if err != nil {
+		paymentError(c, err)
 		return
 	}
-
-	// 以"分"为单位向 iPayNow 提交
-	amountFen := decimal.NewFromFloat(payMoney).Mul(decimal.NewFromInt(100)).Round(0).IntPart()
-	if amountFen <= 0 {
-		paymentError(c, common.NewMessage("Payment amount is too low"))
-		return
-	}
+	payMoney := decimal.NewFromInt(amountFen).Div(decimal.NewFromInt(100)).InexactFloat64()
 
 	tradeNo := fmt.Sprintf("IPN%dNO%s%d", userId, common.GetRandomString(6), time.Now().Unix())
 	if len(tradeNo) > 40 {
@@ -161,6 +194,10 @@ func (*IPayNowAdaptor) RequestPay(c *gin.Context, req *IPayNowPayRequest) {
 		PaymentProvider: model.PaymentProviderIPayNow,
 		CreateTime:      time.Now().Unix(),
 		Status:          common.TopUpStatusPending,
+	}
+	if err := topUp.SetIPayNowQuota(creditedQuota); err != nil {
+		paymentError(c, err)
+		return
 	}
 	if err := topUp.Insert(); err != nil {
 		common.SysError("iPayNow 创建充值订单失败: " + err.Error())

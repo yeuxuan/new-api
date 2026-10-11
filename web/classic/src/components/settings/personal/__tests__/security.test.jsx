@@ -20,7 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import '@douyinfe/semi-ui/react19-adapter';
 
 import React from 'react';
-import { Modal } from '@douyinfe/semi-ui';
+import { Modal, Toast } from '@douyinfe/semi-ui';
 import {
   act,
   cleanup,
@@ -65,6 +65,7 @@ let user;
 let method;
 let respond;
 let originalAdapter;
+let accessTokens;
 
 function success(data) {
   return { success: true, data };
@@ -83,6 +84,10 @@ beforeEach(() => {
   requests = [];
   method = 'password';
   respond = () => undefined;
+  accessTokens = {
+    items: [],
+    legacy: null,
+  };
   user = {
     id: 9,
     username: 'personal-user',
@@ -167,6 +172,12 @@ beforeEach(() => {
             ],
           });
           break;
+        case '/api/user/access_tokens':
+          if (config.method !== 'get') {
+            throw new Error(`Unexpected token mutation: ${config.method}`);
+          }
+          data = success(accessTokens);
+          break;
         case '/api/verify/methods':
           data = success({
             scope: config.params.scope,
@@ -193,11 +204,13 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  Toast.destroyAll();
   API.defaults.adapter = originalAdapter;
   clearAuthSession();
 });
 
 async function openPersonalSettings() {
+  let updateUser;
   function Account() {
     const [state, dispatch] = React.useReducer(
       (previous, action) => ({
@@ -205,6 +218,7 @@ async function openPersonalSettings() {
       }),
       { user: { ...user, session: { sid: 'personal-session' } } },
     );
+    updateUser = dispatch;
     return (
       <UserContext.Provider value={[state, dispatch]}>
         <StatusContext.Provider value={[{ status: {} }, vi.fn()]}>
@@ -219,7 +233,13 @@ async function openPersonalSettings() {
       true,
     ),
   );
-  return result;
+  return {
+    ...result,
+    switchSession(nextUser, sid) {
+      persistAuthResponse({ ...rotation(), user: nextUser, session: { sid } });
+      updateUser({ type: 'login', payload: { ...nextUser, session: { sid } } });
+    },
+  };
 }
 
 async function securityTab() {
@@ -268,8 +288,9 @@ async function selectTokenGrant() {
 
 test('personal token creation binds the selected grant and expiry to the proof and keeps plaintext out of storage', async () => {
   vi.spyOn(Date, 'now').mockReturnValue(1800000000000);
-  respond = ({ url }) =>
-    url === '/api/user/access_tokens'
+  persistAuthResponse({ ...rotation(), user });
+  respond = ({ url, method }) =>
+    url === '/api/user/access_tokens' && method === 'post'
       ? success({ token: 'personal-access-token' })
       : undefined;
   await openPersonalSettings();
@@ -277,11 +298,16 @@ test('personal token creation binds the selected grant and expiry to the proof a
   await selectTokenGrant();
   await screen.findByPlaceholderText('请输入当前密码');
   expect(
-    requests.filter(({ url }) => url === '/api/user/access_tokens'),
+    requests.filter(
+      ({ url, method }) =>
+        url === '/api/user/access_tokens' && method === 'post',
+    ),
   ).toHaveLength(0);
   await verifyPassword();
   await screen.findByDisplayValue('personal-access-token');
-  const request = requests.find(({ url }) => url === '/api/user/access_tokens');
+  const request = requests.find(
+    ({ url, method }) => url === '/api/user/access_tokens' && method === 'post',
+  );
   expect(request.method).toBe('post');
   expect(request.body).toEqual({
     name: 'Classic CLI',
@@ -312,9 +338,17 @@ test('cancelling token verification sends no token mutation', async () => {
   await securityTab();
   await selectTokenGrant();
   await screen.findByPlaceholderText('请输入当前密码');
-  fireEvent.click(screen.getByRole('button', { name: /取消|cancel/ }));
+  const verificationDialog = screen
+    .getByPlaceholderText('请输入当前密码')
+    .closest('[role="dialog"]');
+  fireEvent.click(
+    within(verificationDialog).getByRole('button', { name: /取消|cancel/ }),
+  );
   expect(
-    requests.filter(({ url }) => url === '/api/user/access_tokens'),
+    requests.filter(
+      ({ url, method }) =>
+        url === '/api/user/access_tokens' && method === 'post',
+    ),
   ).toHaveLength(0);
 });
 
@@ -340,9 +374,12 @@ test('the token form only offers catalog permissions and requires an explicit se
     within(dialog).getByRole('button', { name: '取消', exact: true }),
   );
   expect(requests.some(({ url }) => url === '/api/verify')).toBe(false);
-  expect(requests.some(({ url }) => url === '/api/user/access_tokens')).toBe(
-    false,
-  );
+  expect(
+    requests.some(
+      ({ url, method }) =>
+        url === '/api/user/access_tokens' && method === 'post',
+    ),
+  ).toBe(false);
 });
 
 test('a failed catalog load does not start verification or use a fallback full grant', async () => {
@@ -358,9 +395,12 @@ test('a failed catalog load does not start verification or use a fallback full g
   await screen.findByText(/catalog unavailable/);
   expect(screen.queryByLabelText('Token name')).toBeNull();
   expect(requests.some(({ url }) => url === '/api/verify/methods')).toBe(false);
-  expect(requests.some(({ url }) => url === '/api/user/access_tokens')).toBe(
-    false,
-  );
+  expect(
+    requests.some(
+      ({ url, method }) =>
+        url === '/api/user/access_tokens' && method === 'post',
+    ),
+  ).toBe(false);
 });
 
 test('a rejected security proof cannot create a token', async () => {
@@ -373,9 +413,400 @@ test('a rejected security proof cannot create a token', async () => {
   await selectTokenGrant();
   await verifyPassword();
   await screen.findByText(/proof expired/);
-  expect(requests.some(({ url }) => url === '/api/user/access_tokens')).toBe(
-    false,
+  expect(
+    requests.some(
+      ({ url, method }) =>
+        url === '/api/user/access_tokens' && method === 'post',
+    ),
+  ).toBe(false);
+});
+
+function managedToken(id = 7) {
+  return {
+    id,
+    name: `CLI ${id}`,
+    token_hint: 'abcd',
+    scopes: ['profile:read', 'retired:read'],
+    expires_at: 1900000000,
+    created_at: 1800000000,
+    last_used_at: 0,
+  };
+}
+
+async function openTokenEditor() {
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit CLI 7' }));
+  return screen.findByRole('dialog', { name: 'Edit access token' });
+}
+
+test('lists all twenty tokens and allows revocation to free a slot with an ID-bound one-use proof', async () => {
+  accessTokens.items = Array.from({ length: 20 }, (_, index) =>
+    managedToken(index + 1),
   );
+  respond = ({ url, method }) => {
+    if (url === '/api/user/access_tokens/7' && method === 'delete') {
+      accessTokens = {
+        ...accessTokens,
+        items: accessTokens.items.filter((item) => item.id !== 7),
+      };
+      return success();
+    }
+  };
+  await openPersonalSettings();
+  await securityTab();
+  expect(await screen.findByText('CLI 20')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Revoke CLI 7' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Revoke' });
+  expect(within(dialog).getByText('CLI 7')).toBeVisible();
+  fireEvent.click(
+    within(dialog).getByRole('button', { name: 'Revoke', exact: true }),
+  );
+  await verifyPassword();
+  await waitFor(() =>
+    expect(screen.queryByText('CLI 7')).not.toBeInTheDocument(),
+  );
+  const request = requests.find(({ method }) => method === 'delete');
+  expect(request.url).toBe('/api/user/access_tokens/7');
+  expect(request.config.headers.get('X-Security-Proof')).toBe('one-use-proof');
+  expect(request.config.singleUseAuthorization).toBe(true);
+  expect(requests.find(({ url }) => url === '/api/verify').body).toMatchObject({
+    scope: 'access_token.revoke',
+    context: { token_id: 7 },
+  });
+});
+
+test('renames without verification and preserves stored permissions no longer in the catalog', async () => {
+  accessTokens.items = [managedToken()];
+  respond = ({ url, method, body }) => {
+    if (url === '/api/user/access_tokens/7' && method === 'patch') {
+      accessTokens = {
+        ...accessTokens,
+        items: [{ ...managedToken(), name: body.name }],
+      };
+      return success(accessTokens.items[0]);
+    }
+  };
+  await openPersonalSettings();
+  await securityTab();
+  const dialog = await openTokenEditor();
+  fireEvent.change(within(dialog).getByLabelText('Token name'), {
+    target: { value: 'Renamed CLI' },
+  });
+  fireEvent.click(
+    within(dialog).getByRole('button', { name: 'Save', exact: true }),
+  );
+  expect(await screen.findByText('Renamed CLI')).toBeVisible();
+  const request = requests.find(({ method }) => method === 'patch');
+  expect(request.body).toEqual({ name: 'Renamed CLI' });
+  expect(request.config.headers.has('X-Security-Proof')).toBe(false);
+  expect(requests.some(({ url }) => url === '/api/verify')).toBe(false);
+});
+
+test('permission changes require proof bound to the exact token and sorted replacement grant', async () => {
+  accessTokens.items = [managedToken()];
+  respond = ({ url, method, body }) => {
+    if (url === '/api/user/access_tokens/7' && method === 'patch') {
+      accessTokens = {
+        ...accessTokens,
+        items: [{ ...managedToken(), ...body }],
+      };
+      return success(accessTokens.items[0]);
+    }
+  };
+  await openPersonalSettings();
+  await securityTab();
+  const dialog = await openTokenEditor();
+  fireEvent.click(
+    within(dialog).getByRole('checkbox', { name: 'Profile / Edit' }),
+  );
+  fireEvent.click(
+    within(dialog).getByRole('button', { name: 'Save', exact: true }),
+  );
+  await screen.findByPlaceholderText('请输入当前密码');
+  expect(requests.some(({ method }) => method === 'patch')).toBe(false);
+  await verifyPassword();
+  await waitFor(() =>
+    expect(requests.some(({ method }) => method === 'patch')).toBe(true),
+  );
+  const request = requests.find(({ method }) => method === 'patch');
+  expect(request.body).toEqual({
+    name: 'CLI 7',
+    scopes: ['profile:read', 'profile:write'],
+  });
+  expect(request.config.singleUseAuthorization).toBe(true);
+  expect(request.config.headers.get('X-Security-Proof')).toBe('one-use-proof');
+  expect(requests.find(({ url }) => url === '/api/verify').body).toMatchObject({
+    scope: 'access_token.update',
+    context: { token_id: 7, scopes: request.body.scopes },
+  });
+});
+
+test.each(['confirmation', 'verification'])(
+  'cancelling token revocation at %s sends no DELETE',
+  async (phase) => {
+    accessTokens.items = [managedToken()];
+    await openPersonalSettings();
+    await securityTab();
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Revoke CLI 7' }),
+    );
+    const dialog = await screen.findByRole('dialog', { name: 'Revoke' });
+    if (phase === 'verification') {
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: 'Revoke', exact: true }),
+      );
+      await screen.findByPlaceholderText('请输入当前密码');
+    }
+    const activeDialog =
+      phase === 'verification'
+        ? screen
+            .getByPlaceholderText('请输入当前密码')
+            .closest('[role="dialog"]')
+        : dialog;
+    fireEvent.click(
+      within(activeDialog).getByRole('button', { name: /取消|cancel/ }),
+    );
+    expect(requests.some(({ method }) => method === 'delete')).toBe(false);
+    expect(screen.getByText('CLI 7')).toBeVisible();
+  },
+);
+
+test.each(['verification', 'mutation'])(
+  'failed %s keeps the token and never replays a revoke',
+  async (phase) => {
+    accessTokens.items = [managedToken()];
+    respond = ({ url, method }) => {
+      if (
+        (phase === 'verification' && url === '/api/verify') ||
+        (phase === 'mutation' && method === 'delete')
+      ) {
+        return {
+          success: false,
+          message: 'token operation rejected',
+          code: 'AUTH_PROOF_EXPIRED',
+        };
+      }
+    };
+    await openPersonalSettings();
+    await securityTab();
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Revoke CLI 7' }),
+    );
+    const dialog = await screen.findByRole('dialog', { name: 'Revoke' });
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Revoke', exact: true }),
+    );
+    await verifyPassword();
+    await screen.findByText(/token operation rejected/);
+    expect(screen.getByText('CLI 7')).toBeVisible();
+    expect(requests.filter(({ method }) => method === 'delete')).toHaveLength(
+      phase === 'mutation' ? 1 : 0,
+    );
+  },
+);
+
+test('revokes a legacy token using the legacy context rather than a scoped token ID', async () => {
+  accessTokens.legacy = { token_hint: 'old1', retire_at: 1900000000 };
+  respond = ({ url, method }) => {
+    if (url === '/api/user/access_tokens/legacy' && method === 'delete') {
+      accessTokens = { ...accessTokens, legacy: null };
+      return success();
+    }
+  };
+  await openPersonalSettings();
+  await securityTab();
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Revoke Legacy token' }),
+  );
+  const dialog = await screen.findByRole('dialog', { name: 'Revoke' });
+  fireEvent.click(
+    within(dialog).getByRole('button', { name: 'Revoke', exact: true }),
+  );
+  await verifyPassword();
+  await waitFor(() =>
+    expect(screen.queryByText('Legacy token')).not.toBeInTheDocument(),
+  );
+  expect(requests.find(({ url }) => url === '/api/verify').body).toMatchObject({
+    scope: 'access_token.revoke',
+    context: { legacy: true },
+  });
+});
+
+test('a failed list load offers retry and never fabricates an empty token list', async () => {
+  respond = ({ url, method }) =>
+    url === '/api/user/access_tokens' && method === 'get'
+      ? { success: false, message: 'token list unavailable' }
+      : undefined;
+  await openPersonalSettings();
+  await securityTab();
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'token list unavailable',
+  );
+  expect(screen.queryByText('No access tokens')).not.toBeInTheDocument();
+  respond = () => undefined;
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  expect(await screen.findByText('No access tokens')).toBeVisible();
+});
+
+test('cancelling an edited grant leaves the form intact and sends no PATCH', async () => {
+  accessTokens.items = [managedToken()];
+  await openPersonalSettings();
+  await securityTab();
+  const dialog = await openTokenEditor();
+  fireEvent.click(
+    within(dialog).getByRole('checkbox', { name: 'Profile / Edit' }),
+  );
+  fireEvent.click(
+    within(dialog).getByRole('button', { name: 'Save', exact: true }),
+  );
+  await screen.findByPlaceholderText('请输入当前密码');
+  const verificationDialog = screen
+    .getByPlaceholderText('请输入当前密码')
+    .closest('[role="dialog"]');
+  fireEvent.click(
+    within(verificationDialog).getByRole('button', { name: /取消|cancel/ }),
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText('Token name')).toBeVisible(),
+  );
+  const restored = screen
+    .getByLabelText('Token name')
+    .closest('[role="dialog"]');
+  expect(
+    within(restored).getByRole('checkbox', { name: 'Profile / Edit' }),
+  ).toBeChecked();
+  expect(requests.some(({ method }) => method === 'patch')).toBe(false);
+  fireEvent.click(
+    within(restored).getByRole('button', { name: '取消', exact: true }),
+  );
+  expect(screen.getByText('CLI 7')).toBeVisible();
+});
+
+test('a failed name-only save preserves the editor and token without a false success', async () => {
+  accessTokens.items = [managedToken()];
+  respond = ({ method }) =>
+    method === 'patch'
+      ? { success: false, message: 'rename rejected' }
+      : undefined;
+  await openPersonalSettings();
+  await securityTab();
+  const dialog = await openTokenEditor();
+  fireEvent.change(within(dialog).getByLabelText('Token name'), {
+    target: { value: 'Rejected rename' },
+  });
+  fireEvent.click(
+    within(dialog).getByRole('button', { name: 'Save', exact: true }),
+  );
+  await screen.findByText(/rename rejected/);
+  const restored = await screen.findByRole('dialog', {
+    name: 'Edit access token',
+  });
+  expect(within(restored).getByLabelText('Token name')).toHaveValue(
+    'Rejected rename',
+  );
+  expect(screen.getByText('CLI 7')).toBeVisible();
+  expect(requests.filter(({ method }) => method === 'patch')).toHaveLength(1);
+});
+
+test('removing all editable permissions disables save rather than sending an empty grant', async () => {
+  accessTokens.items = [managedToken()];
+  await openPersonalSettings();
+  await securityTab();
+  const dialog = await openTokenEditor();
+  fireEvent.click(
+    within(dialog).getByRole('checkbox', { name: 'Profile / View' }),
+  );
+  expect(
+    within(dialog).getByRole('button', { name: 'Save', exact: true }),
+  ).toBeDisabled();
+  expect(requests.some(({ url }) => url === '/api/verify')).toBe(false);
+  expect(requests.some(({ method }) => method === 'patch')).toBe(false);
+});
+
+test('a failed edit catalog load keeps the stored grant and sends no PATCH', async () => {
+  accessTokens.items = [managedToken()];
+  respond = ({ url }) =>
+    url === '/api/user/access_tokens/catalog'
+      ? { success: false, message: 'edit catalog unavailable' }
+      : undefined;
+  await openPersonalSettings();
+  await securityTab();
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit CLI 7' }));
+  await screen.findByText(/edit catalog unavailable/);
+  expect(
+    screen.queryByRole('dialog', { name: 'Edit access token' }),
+  ).toBeNull();
+  expect(screen.getByText('CLI 7')).toBeVisible();
+  expect(requests.some(({ method }) => method === 'patch')).toBe(false);
+});
+
+test('unmount aborts an in-flight token mutation and does not replay it after a late response', async () => {
+  accessTokens.items = [managedToken()];
+  let release;
+  respond = async ({ method }) => {
+    if (method === 'delete') {
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+      return success();
+    }
+  };
+  const view = await openPersonalSettings();
+  await securityTab();
+  fireEvent.click(await screen.findByRole('button', { name: 'Revoke CLI 7' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Revoke' });
+  fireEvent.click(
+    within(dialog).getByRole('button', { name: 'Revoke', exact: true }),
+  );
+  await verifyPassword();
+  await waitFor(() => expect(release).toBeTypeOf('function'));
+  view.unmount();
+  const request = requests.find(({ method }) => method === 'delete');
+  expect(request.config.signal.aborted).toBe(true);
+  await act(async () => {
+    release();
+  });
+  expect(requests.filter(({ method }) => method === 'delete')).toHaveLength(1);
+  expect(JSON.stringify(localStorage)).not.toContain('one-use-proof');
+  expect(JSON.stringify(sessionStorage)).not.toContain('one-use-proof');
+});
+
+test('switching session aborts the old revoke and ignores its late response', async () => {
+  accessTokens.items = [managedToken()];
+  let release;
+  respond = async ({ method }) => {
+    if (method === 'delete') {
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+      return success();
+    }
+  };
+  const view = await openPersonalSettings();
+  await securityTab();
+  fireEvent.click(await screen.findByRole('button', { name: 'Revoke CLI 7' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Revoke' });
+  fireEvent.click(
+    within(dialog).getByRole('button', { name: 'Revoke', exact: true }),
+  );
+  await verifyPassword();
+  await waitFor(() => expect(release).toBeTypeOf('function'));
+  await act(async () => {
+    accessTokens = { items: [], legacy: null };
+    view.switchSession(
+      { ...user, id: 10, username: 'next-user' },
+      'next-session',
+    );
+  });
+  expect(
+    requests.find(({ method }) => method === 'delete').config.signal.aborted,
+  ).toBe(true);
+  expect(await screen.findByText('No access tokens')).toBeVisible();
+  await act(async () => {
+    release();
+  });
+  expect(screen.queryByText('CLI 7')).not.toBeInTheDocument();
+  expect(getAuthState().session.sid).toBe('next-session');
+  expect(requests.filter(({ method }) => method === 'delete')).toHaveLength(1);
 });
 
 test.each([undefined, 1, Number.NaN])(

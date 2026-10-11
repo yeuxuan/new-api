@@ -51,6 +51,11 @@ const TaskLogsPage = () => {
         setIsModalOpen={taskLogsData.setIsAudioModalOpen}
         audioClips={taskLogsData.audioClips}
       />
+      <ContentModal
+        isModalOpen={taskLogsData.isArtifactModalOpen}
+        setIsModalOpen={taskLogsData.setIsArtifactModalOpen}
+        artifacts={taskLogsData.taskArtifacts}
+      />
 
       <Layout>
         <CardPro

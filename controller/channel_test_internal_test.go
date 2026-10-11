@@ -207,7 +207,7 @@ func TestTMLabTaskSubmissionDoesNotRetryAmbiguousServerError(t *testing.T) {
 		Error:      errors.New("upstream connection reset"),
 	}
 
-	assert.False(t, shouldRetryTaskRelay(ctx, 1, taskErr, 1))
+	assert.Equal(t, "stop", decideTaskRetry(ctx, taskErr, 1).Action)
 }
 
 func TestCopyChannelRejectsInvalidLegacyProxySettings(t *testing.T) {

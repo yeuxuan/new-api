@@ -549,6 +549,30 @@ func RequestAmount(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "success", "data": strconv.FormatFloat(payMoney, 'f', 2, 64)})
 }
 
+type topUpHistoryItem struct {
+	*model.TopUp
+	CreditedQuota *int `json:"credited_quota,omitempty"`
+}
+
+func topUpHistoryItems(topups []*model.TopUp) []topUpHistoryItem {
+	if topups == nil {
+		return nil
+	}
+	items := make([]topUpHistoryItem, len(topups))
+	for i, topup := range topups {
+		items[i].TopUp = topup
+		quota, err := topup.IPayNowQuotaSnapshot()
+		if err != nil {
+			common.SysError(common.LogText("Invalid iPayNow top-up quota snapshot in history id=%d: %s", topup.Id, err.Error()))
+			continue
+		}
+		if quota > 0 {
+			items[i].CreditedQuota = &quota
+		}
+	}
+	return items
+}
+
 func GetUserTopUps(c *gin.Context) {
 	userId := c.GetInt("id")
 	pageInfo := common.GetPageQuery(c)
@@ -570,7 +594,7 @@ func GetUserTopUps(c *gin.Context) {
 	}
 
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(topups)
+	pageInfo.SetItems(topUpHistoryItems(topups))
 	common.ApiSuccess(c, pageInfo)
 }
 
@@ -595,7 +619,7 @@ func GetAllTopUps(c *gin.Context) {
 	}
 
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(topups)
+	pageInfo.SetItems(topUpHistoryItems(topups))
 	common.ApiSuccess(c, pageInfo)
 }
 

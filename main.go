@@ -62,6 +62,7 @@ func main() {
 		common.FatalLog(common.LogText("failed to initialize resources: %s", err.Error()))
 		return
 	}
+	initBatchUpdater()
 
 	common.SysLog(common.LogText("New API %s started", common.Version))
 	if os.Getenv("GIN_MODE") != "debug" {
@@ -159,12 +160,6 @@ func main() {
 	controller.RegisterScheduledSystemTasks()
 	service.StartSystemTaskRunner()
 
-	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
-		common.BatchUpdateEnabled = true
-		common.SysLog(common.LogText("batch update enabled with interval %ss", strconv.Itoa(common.BatchUpdateInterval)))
-		model.InitBatchUpdater()
-	}
-
 	if os.Getenv("ENABLE_PPROF") == "true" {
 		gopool.Go(func() {
 			log.Println(http.ListenAndServe("0.0.0.0:8005", nil))
@@ -244,6 +239,20 @@ func main() {
 		model.SaveQuotaDataCache()
 	}
 	common.SysLog(common.LogText("server exited"))
+}
+
+func initBatchUpdater() {
+	common.BatchUpdateEnabled = false
+	if os.Getenv("BATCH_UPDATE_ENABLED") != "true" {
+		return
+	}
+	if !common.RedisEnabled {
+		common.SysError(common.LogText("BATCH_UPDATE_ENABLED requires Redis; using synchronous database updates"))
+		return
+	}
+	common.BatchUpdateEnabled = true
+	common.SysLog(common.LogText("batch update enabled with interval %ss", strconv.Itoa(common.BatchUpdateInterval)))
+	model.InitBatchUpdater()
 }
 
 func InjectUmamiAnalytics() {

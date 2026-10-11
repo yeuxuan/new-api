@@ -16,9 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { describe, expect, test } from 'vitest'
+import { act, renderHook } from '@testing-library/react'
+import { toast } from 'sonner'
+import { describe, expect, test, vi } from 'vitest'
+
+import { api } from '@/lib/api'
 
 import { PAYMENT_TYPES } from '../constants'
+import { useIPayNowPayment } from './use-ipaynow-payment'
 import { requestPaymentAmount } from './use-payment'
 
 describe('payment amount routing', () => {
@@ -65,5 +70,61 @@ describe('payment amount routing', () => {
 
     expect(amount).toBe(12.5)
     expect(calls).toEqual(['ipaynow:80'])
+  })
+})
+
+describe('iPayNow payment results', () => {
+  test('shows the rejection reason and clears processing after business failure', async () => {
+    vi.spyOn(api, 'post').mockResolvedValue({
+      data: { message: 'error', data: 'Merchant rejected the order' },
+    })
+    const notify = vi.spyOn(toast, 'error').mockReturnValue('payment-error')
+    const { result } = renderHook(() => useIPayNowPayment())
+
+    await act(async () => {
+      expect(await result.current.processIPayNowPayment(10)).toBeNull()
+    })
+
+    expect(notify).toHaveBeenCalledWith('Merchant rejected the order')
+    expect(result.current.processing).toBe(false)
+  })
+
+  test('preserves the server reason after an HTTP failure', async () => {
+    vi.spyOn(api, 'post').mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        data: { message: 'error', data: 'Payment provider unavailable' },
+      },
+    })
+    const notify = vi.spyOn(toast, 'error').mockReturnValue('payment-error')
+    const { result } = renderHook(() => useIPayNowPayment())
+
+    await act(async () => {
+      expect(await result.current.processIPayNowPayment(10)).toBeNull()
+    })
+
+    expect(notify).toHaveBeenCalledWith('Payment provider unavailable')
+    expect(result.current.processing).toBe(false)
+  })
+
+  test('returns the QR order without an error after successful payment creation', async () => {
+    vi.spyOn(api, 'post').mockResolvedValue({
+      data: {
+        success: true,
+        data: { trade_no: 'order-1', qr_url: 'https://pay.example/qr' },
+      },
+    })
+    const notify = vi.spyOn(toast, 'error').mockReturnValue('payment-error')
+    const { result } = renderHook(() => useIPayNowPayment())
+
+    await act(async () => {
+      expect(await result.current.processIPayNowPayment(10)).toEqual({
+        tradeNo: 'order-1',
+        qrUrl: 'https://pay.example/qr',
+      })
+    })
+
+    expect(notify).not.toHaveBeenCalled()
+    expect(result.current.processing).toBe(false)
   })
 })

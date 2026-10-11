@@ -104,30 +104,35 @@ const renderType = (type, t) => {
           {t('生成歌词')}
         </Tag>
       );
+    case 'image_to_video':
     case TASK_ACTION_GENERATE:
       return (
         <Tag color='blue' shape='circle' prefixIcon={<Sparkles size={14} />}>
           {t('图生视频')}
         </Tag>
       );
+    case 'text_to_video':
     case TASK_ACTION_TEXT_GENERATE:
       return (
         <Tag color='blue' shape='circle' prefixIcon={<Sparkles size={14} />}>
           {t('文生视频')}
         </Tag>
       );
+    case 'first_tail_to_video':
     case TASK_ACTION_FIRST_TAIL_GENERATE:
       return (
         <Tag color='blue' shape='circle' prefixIcon={<Sparkles size={14} />}>
           {t('首尾生视频')}
         </Tag>
       );
+    case 'reference_to_video':
     case TASK_ACTION_REFERENCE_GENERATE:
       return (
         <Tag color='blue' shape='circle' prefixIcon={<Sparkles size={14} />}>
           {t('参照生视频')}
         </Tag>
       );
+    case 'remix':
     case TASK_ACTION_REMIX_GENERATE:
       return (
         <Tag color='blue' shape='circle' prefixIcon={<Sparkles size={14} />}>
@@ -241,6 +246,7 @@ export const getTaskLogsColumns = ({
   isAdminUser,
   openVideoModal,
   openAudioModal,
+  openArtifactModal,
 }) => {
   return [
     {
@@ -405,12 +411,13 @@ export const getTaskLogsColumns = ({
 
         const isVideoTask =
           record.legacy_video_available === true ||
-          String(record.platform) === '62' ||
-          record.action === TASK_ACTION_GENERATE ||
-          record.action === TASK_ACTION_TEXT_GENERATE ||
-          record.action === TASK_ACTION_FIRST_TAIL_GENERATE ||
-          record.action === TASK_ACTION_REFERENCE_GENERATE ||
-          record.action === TASK_ACTION_REMIX_GENERATE;
+          (record.legacy_video_available == null &&
+            (String(record.platform) === '62' ||
+              record.action === TASK_ACTION_GENERATE ||
+              record.action === TASK_ACTION_TEXT_GENERATE ||
+              record.action === TASK_ACTION_FIRST_TAIL_GENERATE ||
+              record.action === TASK_ACTION_REFERENCE_GENERATE ||
+              record.action === TASK_ACTION_REMIX_GENERATE));
         const isSuccess = record.status === 'SUCCESS';
         if (isSuccess && isVideoTask) {
           return (
@@ -422,6 +429,21 @@ export const getTaskLogsColumns = ({
               }}
             >
               {t('点击预览视频')}
+            </a>
+          );
+        }
+        // Plugin actions are canonical and can produce any supported artifact
+        // type; do not infer the result from legacy video action aliases.
+        if (isSuccess && record.task_id) {
+          return (
+            <a
+              href='#'
+              onClick={(e) => {
+                e.preventDefault();
+                openArtifactModal(record);
+              }}
+            >
+              {t('Artifacts')}
             </a>
           );
         }

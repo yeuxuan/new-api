@@ -1117,7 +1117,7 @@ func ManageUser(c *gin.Context) {
 		return
 	}
 	if req.Id <= 0 {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	var user model.User

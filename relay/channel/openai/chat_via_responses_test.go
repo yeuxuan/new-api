@@ -70,6 +70,7 @@ func TestOaiResponsesToChatStreamHandlerConvertsSSEOrderAndUsage(t *testing.T) {
 	require.Equal(t, 3, usage.CompletionTokens)
 	require.Equal(t, 5, usage.TotalTokens)
 	got := recorder.Body.String()
+	assert.Equal(t, "hello", common.GetContextKeyString(c, constant.ContextKeyResponseContent), "tool arguments stay billable but are not conversation text")
 	require.Equal(t, "text/event-stream", recorder.Header().Get("Content-Type"))
 	require.Contains(t, got, `"role":"assistant"`)
 	require.Contains(t, got, `"content":"hello"`)
@@ -305,8 +306,11 @@ func TestOaiChatToResponsesStreamHandlerRestoresCodexCustomToolCall(t *testing.T
 	assert.Equal(t, "function", chatRequest.Tools[0].Type)
 	assert.Equal(t, "exec", chatRequest.Tools[0].Function.Name)
 
-	_, err := OaiChatToResponsesStreamHandler(c, info, resp)
+	usage, err := OaiChatToResponsesStreamHandler(c, info, resp)
 	require.Nil(t, err)
+	require.NotNil(t, usage)
+	assert.Positive(t, usage.CompletionTokens, "tool-only output is still charged when upstream omits usage")
+	assert.Empty(t, common.GetContextKeyString(c, constant.ContextKeyResponseContent), "tool input must not be recorded as an assistant reply")
 
 	got := recorder.Body.String()
 	assert.NotContains(t, got, `event: response.function_call_arguments`)

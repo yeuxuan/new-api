@@ -32,13 +32,31 @@ import { ITEMS_PER_PAGE } from '../../constants';
 import { useTableCompactMode } from '../common/useTableCompactMode';
 
 const isTaskPreviewUrl = (value) => {
-  if (typeof value !== 'string' || !/^https?:\/\//i.test(value)) return false;
+  if (
+    typeof value !== 'string' ||
+    !/^https?:\/\//i.test(value) ||
+    value.includes('#') ||
+    /[\s\\\x00-\x1f\x7f]/.test(value)
+  )
+    return false;
   try {
     const url = new URL(value);
     return !url.username && !url.password && !url.hash;
   } catch {
     return false;
   }
+};
+
+const isTaskArtifactUrl = (value) => {
+  if (!isTaskPreviewUrl(value)) return false;
+  const url = new URL(value);
+  const access = url.searchParams.get('access');
+  // service/task_artifact_access.go emits only access=RawURLBase64(HMAC-SHA256).
+  return (
+    /\/v1\/tasks\/[^/]+\/artifacts\/[^/]+\/content$/.test(url.pathname) &&
+    /^[A-Za-z0-9_-]{43}$/.test(access || '') &&
+    url.search === `?access=${access}`
+  );
 };
 
 export const useTaskLogsData = () => {
@@ -85,7 +103,17 @@ export const useTaskLogsData = () => {
   // Audio preview modal state
   const [isAudioModalOpen, setIsAudioModalOpen] = useState(false);
   const [audioClips, setAudioClips] = useState([]);
+  const [isArtifactModalOpen, setIsArtifactModalOpen] = useState(false);
+  const [taskArtifacts, setTaskArtifacts] = useState([]);
   const pendingPreviews = useRef(new Set());
+  const previewRevision = useRef(0);
+
+  useEffect(
+    () => () => {
+      previewRevision.current += 1;
+    },
+    [],
+  );
 
   // User info modal state
   const [showUserInfo, setShowUserInfoModal] = useState(false);
@@ -288,11 +316,18 @@ export const useTaskLogsData = () => {
 
   // List rows deliberately omit media; fetch only when a preview is requested.
   const openTaskPreview = async (record, type) => {
+    if (pendingPreviews.current.has(record?.task_id)) return;
+    const revision = ++previewRevision.current;
+    setIsVideoModalOpen(false);
+    setVideoUrl('');
+    setIsAudioModalOpen(false);
+    setAudioClips([]);
+    setIsArtifactModalOpen(false);
+    setTaskArtifacts([]);
     if (
       record?.status !== 'SUCCESS' ||
       record.result_discarded === true ||
-      !record.task_id ||
-      pendingPreviews.current.has(record.task_id)
+      !record.task_id
     ) {
       return;
     }
@@ -302,6 +337,7 @@ export const useTaskLogsData = () => {
         `/api/task/${encodeURIComponent(record.task_id)}/artifacts`,
         { skipErrorHandler: true },
       );
+      if (previewRevision.current !== revision) return;
       if (!res.data.success) {
         showError(res.data);
         return;
@@ -310,7 +346,30 @@ export const useTaskLogsData = () => {
       const artifacts = Array.isArray(projection.artifacts)
         ? projection.artifacts
         : [];
-      if (type === 'audio') {
+      if (
+        type === 'artifacts' ||
+        (artifacts.length > 0 &&
+          artifacts.some((item) => item?.type !== type)) ||
+        (type === 'video' && artifacts.length > 1)
+      ) {
+        const validArtifacts =
+          artifacts.length > 0 &&
+          artifacts.length <= 64 &&
+          new Set(artifacts.map((item) => item?.key)).size ===
+            artifacts.length &&
+          artifacts.every(
+            (item) =>
+              typeof item?.key === 'string' &&
+              /^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$/.test(item.key) &&
+              ['image', 'video', 'audio', 'file'].includes(item.type) &&
+              isTaskArtifactUrl(item.content_url),
+          );
+        if (validArtifacts) {
+          setTaskArtifacts(artifacts);
+          setIsArtifactModalOpen(true);
+          return;
+        }
+      } else if (type === 'audio') {
         const clips = Array.isArray(projection.legacy_audio_clips)
           ? projection.legacy_audio_clips.filter((clip) =>
               isTaskPreviewUrl(clip?.audio_url),
@@ -346,6 +405,7 @@ export const useTaskLogsData = () => {
       }
       showError(t('Failed to load artifacts'));
     } catch (error) {
+      if (previewRevision.current !== revision) return;
       const message = error.response?.data?.message;
       if (error.response?.status !== 401 && typeof message === 'string') {
         showError(t(message, { skipInterpolation: true }));
@@ -359,6 +419,7 @@ export const useTaskLogsData = () => {
 
   const openVideoModal = (record) => openTaskPreview(record, 'video');
   const openAudioModal = (record) => openTaskPreview(record, 'audio');
+  const openArtifactModal = (record) => openTaskPreview(record, 'artifacts');
 
   // User info function
   const showUserInfoFunc = async (userId) => {
@@ -407,6 +468,10 @@ export const useTaskLogsData = () => {
     setIsAudioModalOpen,
     audioClips,
 
+    isArtifactModalOpen,
+    setIsArtifactModalOpen,
+    taskArtifacts,
+
     // Form state
     formApi,
     setFormApi,
@@ -441,6 +506,7 @@ export const useTaskLogsData = () => {
     openContentModal,
     openVideoModal,
     openAudioModal,
+    openArtifactModal,
     enrichLogs,
     syncPageData,
 

@@ -145,7 +145,8 @@ function messageText(value: unknown): string | undefined {
   if (
     typeof value !== 'string' ||
     !value.trim() ||
-    value.trim() === 'success'
+    value.trim() === 'success' ||
+    value.trim() === 'error'
   ) {
     return undefined
   }
@@ -166,6 +167,11 @@ export function getServerMessage(value: unknown): string | undefined {
       value.message_key,
       isRecord(value.message_params) ? value.message_params : undefined
     )
+  }
+  if (value.message === 'error') {
+    const detail = messageText(value.data)
+    if (detail) return translateServerText(i18next.t, detail)
+    return undefined
   }
   return messageText(value.message)
 }

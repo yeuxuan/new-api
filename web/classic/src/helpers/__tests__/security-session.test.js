@@ -298,3 +298,44 @@ test('does not clear a newly logged-in session when an earlier logout finishes',
   await expect(logout).rejects.toThrow();
   expect(getAuthState().session.sid).toBe('session-b');
 });
+
+test('cancelling an old token-list request does not cancel a new caller of the same URL', async () => {
+  persistAuthResponse(bundle());
+  const controller = new AbortController();
+  let started;
+  let release;
+  const ready = new Promise((resolve) => {
+    started = resolve;
+  });
+  respond = (config) => {
+    if (config.signal === controller.signal) {
+      return new Promise((resolve) => {
+        release = () =>
+          resolve(reply(config, { success: true, data: { items: [] } }));
+        started();
+      });
+    }
+    return reply(config, { success: true, data: { items: [{ id: 7 }] } });
+  };
+  const oldRequest = API.get('/api/user/access_tokens', {
+    signal: controller.signal,
+    skipErrorHandler: true,
+  });
+  await ready;
+  const newRequest = API.get('/api/user/access_tokens', {
+    skipErrorHandler: true,
+  });
+  controller.abort();
+  release();
+  const [oldResult, newResult] = await Promise.allSettled([
+    oldRequest,
+    newRequest,
+  ]);
+  expect(oldResult.status).toBe('rejected');
+  expect(axios.isCancel(oldResult.reason)).toBe(true);
+  expect(newResult.status).toBe('fulfilled');
+  expect(newResult.value?.data).toEqual({
+    success: true,
+    data: { items: [{ id: 7 }] },
+  });
+});

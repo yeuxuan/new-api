@@ -26,6 +26,8 @@ For commercial licensing, please contact support@quantumnous.com
 export interface ApiResponse<T = unknown> {
   success?: boolean
   message?: string
+  message_key?: string
+  message_params?: Record<string, unknown>
   data?: T
 }
 
@@ -179,10 +181,9 @@ export interface IPayNowPaymentRequest {
 /**
  * iPayNow payment response — returns trade number and a QR url to render
  */
-export type IPayNowPaymentResponse = ApiResponse<{
-  trade_no: string
-  qr_url: string
-}>
+export type IPayNowPaymentResponse = ApiResponse<
+  { trade_no: string; qr_url: string } | string
+>
 
 /** iPayNow order status query data (polled until success/expired) */
 export interface IPayNowOrderData {
@@ -300,8 +301,10 @@ export interface TopupRecord {
   id: number
   /** User ID */
   user_id: number
-  /** Topup amount (quota) */
+  /** Legacy topup amount in USD-equivalent units */
   amount: number
+  /** Exact raw quota snapshot for newer iPayNow orders */
+  credited_quota?: number
   /** Payment amount (actual money paid) */
   money: number
   /** Trade/order number */

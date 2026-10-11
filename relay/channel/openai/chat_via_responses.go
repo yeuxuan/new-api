@@ -194,6 +194,10 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	// failedUsage the usage it reported, if any.
 	upstreamFailed := false
 	var failedUsage *dto.Usage
+	var conversation strings.Builder
+	defer func() {
+		common.SetContextKey(c, constant.ContextKeyResponseContent, conversation.String())
+	}()
 
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo == nil {
 		info.ClaudeConvertInfo = &relaycommon.ClaudeConvertInfo{LastMessagesType: relaycommon.LastMessageTypeNone}
@@ -281,6 +285,12 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 
 		if streamResp.Response != nil {
 			info.ObserveResponseModel(streamResp.Response.Model)
+		}
+		if streamResp.Type == "response.output_text.delta" {
+			conversation.WriteString(streamResp.Delta)
+		} else if streamResp.Response != nil && conversation.Len() == 0 &&
+			(streamResp.Type == "response.completed" || streamResp.Type == "response.done" || streamResp.Type == "response.incomplete") {
+			conversation.WriteString(service.ExtractOutputTextFromResponses(streamResp.Response))
 		}
 		if streamResp.Type == "response.error" || streamResp.Type == "response.failed" {
 			upstreamFailed = true
@@ -388,8 +398,6 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	if info.RelayFormat == types.RelayFormatOpenAI {
 		helper.Done(c)
 	}
-
-	common.SetContextKey(c, constant.ContextKeyResponseContent, state.UsageText())
 
 	return usage, nil
 }

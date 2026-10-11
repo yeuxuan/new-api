@@ -17,6 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import '@testing-library/jest-dom/vitest';
+import i18next from 'i18next';
+
+await i18next.init({
+  lng: 'en',
+  fallbackLng: 'en',
+  keySeparator: false,
+  resources: { en: { translation: {} } },
+});
 
 Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
   configurable: true,

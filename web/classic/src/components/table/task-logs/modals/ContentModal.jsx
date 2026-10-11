@@ -21,25 +21,106 @@ import React, { useState, useEffect } from 'react';
 import { Modal, Button, Typography, Spin } from '@douyinfe/semi-ui';
 import { IconExternalOpen, IconCopy } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
+import { Download } from 'lucide-react';
 
 const { Text } = Typography;
+
+const TaskArtifactPreview = (props) => {
+  const { t } = useTranslation();
+  const [mediaFailed, setMediaFailed] = useState(false);
+  const artifact = props.artifact;
+  let media = null;
+  if (mediaFailed) {
+    media = <Text type='warning'>{t('Preview unavailable')}</Text>;
+  } else if (artifact.type === 'image') {
+    media = (
+      <img
+        src={artifact.content_url}
+        alt={artifact.key}
+        loading='lazy'
+        referrerPolicy='no-referrer'
+        onError={() => setMediaFailed(true)}
+        style={{ width: '100%', maxHeight: '50vh', objectFit: 'contain' }}
+      />
+    );
+  } else if (artifact.type === 'video') {
+    media = (
+      <video
+        src={artifact.content_url}
+        aria-label={artifact.key}
+        controls
+        preload='none'
+        onError={() => setMediaFailed(true)}
+        style={{ width: '100%', maxHeight: '50vh' }}
+      />
+    );
+  } else if (artifact.type === 'audio') {
+    media = (
+      <audio
+        src={artifact.content_url}
+        aria-label={artifact.key}
+        controls
+        preload='none'
+        onError={() => setMediaFailed(true)}
+        style={{ width: '100%' }}
+      />
+    );
+  }
+
+  const downloadArtifact = () => {
+    const link = document.createElement('a');
+    link.href = artifact.content_url;
+    link.download = artifact.key;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.click();
+  };
+
+  return (
+    <section
+      aria-label={artifact.key}
+      style={{
+        minWidth: 0,
+        borderBottom: '1px solid var(--semi-color-border)',
+        paddingBottom: 16,
+      }}
+    >
+      <Text
+        strong
+        style={{ display: 'block', overflowWrap: 'anywhere', marginBottom: 8 }}
+      >
+        {artifact.key}
+      </Text>
+      {media}
+      <Button
+        icon={<Download size={16} aria-hidden='true' />}
+        onClick={downloadArtifact}
+        style={{ marginTop: 8 }}
+      >
+        {t('Download')}
+      </Button>
+    </section>
+  );
+};
 
 const ContentModal = ({
   isModalOpen,
   setIsModalOpen,
   modalContent,
   isVideo,
+  artifacts,
 }) => {
   const { t } = useTranslation();
   const [videoError, setVideoError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const isArtifactPreview = Array.isArray(artifacts);
 
   useEffect(() => {
     if (isModalOpen && isVideo) {
       setVideoError(false);
       setIsLoading(true);
     }
-  }, [isModalOpen, isVideo]);
+  }, [isModalOpen, isVideo, modalContent]);
 
   const handleVideoError = () => {
     setVideoError(true);
@@ -152,26 +233,39 @@ const ContentModal = ({
     );
   };
 
+  let content = <p style={{ whiteSpace: 'pre-line' }}>{modalContent}</p>;
+  if (isVideo) {
+    content = renderVideoContent();
+  } else if (isArtifactPreview) {
+    content = (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {artifacts.map((artifact) => (
+          <TaskArtifactPreview
+            key={`${artifact.key}:${artifact.content_url}`}
+            artifact={artifact}
+          />
+        ))}
+      </div>
+    );
+  }
+
   return (
     <Modal
+      title={isArtifactPreview ? t('Artifacts') : undefined}
       visible={isModalOpen}
       onOk={() => setIsModalOpen(false)}
       onCancel={() => setIsModalOpen(false)}
       closable={null}
       bodyStyle={{
-        height: isVideo ? '70vh' : '400px',
+        height: isVideo || isArtifactPreview ? '70vh' : '400px',
         maxHeight: '80vh',
         overflow: 'auto',
         padding: isVideo && videoError ? '0' : '24px',
       }}
-      width={isVideo ? '90vw' : 800}
-      style={isVideo ? { maxWidth: 960 } : undefined}
+      width={isVideo || isArtifactPreview ? '90vw' : 800}
+      style={isVideo || isArtifactPreview ? { maxWidth: 960 } : undefined}
     >
-      {isVideo ? (
-        renderVideoContent()
-      ) : (
-        <p style={{ whiteSpace: 'pre-line' }}>{modalContent}</p>
-      )}
+      {content}
     </Modal>
   );
 };

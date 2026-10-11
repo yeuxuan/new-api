@@ -19,16 +19,27 @@ For commercial licensing, please contact support@quantumnous.com
 import { act, render, screen } from '@testing-library/react'
 import { createInstance } from 'i18next'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { BillingHistoryDialog } from '@/features/wallet/components/dialogs/billing-history-dialog'
 import en from '@/i18n/locales/en.json'
 import zh from '@/i18n/locales/zh.json'
 import { api } from '@/lib/api'
+import {
+  DEFAULT_CURRENCY_CONFIG,
+  useSystemConfigStore,
+  type CurrencyDisplayType,
+} from '@/stores/system-config-store'
 
 import { RechargeFormCard } from '../components/recharge-form-card'
 
 const i18n = createInstance()
+const initialConfig = useSystemConfigStore.getState().config
+
+afterEach(() => {
+  useSystemConfigStore.setState({ config: initialConfig })
+  vi.restoreAllMocks()
+})
 
 beforeEach(async () => {
   await i18n.use(initReactI18next).init({
@@ -72,6 +83,53 @@ it('translates billing history statuses and updates them when the language chang
     expect(screen.getByText(label)).toBeVisible()
   }
 })
+
+it.each([
+  { mode: 'USD', exact: '$1.5', legacy: '$1' },
+  { mode: 'CNY', exact: '¥10.5', legacy: '¥7' },
+  { mode: 'TOKENS', exact: '750000', legacy: '500000' },
+  { mode: 'CUSTOM', exact: '€ 3', legacy: '€ 2' },
+])(
+  'shows precise credited quota in $mode and keeps legacy response amounts unchanged',
+  async ({ mode, exact, legacy }) => {
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...DEFAULT_CURRENCY_CONFIG,
+        quotaDisplayType: mode as CurrencyDisplayType,
+        usdExchangeRate: 7,
+        customCurrencySymbol: '€',
+        customCurrencyExchangeRate: 2,
+      },
+    })
+    vi.spyOn(api, 'get').mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          total: 4,
+          items: [750000, undefined, -1, 1.5].map((quota, id) => ({
+            id,
+            status: 'success',
+            amount: 1,
+            credited_quota: quota,
+            money: 0.96,
+            trade_no: `quota-order-${id}`,
+            payment_method: 'ipaynow',
+            create_time: 1,
+          })),
+        },
+      },
+    })
+    render(
+      <I18nextProvider i18n={i18n}>
+        <BillingHistoryDialog open onOpenChange={vi.fn()} />
+      </I18nextProvider>
+    )
+    await screen.findByText('quota-order-3')
+    expect(screen.getByText(exact)).toBeVisible()
+    expect(screen.getAllByText(legacy)).toHaveLength(3)
+    expect(screen.getAllByText('0.96')).toHaveLength(4)
+  }
+)
 
 it.each([
   { priceRatio: 7.3, paid: '584', saved: '146', full: '146' },

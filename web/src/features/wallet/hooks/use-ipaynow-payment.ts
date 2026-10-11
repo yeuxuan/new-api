@@ -18,7 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import i18next from 'i18next'
 import { useState, useCallback } from 'react'
-import { toast } from 'sonner'
+
+import { handleServerError } from '@/lib/handle-server-error'
 
 import { requestIPayNowPayment, isApiSuccess } from '../api'
 
@@ -48,6 +49,7 @@ export function useIPayNowPayment() {
 
         if (
           isApiSuccess(response) &&
+          typeof response.data === 'object' &&
           response.data?.trade_no &&
           response.data?.qr_url
         ) {
@@ -57,10 +59,10 @@ export function useIPayNowPayment() {
           }
         }
 
-        toast.error(response.message || i18next.t('Payment request failed'))
+        handleServerError(response, i18next.t('Payment request failed'))
         return null
-      } catch (_error) {
-        toast.error(i18next.t('Payment request failed'))
+      } catch (error) {
+        handleServerError(error, i18next.t('Payment request failed'))
         return null
       } finally {
         setProcessing(false)

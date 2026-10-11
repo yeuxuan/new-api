@@ -59,6 +59,7 @@ import {
 import { useSecureVerification } from '../../../../hooks/common/useSecureVerification';
 import SecureVerificationModal from '../../../common/modals/SecureVerificationModal';
 import TwoFASetting from '../components/TwoFASetting';
+import AccessTokenList from '../components/AccessTokenList';
 
 const AccountManagement = ({
   t,
@@ -68,6 +69,9 @@ const AccountManagement = ({
   setShowEmailBindModal,
   setShowWeChatBindModal,
   generateAccessToken,
+  accessTokenRevision,
+  updateAccessToken,
+  revokeAccessToken,
   securityPending,
   handleSystemTokenClick,
   setShowChangePasswordModal,
@@ -795,14 +799,24 @@ const AccountManagement = ({
                       type='primary'
                       theme='solid'
                       onClick={openTokenForm}
+                      aria-label={t('Create access token')}
                       loading={tokenCatalogLoading}
                       disabled={securityPending || tokenCatalogLoading}
                       className='!bg-slate-600 hover:!bg-slate-700 w-full sm:w-auto'
-                      icon={<IconKey />}
+                      icon={<IconKey aria-hidden='true' />}
                     >
                       {t('Create access token')}
                     </Button>
                   </div>
+                  <AccessTokenList
+                    key={`${userState.user?.id}:${userState.user?.session?.sid}`}
+                    userId={userState.user?.id}
+                    sessionId={userState.user?.session?.sid}
+                    revision={accessTokenRevision}
+                    pending={securityPending}
+                    onUpdate={updateAccessToken}
+                    onRevoke={revokeAccessToken}
+                  />
                 </Card>
 
                 {/* 密码管理 */}
@@ -949,7 +963,9 @@ const AccountManagement = ({
         onOk={createSelectedToken}
         okText={t('Create access token')}
         cancelText={t('取消')}
+        cancelButtonProps={{ 'aria-label': t('取消') }}
         okButtonProps={{
+          'aria-label': t('Create access token'),
           disabled: securityPending || !tokenName.trim() || !tokenScopes.length,
         }}
       >

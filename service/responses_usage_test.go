@@ -115,9 +115,11 @@ func TestResponsesUsageAccumulatorKeepsConversationTextSeparate(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		terminalOnly bool
+		withUsage    bool
 	}{
-		{"streamed reply", false},
-		{"terminal snapshot", true},
+		{"streamed reply", false, false},
+		{"terminal snapshot", true, false},
+		{"terminal snapshot with reported usage", true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gpt-4o"}, StreamStatus: relaycommon.NewStreamStatus()}
@@ -131,15 +133,22 @@ func TestResponsesUsageAccumulatorKeepsConversationTextSeparate(t *testing.T) {
 			if !tc.terminalOnly {
 				accumulator.Observe(&dto.ResponsesStreamResponse{Type: "response.output_text.delta", Delta: "final answer"}, nil)
 			}
-			accumulator.Observe(&dto.ResponsesStreamResponse{Type: "response.completed", Response: &dto.OpenAIResponsesResponse{
+			response := &dto.OpenAIResponsesResponse{
 				Output: []dto.ResponsesOutput{{Type: "message", Content: []dto.ResponsesOutputContent{{Type: "output_text", Text: "final answer"}}}},
-			}}, nil)
-			assert.Equal(t, "final answer", accumulator.OutputText())
-			billingText := `{"private":"tool"}` + "internal reasoning"
-			if !tc.terminalOnly {
-				billingText += "final answer"
 			}
-			assert.Equal(t, tokenkit.Count("gpt-4o", billingText), accumulator.Finish().CompletionTokens)
+			if tc.withUsage {
+				response.Usage = &dto.Usage{InputTokens: 20, OutputTokens: 42}
+			}
+			terminal := &dto.ResponsesStreamResponse{Type: "response.completed", Response: response}
+			accumulator.Observe(terminal, nil)
+			accumulator.Observe(terminal, nil)
+			assert.Equal(t, "final answer", accumulator.OutputText())
+			if tc.withUsage {
+				assert.Equal(t, 42, accumulator.Finish().CompletionTokens)
+			} else {
+				billingText := `{"private":"tool"}` + "internal reasoning" + "final answer"
+				assert.Equal(t, tokenkit.Count("gpt-4o", billingText), accumulator.Finish().CompletionTokens)
+			}
 		})
 	}
 }

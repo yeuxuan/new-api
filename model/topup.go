@@ -20,6 +20,7 @@ type TopUp struct {
 	TradeNo         string  `json:"trade_no" gorm:"unique;type:varchar(255);index"`
 	PaymentMethod   string  `json:"payment_method" gorm:"type:varchar(50)"`
 	PaymentProvider string  `json:"payment_provider" gorm:"type:varchar(50);default:''"`
+	ProviderPayload string  `json:"-" gorm:"type:text"`
 	CreateTime      int64   `json:"create_time"`
 	CompleteTime    int64   `json:"complete_time"`
 	Status          string  `json:"status"`
@@ -58,6 +59,53 @@ func (topUp *TopUp) Insert() error {
 	var err error
 	err = DB.Create(topUp).Error
 	return err
+}
+
+type iPayNowTopUpPayload struct {
+	Version       int `json:"version"`
+	CreditedQuota int `json:"credited_quota"`
+}
+
+// SetIPayNowQuota snapshots the credited quota independently of payment price
+// and display settings. An empty payload identifies historical orders.
+func (topUp *TopUp) SetIPayNowQuota(creditedQuota int) error {
+	if _, err := topUpQuotaMaxCurrent(creditedQuota); err != nil {
+		return err
+	}
+	payload, err := common.Marshal(iPayNowTopUpPayload{Version: 1, CreditedQuota: creditedQuota})
+	if err != nil {
+		return err
+	}
+	topUp.ProviderPayload = string(payload)
+	return nil
+}
+
+func (topUp *TopUp) iPayNowCreditedQuota() (int, error) {
+	if topUp.ProviderPayload == "" {
+		return common.WalletQuotaFromDecimalStrict(
+			decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
+		)
+	}
+	return topUp.IPayNowQuotaSnapshot()
+}
+
+// IPayNowQuotaSnapshot returns only a validated persisted quota, never a
+// quota inferred from historical Amount or the current display settings.
+// Zero with no error means this order has no applicable snapshot.
+func (topUp *TopUp) IPayNowQuotaSnapshot() (int, error) {
+	if topUp.PaymentMethod != PaymentMethodIPayNow ||
+		(topUp.PaymentProvider != "" && topUp.PaymentProvider != PaymentProviderIPayNow) ||
+		topUp.ProviderPayload == "" {
+		return 0, nil
+	}
+	var payload iPayNowTopUpPayload
+	if err := common.UnmarshalJsonStr(topUp.ProviderPayload, &payload); err != nil || payload.Version != 1 {
+		return 0, ErrInvalidTopUpQuota
+	}
+	if _, err := topUpQuotaMaxCurrent(payload.CreditedQuota); err != nil {
+		return 0, err
+	}
+	return payload.CreditedQuota, nil
 }
 
 func topUpQuotaMaxCurrent(creditedQuota int) (int, error) {
@@ -267,9 +315,7 @@ func RechargeIPayNow(tradeNo string, callerIp string) (alreadyDone bool, err err
 		}
 
 		var quotaErr error
-		quotaToAdd, quotaErr = common.WalletQuotaFromDecimalStrict(
-			decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
-		)
+		quotaToAdd, quotaErr = topUp.iPayNowCreditedQuota()
 		if quotaErr != nil || quotaToAdd <= 0 {
 			return ErrInvalidTopUpQuota
 		}
@@ -551,6 +597,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 		// 计算应充值额度：
 		// - Stripe 订单：Money 代表经分组倍率换算后的美元数量，直接 * QuotaPerUnit
 		// - Creem 订单：Amount 在创建订单时已预计算为内部额度（Quota × QuotaPerUnit），直接使用
+		// - iPayNow 新订单：读取下单时保存的精确额度，旧订单保持原 Amount 语义
 		// - 其他订单（如易支付）：Amount 为美元数量，* QuotaPerUnit
 		var quotaErr error
 		if topUp.PaymentProvider == PaymentProviderStripe {
@@ -559,6 +606,9 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 			)
 		} else if topUp.PaymentProvider == PaymentProviderCreem {
 			quotaToAdd, quotaErr = common.WalletQuotaFromDecimalStrict(decimal.NewFromInt(topUp.Amount))
+		} else if topUp.PaymentMethod == PaymentMethodIPayNow &&
+			(topUp.PaymentProvider == "" || topUp.PaymentProvider == PaymentProviderIPayNow) {
+			quotaToAdd, quotaErr = topUp.iPayNowCreditedQuota()
 		} else {
 			quotaToAdd, quotaErr = common.WalletQuotaFromDecimalStrict(
 				decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),

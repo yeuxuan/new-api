@@ -28,6 +28,7 @@ import {
 } from '@testing-library/react';
 import { useTaskLogsData } from '../../task-logs/useTaskLogsData';
 import { getTaskLogsColumns } from '../../../components/table/task-logs/TaskLogsColumnDefs';
+import ContentModal from '../../../components/table/task-logs/modals/ContentModal';
 import { TASK_ACTION_TEXT_GENERATE } from '../../../constants/common.constant';
 import { useLogsData } from '../useUsageLogsData';
 import { API, isAdmin, showError } from '../../../helpers';
@@ -47,6 +48,134 @@ describe('Classic task log preview contracts', () => {
   const videoUrl =
     'https://gateway.example/v1/tasks/task-video/artifacts/video/content?access=' +
     'A'.repeat(43);
+
+  it.each([
+    ['text_to_video', 'video'],
+    ['image_to_video', 'video'],
+    ['first_tail_to_video', 'video'],
+    ['reference_to_video', 'video'],
+    ['remix', 'video'],
+    ['text_to_image', 'image'],
+    ['speech', 'audio'],
+    ['export', 'file'],
+  ])(
+    'offers protected lazy artifact preview for a successful plugin action %s (%s)',
+    async (action, type) => {
+      const record = Object.freeze({
+        task_id: 'plugin/task',
+        platform: '54',
+        action,
+        status: 'SUCCESS',
+        legacy_video_available: false,
+      });
+      const artifact = { key: 'result', type, content_url: videoUrl };
+      const { result } = renderHook(() => useTaskLogsData());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      API.get.mockClear().mockResolvedValue({
+        data: { success: true, data: { artifacts: [artifact] } },
+      });
+      const column = getTaskLogsColumns(result.current).find(
+        (item) => item.dataIndex === 'fail_reason',
+      );
+      render(column.render('', record));
+      expect(API.get).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('link', { name: i18n.t('Artifacts') }));
+      await waitFor(() =>
+        expect(result.current.isArtifactModalOpen).toBe(true),
+      );
+      expect(API.get).toHaveBeenCalledWith(
+        '/api/task/plugin%2Ftask/artifacts',
+        {
+          skipErrorHandler: true,
+        },
+      );
+      expect(result.current.taskArtifacts).toEqual([artifact]);
+      expect(record).not.toHaveProperty('result_url');
+      expect(record).not.toHaveProperty('data');
+    },
+  );
+
+  it('renders every projected media type and file download without embedding files', () => {
+    const artifacts = ['image', 'video', 'audio', 'file'].map((type) => ({
+      key: `${type}-main`,
+      type,
+      content_url: videoUrl,
+      mime_type: type === 'file' ? 'text/html' : undefined,
+    }));
+    render(
+      <ContentModal
+        isModalOpen={true}
+        setIsModalOpen={vi.fn()}
+        artifacts={artifacts}
+      />,
+    );
+    expect(
+      screen.getByRole('img', { name: 'image-main' }).getAttribute('src'),
+    ).toBe(videoUrl);
+    expect(document.querySelector('video').getAttribute('src')).toBe(videoUrl);
+    expect(document.querySelector('audio').getAttribute('src')).toBe(videoUrl);
+    expect(document.querySelector('iframe, object, embed')).toBeNull();
+    expect(
+      screen.getAllByRole('button', { name: i18n.t('Download') }),
+    ).toHaveLength(4);
+    const modalBody = document.querySelector('.semi-modal-body');
+    expect(modalBody.style.overflow).toBe('auto');
+    expect(
+      document.querySelector('video[autoplay], audio[autoplay]'),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getAllByRole('button', { name: i18n.t('Download') })[3],
+    );
+    const download = HTMLAnchorElement.prototype.click.mock.contexts.at(-1);
+    expect(download.href).toBe(videoUrl);
+    expect(download.download).toBe('file-main');
+    expect(download.rel).toBe('noopener noreferrer');
+    fireEvent.error(document.querySelector('video'));
+    expect(screen.getByText(i18n.t('Preview unavailable'))).toBeTruthy();
+    expect(
+      screen.getAllByRole('button', { name: i18n.t('Download') }),
+    ).toHaveLength(4);
+  });
+
+  it('resets the legacy video playback failure when the content URL changes', () => {
+    const props = { isModalOpen: true, setIsModalOpen: vi.fn(), isVideo: true };
+    const { rerender } = render(
+      <ContentModal {...props} modalContent={videoUrl} />,
+    );
+    fireEvent.error(document.querySelector('video'));
+    expect(document.querySelector('video')).toBeNull();
+    const nextUrl = videoUrl.replace('task-video', 'next-task');
+    rerender(<ContentModal {...props} modalContent={nextUrl} />);
+    expect(document.querySelector('video').getAttribute('src')).toBe(nextUrl);
+  });
+
+  it.each([
+    'http://localhost:3000/v1/tasks/task-public/artifacts/video-main/content',
+    'https://media.example/gateway/prefix/v1/tasks/task%2Fvideo%3F1/artifacts/video-main/content',
+  ])(
+    'accepts absolute content URLs with backend-supported prefixes and escaped task IDs (%s)',
+    async (path) => {
+      const contentUrl = `${path}?access=${'A'.repeat(43)}`;
+      const { result } = renderHook(() => useTaskLogsData());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      const artifact = {
+        key: 'video-main',
+        type: 'video',
+        content_url: contentUrl,
+      };
+      API.get.mockResolvedValueOnce({
+        data: { success: true, data: { artifacts: [artifact] } },
+      });
+      await act(async () => {
+        await result.current.openArtifactModal({
+          task_id: 'task/video?1',
+          status: 'SUCCESS',
+        });
+      });
+      expect(result.current.isArtifactModalOpen).toBe(true);
+      expect(result.current.taskArtifacts).toEqual([artifact]);
+    },
+  );
 
   it.each(['62', '54'])(
     'loads a successful video on click without list URL or data (platform=%s)',
@@ -86,6 +215,121 @@ describe('Classic task log preview contracts', () => {
       expect(record).not.toHaveProperty('data');
     },
   );
+
+  it('shows all projected artifacts when an older preview entry receives a mixed plugin result', async () => {
+    const artifacts = [
+      { key: 'video-main', type: 'video', content_url: videoUrl },
+      { key: 'image-main', type: 'image', content_url: videoUrl },
+      { key: 'download', type: 'file', content_url: videoUrl },
+    ];
+    const { result } = renderHook(() => useTaskLogsData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    API.get.mockClear().mockResolvedValue({
+      data: { success: true, data: { artifacts } },
+    });
+    await act(async () => {
+      await result.current.openVideoModal({
+        task_id: 'plugin-task',
+        status: 'SUCCESS',
+      });
+    });
+    expect(result.current.isArtifactModalOpen).toBe(true);
+    expect(result.current.taskArtifacts).toEqual(artifacts);
+    expect(result.current.isVideoModalOpen).toBe(false);
+  });
+
+  it.each(['business', 'network', 'discarded'])(
+    'clears previous preview state when the next artifact request is %s',
+    async (failure) => {
+      const { result } = renderHook(() => useTaskLogsData());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      API.get.mockResolvedValueOnce({
+        data: {
+          success: true,
+          data: {
+            artifacts: [{ key: 'result', type: 'file', content_url: videoUrl }],
+          },
+        },
+      });
+      await act(async () => {
+        await result.current.openArtifactModal({
+          task_id: 'old-task',
+          status: 'SUCCESS',
+        });
+      });
+      expect(result.current.isArtifactModalOpen).toBe(true);
+      API.get.mockClear();
+      if (failure === 'business') {
+        API.get.mockResolvedValueOnce({
+          data: { success: false, message: 'Task not found' },
+        });
+      } else if (failure === 'network') {
+        API.get.mockRejectedValueOnce({
+          response: {
+            status: 403,
+            data: { message: 'Artifact access is invalid' },
+          },
+        });
+      }
+      await act(async () => {
+        await result.current.openArtifactModal({
+          task_id: 'new-task',
+          status: 'SUCCESS',
+          result_discarded: failure === 'discarded',
+        });
+      });
+      expect(result.current.isArtifactModalOpen).toBe(false);
+      expect(result.current.taskArtifacts).toEqual([]);
+      expect(result.current.isVideoModalOpen).toBe(false);
+      expect(result.current.videoUrl).toBe('');
+      expect(result.current.isAudioModalOpen).toBe(false);
+      expect(result.current.audioClips).toEqual([]);
+      if (failure === 'discarded') expect(API.get).not.toHaveBeenCalled();
+      else expect(showError).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('does not replace the latest preview with a late response from a previous task', async () => {
+    const { result } = renderHook(() => useTaskLogsData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    let resolvePrevious;
+    API.get.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePrevious = resolve;
+        }),
+    );
+    const latestArtifact = {
+      key: 'new-result',
+      type: 'image',
+      content_url: videoUrl,
+    };
+    API.get.mockResolvedValueOnce({
+      data: { success: true, data: { artifacts: [latestArtifact] } },
+    });
+    await act(async () => {
+      const previousRequest = result.current.openArtifactModal({
+        task_id: 'previous-task',
+        status: 'SUCCESS',
+      });
+      await result.current.openArtifactModal({
+        task_id: 'latest-task',
+        status: 'SUCCESS',
+      });
+      resolvePrevious({
+        data: {
+          success: true,
+          data: {
+            artifacts: [
+              { key: 'old-result', type: 'file', content_url: videoUrl },
+            ],
+          },
+        },
+      });
+      await previousRequest;
+    });
+    expect(result.current.taskArtifacts).toEqual([latestArtifact]);
+  });
 
   it.each(['legacy', 'artifacts'])(
     'loads Suno audio from the %s projection, not list snapshots',
@@ -170,7 +414,12 @@ describe('Classic task log preview contracts', () => {
     await act(async () => {
       await result.current.openAudioModal(record);
       await result.current.openVideoModal(record);
+      await result.current.openArtifactModal(record);
       await result.current.openVideoModal({
+        task_id: 'task-running',
+        status: 'IN_PROGRESS',
+      });
+      await result.current.openArtifactModal({
         task_id: 'task-running',
         status: 'IN_PROGRESS',
       });
@@ -178,7 +427,47 @@ describe('Classic task log preview contracts', () => {
     expect(API.get).not.toHaveBeenCalled();
     expect(result.current.isVideoModalOpen).toBe(false);
     expect(result.current.isAudioModalOpen).toBe(false);
+    expect(result.current.isArtifactModalOpen).toBe(false);
   });
+
+  it.each(
+    [
+      [],
+      [{ key: 'file', type: 'file', content_url: 'javascript:alert(1)' }],
+      [
+        {
+          key: 'image',
+          type: 'image',
+          content_url: 'https://media.example/image.png',
+        },
+      ],
+      [{ key: 'video', type: 'video', content_url: `${videoUrl}#fragment` }],
+      [{ key: 'unknown', type: 'html', content_url: videoUrl }],
+      [
+        { key: 'same', type: 'image', content_url: videoUrl },
+        { key: 'same', type: 'file', content_url: videoUrl },
+      ],
+    ].map((artifacts) => ({ artifacts })),
+  )(
+    'keeps generic preview closed for invalid or empty projections ($artifacts)',
+    async ({ artifacts }) => {
+      const { result } = renderHook(() => useTaskLogsData());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      API.get.mockClear().mockResolvedValue({
+        data: { success: true, data: { artifacts } },
+      });
+      await act(async () => {
+        await result.current.openArtifactModal({
+          task_id: 'plugin-task',
+          status: 'SUCCESS',
+        });
+      });
+      expect(result.current.isArtifactModalOpen).toBe(false);
+      expect(showError).toHaveBeenCalledWith(
+        i18n.t('Failed to load artifacts'),
+      );
+    },
+  );
 
   it('translates failure details for both the cell and content modal', () => {
     const openContentModal = vi.fn();

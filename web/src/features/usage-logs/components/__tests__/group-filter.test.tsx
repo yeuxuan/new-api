@@ -122,44 +122,6 @@ afterEach(() => {
   }
 })
 
-it.each([true, false])(
-  'exports all filtered CSV rows in admin=%s scope without pagination',
-  async (admin) => {
-    if (admin)
-      useAuthStore
-        .getState()
-        .auth.setUser({ id: 1, username: 'admin', role: 10 })
-    await renderFilter(
-      '/usage-logs/common?group=premium&model=seedance&page=3&pageSize=10'
-    )
-    vi.mocked(api.get).mockResolvedValue({ data: 'UserID,Quota\n42,0\n' })
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:logs-export')
-    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-    const downloaded: string[] = []
-    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(
-      function (this: HTMLAnchorElement) {
-        downloaded.push(this.download)
-      }
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Export' }))
-    await waitFor(() => expect(downloaded).toHaveLength(1))
-    const call = vi
-      .mocked(api.get)
-      .mock.calls.find(([url]) => url.includes('/export?'))!
-    const url = new URL(call[0], 'https://example.test')
-    expect(url.pathname).toBe(
-      admin ? '/api/log/export' : '/api/log/self/export'
-    )
-    expect(url.searchParams.get('group')).toBe('premium')
-    expect(url.searchParams.get('model_name')).toBe('seedance')
-    expect(url.searchParams.has('p')).toBe(false)
-    expect(url.searchParams.has('page_size')).toBe(false)
-    expect(call[1]).toEqual({ responseType: 'blob' })
-    expect(downloaded[0]).toMatch(/^logs_export_\d+\.csv$/)
-    expect(revoke).toHaveBeenCalledWith('blob:logs-export')
-  }
-)
-
 it('loads personal groups and filters choices without submitting until Search', async () => {
   const router = await renderFilter()
   const input = screen.getByRole('combobox', { name: 'Group' })

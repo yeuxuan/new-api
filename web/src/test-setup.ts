@@ -103,10 +103,6 @@ Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
   value: () => undefined,
 })
 
-Object.defineProperty(Element.prototype, 'getAnimations', {
-  configurable: true,
-  value: () => [],
-})
 // Node.js 25+ defines `localStorage`/`sessionStorage` accessors on the global
 // object that resolve to `undefined` unless `--localstorage-file` is set, and
 // vitest's jsdom environment does not replace globals that already exist.

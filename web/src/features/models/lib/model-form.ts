@@ -35,7 +35,7 @@ export const modelFormSchema = z.object({
   api_document: z.string().default(''),
   icon: z.string().default(''),
   tags: z.array(z.string()).default([]),
-  vendor_id: z.number(),
+  vendor_id: z.number().optional(),
   endpoints: z.string().default(''),
   name_rule: z.number().min(0).max(3).default(0),
   status: z.boolean().default(true),

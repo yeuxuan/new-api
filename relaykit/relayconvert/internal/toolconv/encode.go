@@ -780,6 +780,7 @@ func attachGeminiRequest(request any, set Set, options *convmeta.Options) (any, 
 			))
 		}
 	}
+	hostedTools := len(tools)
 	if len(functions) > 0 {
 		tools = append(tools, map[string]any{"functionDeclarations": functions})
 	}
@@ -795,6 +796,16 @@ func attachGeminiRequest(request any, set Set, options *convmeta.Options) (any, 
 		return target, append(diagnostics, toolChoiceWithoutToolsDiagnostics(set)...), nil
 	}
 	config, choiceDiagnostics := encodeGeminiChoice(responsesCustomToolChoice(set.Choice, customTools))
+	// Gemini rejects requests that combine built-in tools (googleSearch and
+	// friends) with function calling unless toolConfig explicitly opts in to
+	// receiving server-side tool invocations.
+	if hostedTools > 0 {
+		if config == nil {
+			config = &dto.ToolConfig{}
+		}
+		enabled := true
+		config.IncludeServerSideToolInvocations = &enabled
+	}
 	target.ToolConfig = config
 	diagnostics = append(diagnostics, choiceDiagnostics...)
 	if set.ParallelAllowed != nil && !*set.ParallelAllowed {

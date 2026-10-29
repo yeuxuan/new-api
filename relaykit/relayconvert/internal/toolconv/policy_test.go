@@ -279,3 +279,33 @@ func TestResponsesCustomToolNameConflictIsDropped(t *testing.T) {
 		})
 	}
 }
+
+func TestGeminiMixedHostedToolWithFunctionsOptsInToServerSideInvocations(t *testing.T) {
+	t.Parallel()
+
+	// Clients such as Codex combine function tools with the hosted web_search
+	// tool; Gemini rejects that combination unless toolConfig opts in to
+	// server-side tool invocations.
+	request := codexResponsesToolsRequest(t, nil, map[string]any{"type": "web_search"})
+	_, set, err := ExtractRequest(types.RelayFormatOpenAIResponses, request)
+	require.NoError(t, err)
+
+	out, _, err := AttachRequest(types.RelayFormatGemini, &dto.GeminiChatRequest{}, set, &convmeta.Options{})
+	require.NoError(t, err)
+	mixed, ok := out.(*dto.GeminiChatRequest)
+	require.True(t, ok)
+	require.NotNil(t, mixed.ToolConfig)
+	require.NotNil(t, mixed.ToolConfig.IncludeServerSideToolInvocations)
+	assert.True(t, *mixed.ToolConfig.IncludeServerSideToolInvocations)
+
+	// A function-only request must not grow the opt-in flag.
+	_, set, err = ExtractRequest(types.RelayFormatOpenAIResponses, codexResponsesToolsRequest(t, nil))
+	require.NoError(t, err)
+	out, _, err = AttachRequest(types.RelayFormatGemini, &dto.GeminiChatRequest{}, set, &convmeta.Options{})
+	require.NoError(t, err)
+	functionsOnly, ok := out.(*dto.GeminiChatRequest)
+	require.True(t, ok)
+	if functionsOnly.ToolConfig != nil {
+		assert.Nil(t, functionsOnly.ToolConfig.IncludeServerSideToolInvocations)
+	}
+}

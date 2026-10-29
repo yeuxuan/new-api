@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -47,7 +48,7 @@ func EmailBindStart(c *gin.Context) {
 	if authorization == nil {
 		return
 	}
-	data, err := service.StartEmailBinding(identity, authorization, email)
+	data, err := service.StartEmailBinding(identity, authorization, email, service.AccountMailLanguage(c, identity.UserID))
 	if err != nil {
 		writeSecurityOperationError(c, err)
 		return
@@ -71,7 +72,7 @@ func EmailBindResend(c *gin.Context) {
 		writeSecurityOperationError(c, model.ErrAuthFlowInvalid)
 		return
 	}
-	data, err := service.ResendAccountEmailBinding(identity, request.FlowToken)
+	data, err := service.ResendAccountEmailBinding(identity, request.FlowToken, service.AccountMailLanguage(c, identity.UserID))
 	if err != nil {
 		writeSecurityOperationError(c, err)
 		return
@@ -104,8 +105,9 @@ func EmailBind(c *gin.Context) {
 	if state.QuotaAwarded > 0 {
 		model.RecordLog(identity.UserID, model.LogTypeSystem, common.NewMessage("Email binding bonus {{quota}}", map[string]any{"quota": logger.FormatQuota(state.QuotaAwarded)}))
 	}
-	notificationFailed = service.NotifyAccountSecurityChange(state.CurrentEmail, "Email address changed") != nil
-	if err := service.NotifyAccountSecurityChange(state.Email, "Email address confirmed"); err != nil {
+	lang := service.AccountMailLanguage(c, identity.UserID)
+	notificationFailed = service.NotifyAccountSecurityChange(lang, state.CurrentEmail, i18n.MsgSecurityEventEmailChanged) != nil
+	if err := service.NotifyAccountSecurityChange(lang, state.Email, i18n.MsgSecurityEventEmailConfirmed); err != nil {
 		notificationFailed = true
 	}
 	if err := model.PublishUserAuthCache(identity.UserID); err != nil {

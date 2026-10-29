@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -56,19 +57,17 @@ func flushCSVWriter(writer *csv.Writer) {
 	}
 }
 
-func ExportAllLogs(c *gin.Context) {
-	logType, _ := strconv.Atoi(c.Query("type"))
-	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
-	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
-	username := c.Query("username")
-	tokenName := c.Query("token_name")
-	modelName := c.Query("model_name")
-	channel, _ := strconv.Atoi(c.Query("channel"))
-	group := c.Query("group")
-	requestId := c.Query("request_id")
-	upstreamRequestId := c.Query("upstream_request_id")
+// ExportAllLogsCSV streams the admin log export as CSV for the classic theme.
+func ExportAllLogsCSV(c *gin.Context) {
+	filter := logFilterFromQuery(c, true)
+	startTimestamp, err := limitLogTimeRange(filter.StartTimestamp, filter.EndTimestamp)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	filter.StartTimestamp = startTimestamp
 
-	logs, _, err := model.GetAllLogs(logType, startTimestamp, endTimestamp, modelName, username, tokenName, 0, exportMaxRows, channel, group, requestId, upstreamRequestId)
+	logs, _, err := model.GetAllLogs(filter, 0, exportMaxRows)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -106,18 +105,22 @@ func ExportAllLogs(c *gin.Context) {
 	flushCSVWriter(writer)
 }
 
-func ExportUserLogs(c *gin.Context) {
-	userId := c.GetInt("id")
-	logType, _ := strconv.Atoi(c.Query("type"))
-	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
-	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
-	tokenName := c.Query("token_name")
-	modelName := c.Query("model_name")
-	group := c.Query("group")
-	requestId := c.Query("request_id")
-	upstreamRequestId := c.Query("upstream_request_id")
+// ExportUserLogsCSV streams the caller's own log export as CSV for the classic
+// theme.
+func ExportUserLogsCSV(c *gin.Context) {
+	if c.GetInt("role") < common.RoleAdminUser && !operation_setting.GetLogSetting().UserExportEnabled {
+		common.ApiErrorT(c, "Log export is disabled")
+		return
+	}
+	filter := logFilterFromQuery(c, false)
+	startTimestamp, err := limitLogTimeRange(filter.StartTimestamp, filter.EndTimestamp)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	filter.StartTimestamp = startTimestamp
 
-	logs, _, err := model.GetUserLogs(userId, logType, startTimestamp, endTimestamp, modelName, tokenName, 0, exportMaxRows, group, requestId, upstreamRequestId)
+	logs, _, err := model.GetUserLogs(c.GetInt("id"), filter, 0, exportMaxRows)
 	if err != nil {
 		common.ApiError(c, err)
 		return

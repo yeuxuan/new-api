@@ -187,6 +187,11 @@ export interface SystemStatus {
   email_bind_reward_quota?: number
   bonus_quota_validity_days?: number
   bonus_quota_allowed_models?: string[]
+  log_export_enabled?: boolean
+  log_max_range_days?: number
+  quota_remind_enabled?: boolean
+  /** Site default low balance reminder threshold, in quota units */
+  quota_remind_threshold?: number
   [key: string]: unknown
 }
 

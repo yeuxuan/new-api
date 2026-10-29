@@ -280,7 +280,7 @@ func TestUserRewardsCheckinAtomicAndFilteredClear(t *testing.T) {
 	assert.Equal(t, 300, remaining)
 	require.NoError(t, model.DB.First(user, user.Id).Error)
 	assert.Zero(t, user.Quota)
-	logs, count, err := model.GetUserLogs(user.Id, model.LogTypeSystem, 0, 0, "", "", 0, 20, "", "", "")
+	logs, count, err := model.GetUserLogs(user.Id, model.LogFilter{Type: model.LogTypeSystem}, 0, 20)
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, count)
 	require.Len(t, logs, 1)

@@ -19,10 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQueryClient, useIsFetching, useQuery } from '@tanstack/react-query'
 import { useNavigate, getRouteApi } from '@tanstack/react-router'
 import type { Table } from '@tanstack/react-table'
-import { Download, Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff } from 'lucide-react'
 import { useState, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -42,20 +41,16 @@ import {
 } from '@/components/ui/tooltip'
 import { getGroups } from '@/features/users/api'
 import { useMediaQuery } from '@/hooks'
-import { api, getUserGroups } from '@/lib/api'
-import { downloadBlob } from '@/lib/download'
+import { getUserGroups } from '@/lib/api'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { LOG_TYPE_ALL_VALUE, LOG_TYPE_FILTERS } from '../constants'
 import { buildSearchParams } from '../lib/filter'
-import {
-  buildApiParams,
-  buildQueryParams,
-  getDefaultTimeRange,
-} from '../lib/utils'
+import { getDefaultTimeRange } from '../lib/utils'
 import type { CommonLogFilters } from '../types'
 import { CommonLogsStats } from './common-logs-stats'
 import { CompactDateTimeRangePicker } from './compact-date-time-range-picker'
+import { ExportLogsDialog } from './dialogs/export-logs-dialog'
 import {
   LogsFilterField,
   LogsFilterInput,
@@ -200,34 +195,6 @@ export function CommonLogsFilterBar<TData>(
     draft.sourceKey === searchState.sourceKey ? draft : searchState
   const filters = activeDraft.filters
   const logType = activeDraft.logType
-  const [exporting, setExporting] = useState(false)
-
-  const handleExport = useCallback(async () => {
-    setExporting(true)
-    try {
-      const params = buildApiParams({
-        page: 1,
-        pageSize: 1,
-        searchParams,
-        columnFilters: [],
-        isAdmin,
-      })
-      // p/page_size are paging hints the export endpoint ignores; drop them
-      // so the CSV reflects the full filtered range, not a single page.
-      delete (params as Record<string, unknown>).p
-      delete (params as Record<string, unknown>).page_size
-      const query = buildQueryParams(params as Record<string, unknown>)
-      const path = isAdmin ? '/api/log/export' : '/api/log/self/export'
-      const res = await api.get(`${path}?${query.toString()}`, {
-        responseType: 'blob',
-      })
-      downloadBlob(res.data, `logs_export_${Date.now()}.csv`)
-    } catch {
-      toast.error(t('Export failed'))
-    } finally {
-      setExporting(false)
-    }
-  }, [searchParams, isAdmin, t])
 
   const handleChange = useCallback(
     (field: keyof CommonLogFilters, value: Date | string | undefined) => {
@@ -333,23 +300,6 @@ export function CommonLogsFilterBar<TData>(
   const statsBar = (
     <div className='flex flex-wrap items-center gap-2'>
       <CommonLogsStats />
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant='ghost'
-              size='icon'
-              onClick={handleExport}
-              disabled={exporting}
-              aria-label={t('Export')}
-              className='text-muted-foreground hover:text-foreground size-7 max-sm:size-11'
-            />
-          }
-        >
-          <Download />
-        </TooltipTrigger>
-        <TooltipContent>{t('Export')}</TooltipContent>
-      </Tooltip>
     </div>
   )
   const sensitiveToggle = (
@@ -544,6 +494,7 @@ export function CommonLogsFilterBar<TData>(
       compactMobile
       stats={statsBar}
       actionStart={sensitiveToggle}
+      actionEnd={<ExportLogsDialog />}
       primaryFilters={
         <>
           {dateRangeFilter}

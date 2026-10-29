@@ -918,7 +918,7 @@ export const useLogsData = () => {
         request_id,
         ...(isAdminUser ? { username, channel } : {}),
       });
-      const url = isAdminUser ? '/api/log/export' : '/api/log/self/export';
+      const url = isAdminUser ? '/api/log/export/csv' : '/api/log/self/export/csv';
       const res = await API.get(`${url}?${params}`, { responseType: 'blob' });
       const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8' });
       const downloadUrl = URL.createObjectURL(blob);

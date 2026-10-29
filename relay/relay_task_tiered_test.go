@@ -21,11 +21,12 @@ import (
 
 type taskTieredBillingStub struct{}
 
-func (taskTieredBillingStub) Settle(int) error         { return nil }
-func (taskTieredBillingStub) Refund(*gin.Context)      {}
-func (taskTieredBillingStub) NeedsRefund() bool        { return false }
-func (taskTieredBillingStub) GetPreConsumedQuota() int { return 0 }
-func (taskTieredBillingStub) Reserve(int) error        { return nil }
+func (taskTieredBillingStub) Settle(int) error              { return nil }
+func (taskTieredBillingStub) Refund(*gin.Context)           {}
+func (taskTieredBillingStub) NeedsRefund() bool             { return false }
+func (taskTieredBillingStub) GetPreConsumedQuota() int      { return 0 }
+func (taskTieredBillingStub) Reserve(int) error             { return nil }
+func (taskTieredBillingStub) ReserveBeforeSubmit(int) error { return nil }
 
 func TestRelayTaskSubmitTieredExprDoesNotApplyLegacyRatios(t *testing.T) {
 	gin.SetMode(gin.TestMode)

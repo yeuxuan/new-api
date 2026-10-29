@@ -4572,6 +4572,7 @@
     "默认折叠侧边栏": "Mặc định thu gọn thanh bên",
     "默认测试模型": "Mô hình kiểm tra mặc định",
     "默认用户消息": "Xin chào",
-    "默认补全倍率": "Tỷ lệ hoàn thành mặc định"
+    "默认补全倍率": "Tỷ lệ hoàn thành mặc định",
+    "该分组为 Claude Code 专用分组，在操练场中使用将无法正常返回！": "Nhóm này dành riêng cho Claude Code. Sử dụng trong Playground sẽ không hoạt động bình thường!"
   }
 }

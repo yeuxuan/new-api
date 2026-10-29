@@ -4186,6 +4186,7 @@
     "默认折叠侧边栏": "Default collapse sidebar",
     "默认测试模型": "Default Test Model",
     "默认用户消息": "Default User Message",
-    "默认补全倍率": "Default completion ratio"
+    "默认补全倍率": "Default completion ratio",
+    "该分组为 Claude Code 专用分组，在操练场中使用将无法正常返回！": "This group is dedicated to Claude Code. Using it in the Playground will not work properly!"
   }
 }

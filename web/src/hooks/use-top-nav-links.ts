@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 
 import { useStatus } from '@/hooks/use-status'
 import { parseHeaderNavModulesFromStatus } from '@/lib/nav-modules'
+import { isPricingHidden } from '@/lib/user-setting'
 import { useAuthStore } from '@/stores/auth-store'
 
 export type TopNavLink = {
@@ -59,6 +60,8 @@ export function useTopNavLinks(): TopNavLink[] {
   const docsLink: string | undefined = status?.docs_link as string | undefined
 
   const isAuthed = !!auth?.user
+  // Users flagged hide_pricing_info see neither the model square nor rankings.
+  const pricingHidden = isPricingHidden(auth?.user?.setting)
 
   const links: TopNavLink[] = []
 
@@ -74,14 +77,14 @@ export function useTopNavLinks(): TopNavLink[] {
 
   // Pricing
   const pricing = modules?.pricing
-  if (pricing && typeof pricing === 'object' && pricing.enabled) {
+  if (pricing && typeof pricing === 'object' && pricing.enabled && !pricingHidden) {
     const requiresAuth = pricing.requireAuth && !isAuthed
     links.push({ title: t('Model Square'), href: '/pricing', requiresAuth })
   }
 
   // Rankings
   const rankings = modules?.rankings
-  if (rankings && typeof rankings === 'object' && rankings.enabled) {
+  if (rankings && typeof rankings === 'object' && rankings.enabled && !pricingHidden) {
     const requiresAuth = rankings.requireAuth && !isAuthed
     links.push({ title: t('Rankings'), href: '/rankings', requiresAuth })
   }

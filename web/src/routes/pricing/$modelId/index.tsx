@@ -21,6 +21,7 @@ import z from 'zod'
 
 import { ModelDetails } from '@/features/pricing/components/model-details'
 import { getModuleAccessForGuard } from '@/lib/nav-modules'
+import { isPricingHidden } from '@/lib/user-setting'
 import { useAuthStore } from '@/stores/auth-store'
 
 const modelDetailsSearchSchema = z.object({
@@ -41,6 +42,9 @@ export const Route = createFileRoute('/pricing/$modelId/')({
   beforeLoad: async ({ context, location }) => {
     const access = await getModuleAccessForGuard(context.queryClient, 'pricing')
     if (!access.enabled) {
+      throw redirect({ to: '/' })
+    }
+    if (isPricingHidden(useAuthStore.getState().auth.user?.setting)) {
       throw redirect({ to: '/' })
     }
     if (access.requireAuth) {

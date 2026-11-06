@@ -112,6 +112,7 @@ type User struct {
 	LastLoginAt          int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
 	AuthVersion          int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
 	AdminPermissions     map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
+	HidePricingInfo      *bool                      `json:"hide_pricing_info,omitempty" gorm:"-:all"` // 管理员编辑载荷：更新 users.setting 中的隐藏定价标记，不映射数据库列
 }
 
 func (user *User) ToBaseUser() *UserBase {
@@ -1313,6 +1314,19 @@ func GetUserGroup(id int, fromDB bool) (group string, err error) {
 	}
 
 	return group, nil
+}
+
+// UserPricingHidden reports whether the user is flagged hide_pricing_info, which
+// hides ratios and the pricing/rankings pages from that user. Failures fail open.
+func UserPricingHidden(userId int) bool {
+	if userId <= 0 {
+		return false
+	}
+	setting, err := GetUserSetting(userId, false)
+	if err != nil {
+		return false
+	}
+	return setting.HidePricingInfo
 }
 
 // GetUserSetting gets setting from Redis first, falls back to DB if needed

@@ -226,6 +226,44 @@ func normalizeLegacyRejectReason(values map[string]json.RawMessage) bool {
 	return true
 }
 
+// pricingLogOtherKeys are the top-level usage-log keys that expose the pricing
+// and ratio system; they are stripped from projections shown to users flagged
+// hide_pricing_info.
+var pricingLogOtherKeys = []string{
+	"model_ratio", "completion_ratio", "model_price",
+	"group_ratio", "user_group_ratio",
+	"cache_ratio", "cache_creation_ratio",
+	"cache_creation_ratio_5m", "cache_creation_ratio_1h", "cache_creation_ratio_12h",
+	"audio_ratio", "audio_completion_ratio", "image_ratio",
+}
+
+// StripPricingFromLogOther removes pricing keys from a stored Other JSON value,
+// preserving untouched values as RawMessage like formatLogOtherJSON.
+func StripPricingFromLogOther(value string) string {
+	if value == "" {
+		return ""
+	}
+	var values map[string]json.RawMessage
+	if err := common.UnmarshalJsonStr(value, &values); err != nil {
+		return "{}"
+	}
+	changed := false
+	for _, key := range pricingLogOtherKeys {
+		if _, exists := values[key]; exists {
+			delete(values, key)
+			changed = true
+		}
+	}
+	if !changed {
+		return value
+	}
+	formatted, err := common.Marshal(values)
+	if err != nil {
+		return "{}"
+	}
+	return string(formatted)
+}
+
 // formatLogOtherJSON applies the role projection while keeping untouched JSON
 // values as RawMessage. This preserves integers larger than JavaScript's safe
 // range instead of round-tripping them through float64.

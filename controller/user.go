@@ -717,12 +717,27 @@ func UpdateUser(c *gin.Context) {
 		if err := updatedUser.EditWithTx(tx, updatePassword); err != nil {
 			return err
 		}
+		// EditWithTx reloads the row, so the setting here is the stored one and
+		// merging preserves the user's own keys.
+		if updatedUser.HidePricingInfo != nil {
+			setting := updatedUser.GetSetting()
+			if setting.HidePricingInfo != *updatedUser.HidePricingInfo {
+				setting.HidePricingInfo = *updatedUser.HidePricingInfo
+				updatedUser.SetSetting(setting)
+				if err := tx.Model(&model.User{}).Where("id = ?", updatedUser.Id).Update("setting", updatedUser.Setting).Error; err != nil {
+					return err
+				}
+			}
+		}
 		touched, err := updateAdminPermissionsForUserInTx(c, tx, updatedUser.Id, originUser.Role, updatedUser.AdminPermissions)
 		authzTouched = touched
 		return err
 	}); err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if updatedUser.HidePricingInfo != nil && *updatedUser.HidePricingInfo != originUser.GetSetting().HidePricingInfo {
+		auditParams["hide_pricing_info"] = *updatedUser.HidePricingInfo
 	}
 	if authzTouched {
 		if err := authz.ReloadPolicy(); err != nil {

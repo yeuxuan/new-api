@@ -3175,6 +3175,8 @@
     "Hide redirect panel": "リダイレクトパネルを隠す",
     "Hide selected models from model square": "選択したモデルをモデル広場で非表示",
     "Hide sensitive data": "機密データを非表示",
+    "Hide pricing info": "価格情報を非表示",
+    "Hides group ratios, usage log ratios, and the model square / rankings pages from this user": "このユーザーにはグループ倍率、ログの倍率、モデル広場/ランキングページを表示しません",
     "Hide setup guide": "セットアップガイドを非表示",
     "High Performance": "高パフォーマンス",
     "High-risk operation confirmation": "高リスク操作の確認",

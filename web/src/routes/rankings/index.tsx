@@ -21,6 +21,7 @@ import z from 'zod'
 
 import { Rankings } from '@/features/rankings'
 import { getModuleAccessForGuard } from '@/lib/nav-modules'
+import { isPricingHidden } from '@/lib/user-setting'
 import { useAuthStore } from '@/stores/auth-store'
 
 const rankingsSearchSchema = z.object({
@@ -38,6 +39,9 @@ export const Route = createFileRoute('/rankings/')({
       'rankings'
     )
     if (!access.enabled) {
+      throw redirect({ to: '/' })
+    }
+    if (isPricingHidden(useAuthStore.getState().auth.user?.setting)) {
       throw redirect({ to: '/' })
     }
     if (access.requireAuth) {

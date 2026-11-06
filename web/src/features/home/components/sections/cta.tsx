@@ -22,6 +22,8 @@ import { useTranslation } from 'react-i18next'
 
 import { AnimateInView } from '@/components/animate-in-view'
 import { Button } from '@/components/ui/button'
+import { isPricingHidden } from '@/lib/user-setting'
+import { useAuthStore } from '@/stores/auth-store'
 
 interface CTAProps {
   className?: string
@@ -30,6 +32,9 @@ interface CTAProps {
 
 export function CTA(props: CTAProps) {
   const { t } = useTranslation()
+  const pricingHidden = isPricingHidden(
+    useAuthStore((s) => s.auth.user)?.setting
+  )
 
   if (props.isAuthenticated) {
     return null
@@ -70,13 +75,15 @@ export function CTA(props: CTAProps) {
             {t('Get Started')}
             <ArrowRight className='ml-1 size-3.5 transition-transform duration-200 group-hover:translate-x-0.5' />
           </Button>
-          <Button
-            variant='outline'
-            className='border-border/50 hover:border-border hover:bg-muted/50 rounded-lg'
-            render={<Link to='/pricing' />}
-          >
-            {t('View Pricing')}
-          </Button>
+          {!pricingHidden && (
+            <Button
+              variant='outline'
+              className='border-border/50 hover:border-border hover:bg-muted/50 rounded-lg'
+              render={<Link to='/pricing' />}
+            >
+              {t('View Pricing')}
+            </Button>
+          )}
         </div>
       </AnimateInView>
     </section>

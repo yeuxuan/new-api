@@ -38,7 +38,10 @@ func withHeaderNavModules(t *testing.T, raw string) {
 	})
 }
 
-func performHeaderNavRequest(t *testing.T, handler gin.HandlerFunc, authenticated bool) *httptest.ResponseRecorder {
+// performHeaderNavRequest issues a request against the handler. When
+// authenticated is true a common user backed by a legacy access token is
+// created; extraUserSetting, when provided, becomes that user's setting JSON.
+func performHeaderNavRequest(t *testing.T, handler gin.HandlerFunc, authenticated bool, extraUserSetting ...string) *httptest.ResponseRecorder {
 	t.Helper()
 
 	gin.SetMode(gin.TestMode)
@@ -68,6 +71,9 @@ func performHeaderNavRequest(t *testing.T, handler gin.HandlerFunc, authenticate
 			Status:      common.UserStatusEnabled,
 			Group:       "default",
 			AuthVersion: 1,
+		}
+		if len(extraUserSetting) > 0 {
+			user.Setting = extraUserSetting[0]
 		}
 		user.SetAccessToken(accessToken)
 		require.NoError(t, db.Create(&user).Error)
@@ -197,6 +203,72 @@ func TestHeaderNavModuleAuthRejectsLegacyDisabledModule(t *testing.T) {
 	recorder := performHeaderNavRequest(t, HeaderNavModuleAuth("rankings"), false)
 
 	require.Equal(t, http.StatusForbidden, recorder.Code)
+}
+
+func TestHeaderNavModuleAuthGatesPricingHiddenUser(t *testing.T) {
+	hiddenSetting := `{"hide_pricing_info":true}`
+	for _, tc := range []struct {
+		name          string
+		module        string
+		options       string
+		setting       string
+		authenticated bool
+		wantStatus    int
+	}{
+		{name: "hidden user blocked from pricing", setting: hiddenSetting, authenticated: true, wantStatus: http.StatusForbidden},
+		{name: "hidden user blocked from rankings", module: "rankings", setting: hiddenSetting, authenticated: true, wantStatus: http.StatusForbidden},
+		{name: "hidden user blocked when login required", options: `{"pricing":{"enabled":true,"requireAuth":true}}`, setting: hiddenSetting, authenticated: true, wantStatus: http.StatusForbidden},
+		{name: "hidden user blocked by public-or-user variant", setting: hiddenSetting, authenticated: true, wantStatus: http.StatusForbidden},
+		{name: "user without the flag keeps access", setting: `{"language":"zh"}`, authenticated: true, wantStatus: http.StatusOK},
+		{name: "anonymous request is not gated", setting: hiddenSetting, wantStatus: http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			options := tc.options
+			if options == "" {
+				options = `{"pricing":{"enabled":true,"requireAuth":false},"rankings":{"enabled":true,"requireAuth":false}}`
+			}
+			withHeaderNavModules(t, options)
+
+			module := tc.module
+			if module == "" {
+				module = "pricing"
+			}
+			handler := HeaderNavModuleAuth(module)
+			if tc.name == "hidden user blocked by public-or-user variant" {
+				handler = HeaderNavModulePublicOrUserAuth(module)
+			}
+			recorder := performHeaderNavRequest(t, handler, tc.authenticated, tc.setting)
+
+			require.Equal(t, tc.wantStatus, recorder.Code)
+		})
+	}
+}
+
+func TestHeaderNavModuleAuthRootBypassesPricingHide(t *testing.T) {
+	setupDashboardAuthMiddlewareTest(t)
+	withHeaderNavModules(t, `{"pricing":{"enabled":true,"requireAuth":false}}`)
+	gin.SetMode(gin.TestMode)
+
+	user := model.User{
+		Username: "root-hidden", Password: "unused-password-hash", Role: common.RoleRootUser,
+		Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1,
+		Setting: `{"hide_pricing_info":true}`,
+	}
+	require.NoError(t, model.DB.Create(&user).Error)
+	bundle, err := service.CreateLoginSession(user.Id, "password", "127.0.0.1", "header-nav-test")
+	require.NoError(t, err)
+
+	handled := false
+	router := gin.New()
+	router.GET("/api/pricing", HeaderNavModuleAuth("pricing"), func(c *gin.Context) {
+		handled = true
+		c.JSON(http.StatusOK, gin.H{"success": true})
+	})
+
+	response := middlewareBearerRequest(router, "/api/pricing", bundle.AccessToken)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.True(t, handled)
 }
 
 func TestHeaderNavModulePublicOrUserAuthAllowsDefaultPublicAccess(t *testing.T) {

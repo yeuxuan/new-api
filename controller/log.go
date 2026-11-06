@@ -193,6 +193,11 @@ func GetLogByKey(c *gin.Context) {
 		})
 		return
 	}
+	if model.UserPricingHidden(c.GetInt("id")) {
+		for i := range logs {
+			logs[i].Other = model.StripPricingFromLogOther(logs[i].Other)
+		}
+	}
 	c.JSON(200, gin.H{
 		"success": true,
 		"message": "",

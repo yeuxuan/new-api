@@ -21,6 +21,8 @@ import { Activity, ArrowRight, Braces, CircleDollarSign } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { isPricingHidden } from '@/lib/user-setting'
+import { useAuthStore } from '@/stores/auth-store'
 
 const SIGNALS = [
   {
@@ -45,6 +47,9 @@ const SIGNALS = [
 
 export function ModelIntelligence() {
   const { t } = useTranslation()
+  const pricingHidden = isPricingHidden(
+    useAuthStore((s) => s.auth.user)?.setting
+  )
 
   return (
     <section className='border-border/40 border-y px-6 py-20 md:py-28'>
@@ -64,14 +69,16 @@ export function ModelIntelligence() {
                 'A model name alone is not enough. Compare current cost and recent operational signals, then open a model page for supported endpoints and capabilities.'
               )}
             </p>
-            <Button
-              className='mt-5'
-              variant='outline'
-              render={<Link to='/pricing' />}
-            >
-              {t('Explore model pricing and health')}
-              <ArrowRight aria-hidden='true' />
-            </Button>
+            {!pricingHidden && (
+              <Button
+                className='mt-5'
+                variant='outline'
+                render={<Link to='/pricing' />}
+              >
+                {t('Explore model pricing and health')}
+                <ArrowRight aria-hidden='true' />
+              </Button>
+            )}
           </div>
         </div>
 

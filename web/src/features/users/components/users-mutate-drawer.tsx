@@ -30,6 +30,7 @@ import {
   sideDrawerFooterClassName,
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
+  sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
 import { PermissionMatrix } from '@/components/permission-matrix'
 import { Button } from '@/components/ui/button'
@@ -62,6 +63,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import {
   ADMIN_PERMISSION_ACTIONS,
@@ -493,6 +495,29 @@ export function UsersMutateDrawer({
                           />
                         </FormControl>
                         <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='hide_pricing_info'
+                    render={({ field }) => (
+                      <FormItem className={sideDrawerSwitchItemClassName()}>
+                        <div className='flex flex-col gap-0.5'>
+                          <FormLabel>{t('Hide pricing info')}</FormLabel>
+                          <FormDescription>
+                            {t(
+                              'Hides group ratios, usage log ratios, and the model square / rankings pages from this user'
+                            )}
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value ?? false}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
                       </FormItem>
                     )}
                   />

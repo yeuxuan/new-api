@@ -101,6 +101,26 @@ func parseHeaderNavBool(value any, fallback bool) bool {
 	}
 }
 
+// pricingHiddenForRequest reports whether the request carries a dashboard
+// identity flagged hide_pricing_info. The auth handlers drive c.Next()
+// themselves, so per-user gating must run before they are invoked. Anonymous
+// requests and root are never restricted; credential lookup errors fail open.
+func pricingHiddenForRequest(c *gin.Context) bool {
+	user, _, _, err := classifyDashboardCredential(c)
+	if err != nil || user == nil || user.Role == common.RoleRootUser {
+		return false
+	}
+	return user.GetSetting().HidePricingInfo
+}
+
+func abortModuleUnavailable(c *gin.Context, module string) {
+	c.JSON(http.StatusForbidden, gin.H{
+		"success": false,
+		"message": fmt.Sprintf("%s is not available", module),
+	})
+	c.Abort()
+}
+
 func HeaderNavModuleAuth(module string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		access := getHeaderNavAccess(module)
@@ -118,6 +138,11 @@ func HeaderNavModuleAuth(module string) gin.HandlerFunc {
 			return
 		}
 
+		if pricingHiddenForRequest(c) {
+			abortModuleUnavailable(c, module)
+			return
+		}
+
 		if access.RequireAuth {
 			UserAuth()(c)
 			return
@@ -129,6 +154,10 @@ func HeaderNavModuleAuth(module string) gin.HandlerFunc {
 
 func HeaderNavModulePublicOrUserAuth(module string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if pricingHiddenForRequest(c) {
+			abortModuleUnavailable(c, module)
+			return
+		}
 		access := getHeaderNavAccess(module)
 		if !access.Enabled || access.RequireAuth {
 			UserAuth()(c)

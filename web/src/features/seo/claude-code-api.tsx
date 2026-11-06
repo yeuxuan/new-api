@@ -31,6 +31,8 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion'
 import { Button } from '@/components/ui/button'
+import { isPricingHidden } from '@/lib/user-setting'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { CLAUDE_CODE_FAQS, CLAUDE_CODE_SECTIONS } from './claude-code-content'
 
@@ -40,6 +42,9 @@ interface ClaudeCodeApiProps {
 
 export function ClaudeCodeApi(props: ClaudeCodeApiProps) {
   const { i18n } = useTranslation()
+  const pricingHidden = isPricingHidden(
+    useAuthStore((s) => s.auth.user)?.setting
+  )
   const t = useMemo(
     () => i18n.getFixedT(props.language),
     [i18n, props.language]
@@ -88,13 +93,15 @@ export function ClaudeCodeApi(props: ClaudeCodeApiProps) {
                 {t('Create an API key')}
                 <ArrowRight aria-hidden='true' />
               </Button>
-              <Button
-                variant='outline'
-                size='lg'
-                render={<Link to='/pricing' />}
-              >
-                {t('Compare live model pricing')}
-              </Button>
+              {!pricingHidden && (
+                <Button
+                  variant='outline'
+                  size='lg'
+                  render={<Link to='/pricing' />}
+                >
+                  {t('Compare live model pricing')}
+                </Button>
+              )}
             </div>
           </div>
         </section>
@@ -203,10 +210,16 @@ export function ClaudeCodeApi(props: ClaudeCodeApiProps) {
                 'Open the live catalog to compare Claude models, protocol support, pricing, and recent health in one place.'
               )}
             </p>
-            <Button className='mt-6' size='lg' render={<Link to='/pricing' />}>
-              {t('Explore model pricing and health')}
-              <ArrowRight aria-hidden='true' />
-            </Button>
+            {!pricingHidden && (
+              <Button
+                className='mt-6'
+                size='lg'
+                render={<Link to='/pricing' />}
+              >
+                {t('Explore model pricing and health')}
+                <ArrowRight aria-hidden='true' />
+              </Button>
+            )}
           </section>
         </article>
       </main>

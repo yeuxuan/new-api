@@ -35,7 +35,9 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { formatNumber } from '@/lib/format'
+import { isPricingHidden } from '@/lib/user-setting'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   formatCurrency,
@@ -116,6 +118,9 @@ export function RechargeFormCard({
 }: RechargeFormCardProps) {
   const { t } = useTranslation()
   const [localAmount, setLocalAmount] = useState(topupAmount.toString())
+  const pricingHidden = isPricingHidden(
+    useAuthStore((s) => s.auth.user)?.setting
+  )
 
   useEffect(() => {
     // Empty string must survive, otherwise the field can never be cleared
@@ -299,7 +304,7 @@ export function RechargeFormCard({
                       )
                     })}
                   </div>
-                  {!calculating && groupRatio !== 1 && (
+                  {!calculating && groupRatio !== 1 && !pricingHidden && (
                     <div className='text-muted-foreground text-xs'>
                       {t('Group ratio:')} {groupRatio}x
                     </div>

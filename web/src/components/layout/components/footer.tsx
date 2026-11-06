@@ -22,7 +22,9 @@ import { useTranslation } from 'react-i18next'
 
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
+import { isPricingHidden } from '@/lib/user-setting'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
 
 interface FooterLink {
   text: string
@@ -157,6 +159,8 @@ export function Footer(props: FooterProps) {
     footerHtml,
     demoSiteEnabled,
   } = useSystemConfig()
+  const user = useAuthStore((s) => s.auth.user)
+  const pricingHidden = isPricingHidden(user?.setting)
 
   const displayLogo = systemLogo || props.logo || '/logo.png'
   const displayName = systemName || props.name || 'New API'
@@ -271,12 +275,14 @@ export function Footer(props: FooterProps) {
               aria-label={t('Explore')}
               className='mt-4 flex flex-col items-start gap-2 text-xs'
             >
-              <Link
-                to='/pricing'
-                className='text-muted-foreground hover:text-foreground'
-              >
-                {t('Model pricing and health')}
-              </Link>
+              {!pricingHidden && (
+                <Link
+                  to='/pricing'
+                  className='text-muted-foreground hover:text-foreground'
+                >
+                  {t('Model pricing and health')}
+                </Link>
+              )}
               <Link
                 to='/claude-code-api'
                 className='text-muted-foreground hover:text-foreground'

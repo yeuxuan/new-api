@@ -626,6 +626,11 @@ func GetUserLogs(userId int, filter LogFilter, startIdx int, num int) (logs []*L
 	}
 
 	formatUserLogs(logs, startIdx)
+	if UserPricingHidden(userId) {
+		for i := range logs {
+			logs[i].Other = StripPricingFromLogOther(logs[i].Other)
+		}
+	}
 	return logs, total, err
 }
 
@@ -666,11 +671,15 @@ func StreamUserLogs(ctx context.Context, userId int, filter LogFilter, fn func(*
 		return err
 	}
 	count := 0
+	hidePricing := UserPricingHidden(userId)
 	return streamLogs(tx, "logs.id desc", func(log *Log) error {
 		count++
 		log.Id = count
 		log.ChannelName = ""
 		log.Other = formatLogOtherJSON(log.Other, logOtherVisibilityUser)
+		if hidePricing {
+			log.Other = StripPricingFromLogOther(log.Other)
+		}
 		return fn(log)
 	})
 }

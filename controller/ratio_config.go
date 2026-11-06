@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
@@ -13,6 +14,11 @@ import (
 func GetRatioConfig(c *gin.Context) {
 	if !ratio_setting.IsExposeRatioEnabled() {
 		common.ApiErrorStatus(c, http.StatusForbidden, common.NewMessage("The ratio config API is not enabled"))
+		return
+	}
+	// Users flagged hide_pricing_info must not fetch the full ratio tables.
+	if model.UserPricingHidden(c.GetInt("id")) {
+		common.ApiErrorStatus(c, http.StatusForbidden, common.NewMessage("The ratio config API is not available"))
 		return
 	}
 

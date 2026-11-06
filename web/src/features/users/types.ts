@@ -54,6 +54,7 @@ export const userSchema = z.object({
   linux_do_id: z.string().optional(),
   status: userStatusSchema,
   role: userRoleSchema,
+  setting: z.string().optional(),
   created_at: z.number().optional(),
   updated_at: z.number().optional(),
   last_login_at: z.number().optional(),
@@ -125,6 +126,7 @@ export interface UserFormData {
   quota?: number // Only used when updating user
   group?: string // Only used when updating user
   remark?: string // Only used when updating user
+  hide_pricing_info?: boolean // Only used when updating user
   admin_permissions?: AdminPermissionMatrix
 }
 
